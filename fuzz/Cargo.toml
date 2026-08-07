@@ -1,0 +1,41 @@
+[package]
+name = "mosaic-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mosaic-core = { path = "../crates/mosaic-core" }
+mosaic-pack = { path = "../crates/mosaic-pack" }
+
+[[bin]]
+name = "fuzz_source_bytes"
+path = "fuzz_targets/fuzz_source_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pack_header"
+path = "fuzz_targets/fuzz_pack_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pack_v1"
+path = "fuzz_targets/fuzz_pack_v1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_dfa"
+path = "fuzz_targets/fuzz_dfa.rs"
+test = false
+doc = false
+bench = false

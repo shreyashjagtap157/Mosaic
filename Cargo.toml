@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mosaic-core",
+    "crates/mosaic-ir",
+    "crates/mosaic-reference",
+    "crates/mosaic-engine",
+    "crates/mosaic-pack",
+    "crates/mosaic-model",
+    "crates/mosaic-unicode",
+]
+exclude = ["fuzz"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[profile.release]
+panic = "abort"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.bench]
+debug = true

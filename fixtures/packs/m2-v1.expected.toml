@@ -1,0 +1,26 @@
+format_major = 1
+format_minor = 0
+file_length = 412
+section_count = 3
+hash_algorithm = "sha256"
+canonical_content_hash = "69865af97c99565081f3932f1b35384d828669f3981bb796df11591065c74986"
+file_sha256 = "26ebc78fc205320f364f41f33a355e205ca4704ac69f942281e47c4d8238dc88"
+dependency_hash = "e973e5d7e8c522eb89116f21090dfc8b9657a29bc220a3702e87f1bb3251522c"
+
+[[section]]
+index = 0
+kind = "manifest"
+offset = 192
+length = 64
+
+[[section]]
+index = 1
+kind = "lock_graph"
+offset = 256
+length = 104
+
+[[section]]
+index = 2
+kind = "dfa"
+offset = 360
+length = 52

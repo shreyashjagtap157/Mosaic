@@ -1,0 +1,13 @@
+[package]
+name = "mosaic-model"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mosaic-core = { path = "../mosaic-core" }
+mosaic-ir = { path = "../mosaic-ir" }
+mosaic-pack = { path = "../mosaic-pack" }
+
+[lints]
+workspace = true

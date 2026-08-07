@@ -1,0 +1,12 @@
+[package]
+name = "mosaic-unicode"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mosaic-core = { path = "../mosaic-core" }
+mosaic-pack = { path = "../mosaic-pack" }
+
+[lints]
+workspace = true
