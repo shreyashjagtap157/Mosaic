@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 1
+#define MOSAIC_C_API_VERSION_MINOR 2
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -20,7 +20,8 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_OUT_OF_MEMORY = 4,
     MOSAIC_ERROR_OVERFLOW = 5,
     MOSAIC_ERROR_UNKNOWN_TOKEN_ID = 6,
-    MOSAIC_ERROR_INTERNAL = 7
+    MOSAIC_ERROR_INTERNAL = 7,
+    MOSAIC_ERROR_CONFLICT = 8
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;
@@ -53,6 +54,14 @@ mosaic_status mosaic_tokenizer_load_memory(const uint8_t *model_pack, size_t mod
                                            mosaic_tokenizer **out_tokenizer);
 mosaic_status mosaic_tokenizer_load_files(const char *model_path, const char *unicode_path,
                                           mosaic_tokenizer **out_tokenizer);
+/* Optional external language-specialization packs are copied, validated, and owned by the tokenizer.
+ * At most one pack for a given BCP47-style language tag may be loaded in v0.2. */
+mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
+                                                   const uint8_t *language_pack, size_t language_pack_len);
+mosaic_status mosaic_tokenizer_add_language_file(mosaic_tokenizer *tokenizer, const char *path);
+size_t mosaic_tokenizer_language_count(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, size_t index,
+                                            char *buffer, size_t capacity, size_t *out_required);
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
 mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);

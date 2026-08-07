@@ -39,6 +39,31 @@ typedef struct {
 } Vocab;
 
 typedef struct {
+    uint32_t surface_offset;
+    uint16_t surface_len;
+    int32_t cost_delta;
+} LanguageEntry;
+
+typedef struct {
+    const uint8_t *section;
+    size_t section_len;
+    uint32_t count;
+    uint32_t entries_offset;
+    uint32_t tag_offset;
+    uint16_t tag_len;
+    uint32_t blob_offset;
+    uint32_t blob_len;
+    uint32_t max_surface_len;
+} LanguageView;
+
+typedef struct {
+    uint8_t *pack;
+    size_t pack_len;
+    LanguageView view;
+    uint8_t hash[32];
+} LanguagePack;
+
+typedef struct {
     size_t position;
     int reachable;
     int64_t cost;
@@ -133,6 +158,11 @@ static int add_i64_i32(int64_t a, int32_t b, int64_t *out) {
     int64_t v = (int64_t)b;
     if ((v > 0 && a > INT64_MAX - v) || (v < 0 && a < INT64_MIN - v)) return 0;
     *out = a + v;
+    return 1;
+}
+static int add_i64(int64_t a, int64_t b, int64_t *out) {
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b)) return 0;
+    *out = a + b;
     return 1;
 }
 static int all_zero(const uint8_t *p, size_t n) {
@@ -310,6 +340,97 @@ static int load_model_pack(const uint8_t *data, size_t len, Vocab *v) {
     free(sections); return ok;
 }
 
+static int language_entry(const LanguageView *v, uint32_t index, LanguageEntry *out, Slice *surface) {
+    if (index >= v->count) return 0;
+    const uint8_t *e = v->section + v->entries_offset + (size_t)index * 16;
+    out->surface_offset = rd32(e);
+    out->surface_len = rd16(e + 4);
+    if (rd16(e + 6) != 0 || rd32(e + 12) != 0 || !out->surface_len ||
+        out->surface_offset > v->blob_len || out->surface_len > v->blob_len - out->surface_offset) return 0;
+    out->cost_delta = rdi32(e + 8);
+    surface->bytes = v->section + v->blob_offset + out->surface_offset;
+    surface->len = out->surface_len;
+    return 1;
+}
+
+static int language_tag_valid(const uint8_t *tag, size_t len) {
+    if (!len || len > 63) return 0;
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t c = tag[i];
+        int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                 (c >= '0' && c <= '9') || c == '-';
+        if (!ok) return 0;
+    }
+    return 1;
+}
+
+static int compare_slices(Slice a, Slice b) {
+    size_t min = a.len < b.len ? a.len : b.len;
+    int cmp = min ? memcmp(a.bytes, b.bytes, min) : 0;
+    if (cmp) return cmp;
+    return a.len < b.len ? -1 : a.len > b.len ? 1 : 0;
+}
+
+static int parse_language(Slice s, LanguageView *v) {
+    if (s.len < 40 || memcmp(s.bytes, "MSLG", 4) != 0 || rd16(s.bytes + 4) != 1 || rd16(s.bytes + 6) != 0)
+        return fail("invalid language header");
+    uint32_t count = rd32(s.bytes + 8);
+    uint16_t width = rd16(s.bytes + 12), tag_len = rd16(s.bytes + 14);
+    uint32_t entries = rd32(s.bytes + 16), tag = rd32(s.bytes + 20), blob = rd32(s.bytes + 24), blob_len = rd32(s.bytes + 28);
+    uint32_t max_surface = rd32(s.bytes + 32);
+    if (width != 16 || rd32(s.bytes + 36) != 0 || entries != 40 || count > 1048576 || !tag_len || tag_len > 63)
+        return fail("invalid language layout");
+    uint64_t entries_end = (uint64_t)entries + (uint64_t)count * 16u;
+    uint64_t tag_end = (uint64_t)tag + tag_len;
+    uint64_t blob_end = (uint64_t)blob + blob_len;
+    if (!(entries_end <= tag && tag_end <= blob && blob_end == s.len)) return fail("language regions overlap/out of bounds");
+    if (!all_zero(s.bytes + (size_t)entries_end, tag - (size_t)entries_end) ||
+        !all_zero(s.bytes + (size_t)tag_end, blob - (size_t)tag_end)) return fail("language padding nonzero");
+    if (!language_tag_valid(s.bytes + tag, tag_len)) return fail("invalid language tag");
+    *v = (LanguageView){s.bytes, s.len, count, entries, tag, tag_len, blob, blob_len, max_surface};
+    Slice previous = {0};
+    uint32_t observed_max = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        LanguageEntry entry;
+        Slice surface;
+        if (!language_entry(v, i, &entry, &surface)) return fail("invalid language entry");
+        if (entry.cost_delta == INT32_MIN) return fail("language cost delta outside policy");
+        if (surface.len > observed_max) observed_max = (uint32_t)surface.len;
+        if (i && compare_slices(previous, surface) >= 0) return fail("language surfaces not strictly canonical");
+        previous = surface;
+    }
+    if (observed_max != max_surface) return fail("language maximum surface length mismatch");
+    return 1;
+}
+
+static int load_language_pack(const uint8_t *data, size_t len, LanguageView *v) {
+    Section *sections = NULL; uint32_t count = 0, manifest_i = 0, lock_i = 0;
+    if (!parse_outer(data, len, &sections, &count, &manifest_i, &lock_i)) return 0;
+    int language_count = 0; Section language_section = {0};
+    for (uint32_t i = 0; i < count; ++i) if (sections[i].kind == 5) { ++language_count; language_section = sections[i]; }
+    if (language_count != 1) { free(sections); return fail("expected exactly one language section"); }
+    int ok = validate_manifest_lock(sec_slice(data, &sections[manifest_i]), sec_slice(data, &sections[lock_i])) &&
+             parse_language(sec_slice(data, &language_section), v);
+    free(sections);
+    return ok;
+}
+
+static int language_surface_delta(const LanguageView *v, Slice surface, int32_t *out) {
+    uint32_t lo = 0, hi = v->count;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        LanguageEntry entry;
+        Slice candidate;
+        if (!language_entry(v, mid, &entry, &candidate)) return 0;
+        int cmp = compare_slices(candidate, surface);
+        if (cmp < 0) lo = mid + 1;
+        else if (cmp > 0) hi = mid;
+        else { *out = entry.cost_delta; return 1; }
+    }
+    *out = 0;
+    return 1;
+}
+
 static int compare_path_tokens(const Vocab *v, const PathToken *a, size_t an, const PathToken *b, size_t bn) {
     if (an != bn) return an < bn ? -1 : 1;
     for (size_t i = 0; i < an; ++i) {
@@ -362,7 +483,7 @@ static int candidate_better(const Vocab *v, const uint32_t *back, const RingStat
     free(a); free(b); return result;
 }
 
-static int tokenize(const Vocab *v, Slice input, Tokenization *out) {
+static int tokenize_with_adjustments(const Vocab *v, Slice input, const int64_t *adjustments, Tokenization *out) {
     if (!v->max_surface_len) return fail("vocabulary has no surfaces");
     if (input.len == SIZE_MAX || input.len > SIZE_MAX / sizeof(uint32_t) - 1) return fail("input too large");
     uint32_t *back = (uint32_t *)malloc((input.len + 1) * sizeof *back);
@@ -389,6 +510,9 @@ static int tokenize(const Vocab *v, Slice input, Tokenization *out) {
             if (surf.len > input.len - start || memcmp(input.bytes + start, surf.bytes, surf.len) != 0) continue;
             size_t end = start + surf.len; int64_t total;
             if (!add_i64_i32(source_cost, e.cost, &total)) { free(ring); free(back); return fail("path cost overflow"); }
+            if (adjustments && !add_i64(total, adjustments[i], &total)) {
+                free(ring); free(back); return fail("language-adjusted path cost overflow");
+            }
             if (source_count == SIZE_MAX) { free(ring); free(back); return fail("token count overflow"); }
             size_t count = source_count + 1;
             RingState *destination = &ring[end % ring_size];
@@ -640,11 +764,16 @@ struct mosaic_unicode {
 struct mosaic_tokenizer {
     mosaic_model *model;
     mosaic_unicode *unicode_data;
+    LanguagePack *languages;
+    size_t language_count;
+    size_t language_capacity;
+    int64_t *adjustments;
     uint8_t fingerprint[32];
 };
 
 struct mosaic_stream {
     mosaic_model *model;
+    int64_t *adjustments;
     uint8_t *buffer;
     size_t len;
     size_t capacity;
@@ -653,13 +782,14 @@ struct mosaic_stream {
 
 struct mosaic_document {
     mosaic_model *model;
+    int64_t *adjustments;
     uint8_t *buffer;
     size_t len;
     size_t capacity;
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.1.0"; }
+const char *mosaic_version_string(void) { return "0.2.0"; }
 
 const char *mosaic_status_string(mosaic_status status) {
     switch (status) {
@@ -671,6 +801,7 @@ const char *mosaic_status_string(mosaic_status status) {
         case MOSAIC_ERROR_OVERFLOW: return "overflow";
         case MOSAIC_ERROR_UNKNOWN_TOKEN_ID: return "unknown token ID";
         case MOSAIC_ERROR_INTERNAL: return "internal error";
+        case MOSAIC_ERROR_CONFLICT: return "conflict";
         default: return "unknown status";
     }
 }
@@ -682,6 +813,37 @@ static mosaic_status copy_bytes(const uint8_t *src, size_t len, uint8_t **out) {
     if (len) memcpy(copy, src, len);
     *out = copy;
     return MOSAIC_OK;
+}
+
+static void language_pack_release(LanguagePack *pack) {
+    if (!pack) return;
+    free(pack->pack);
+    *pack = (LanguagePack){0};
+}
+
+static mosaic_status language_pack_copy(const uint8_t *bytes, size_t len, LanguagePack *out) {
+    if ((!bytes && len) || !out) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out = (LanguagePack){0};
+    mosaic_status status = copy_bytes(bytes, len, &out->pack);
+    if (status != MOSAIC_OK) return status;
+    out->pack_len = len;
+    if (!load_language_pack(out->pack, out->pack_len, &out->view) || !sha256_bytes(out->pack, out->pack_len, out->hash)) {
+        language_pack_release(out);
+        return MOSAIC_ERROR_INVALID_PACK;
+    }
+    return MOSAIC_OK;
+}
+
+static void language_pack_array_free(LanguagePack *packs, size_t count) {
+    for (size_t i = 0; i < count; ++i) language_pack_release(&packs[i]);
+    free(packs);
+}
+
+static int language_same_tag(const LanguagePack *a, const LanguagePack *b) {
+    if (a->view.tag_len != b->view.tag_len) return 0;
+    return memcmp(a->view.section + a->view.tag_offset,
+                  b->view.section + b->view.tag_offset,
+                  a->view.tag_len) == 0;
 }
 
 mosaic_status mosaic_model_load_memory(const uint8_t *pack, size_t pack_len, mosaic_model **out_model) {
@@ -720,13 +882,14 @@ void mosaic_model_free(mosaic_model *model) {
     free(model);
 }
 
-mosaic_status mosaic_encode_tokens(const mosaic_model *model, const uint8_t *input, size_t input_len,
-                                   mosaic_token **out_tokens, size_t *out_count) {
+static mosaic_status encode_tokens_internal(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                            const int64_t *adjustments,
+                                            mosaic_token **out_tokens, size_t *out_count) {
     if (!model || (!input && input_len) || !out_tokens || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
     *out_tokens = NULL;
     *out_count = 0;
     Tokenization result = {0};
-    if (!tokenize(&model->vocab, (Slice){input, input_len}, &result)) return MOSAIC_ERROR_INTERNAL;
+    if (!tokenize_with_adjustments(&model->vocab, (Slice){input, input_len}, adjustments, &result)) return MOSAIC_ERROR_INTERNAL;
     uint32_t *indices = NULL;
     if (!reconstruct_entry_indices(&model->vocab, &result, &indices)) {
         tokenization_free(&result);
@@ -764,13 +927,20 @@ mosaic_status mosaic_encode_tokens(const mosaic_model *model, const uint8_t *inp
     return MOSAIC_OK;
 }
 
-mosaic_status mosaic_encode(const mosaic_model *model, const uint8_t *input, size_t input_len,
-                            uint32_t **out_ids, size_t *out_count) {
+mosaic_status mosaic_encode_tokens(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                   mosaic_token **out_tokens, size_t *out_count) {
+    return encode_tokens_internal(model, input, input_len, NULL, out_tokens, out_count);
+}
+
+
+static mosaic_status encode_internal(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                     const int64_t *adjustments,
+                                     uint32_t **out_ids, size_t *out_count) {
     if (!model || (!input && input_len) || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
     *out_ids = NULL;
     *out_count = 0;
     Tokenization result = {0};
-    if (!tokenize(&model->vocab, (Slice){input, input_len}, &result)) return MOSAIC_ERROR_INTERNAL;
+    if (!tokenize_with_adjustments(&model->vocab, (Slice){input, input_len}, adjustments, &result)) return MOSAIC_ERROR_INTERNAL;
     uint32_t *indices = NULL;
     if (!reconstruct_entry_indices(&model->vocab, &result, &indices)) {
         tokenization_free(&result);
@@ -805,6 +975,12 @@ mosaic_status mosaic_encode(const mosaic_model *model, const uint8_t *input, siz
     *out_count = count;
     return MOSAIC_OK;
 }
+
+mosaic_status mosaic_encode(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                            uint32_t **out_ids, size_t *out_count) {
+    return encode_internal(model, input, input_len, NULL, out_ids, out_count);
+}
+
 
 mosaic_status mosaic_decode(const mosaic_model *model, const uint32_t *ids, size_t count,
                             uint8_t **out_bytes, size_t *out_len) {
@@ -873,7 +1049,8 @@ mosaic_status mosaic_stream_push(mosaic_stream *stream, const uint8_t *bytes, si
 
 mosaic_status mosaic_stream_finish(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count) {
     if (!stream || stream->finished || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    mosaic_status status = mosaic_encode(stream->model, stream->buffer, stream->len, out_ids, out_count);
+    mosaic_status status = encode_internal(stream->model, stream->buffer, stream->len,
+                                           stream->adjustments, out_ids, out_count);
     if (status == MOSAIC_OK) stream->finished = 1;
     return status;
 }
@@ -888,6 +1065,7 @@ mosaic_status mosaic_stream_reset(mosaic_stream *stream) {
 void mosaic_stream_free(mosaic_stream *stream) {
     if (!stream) return;
     mosaic_model_free(stream->model);
+    free(stream->adjustments);
     free(stream->buffer);
     free(stream);
 }
@@ -945,7 +1123,8 @@ mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t sta
 
 mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count) {
     if (!document) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return mosaic_encode(document->model, document->buffer, document->len, out_ids, out_count);
+    return encode_internal(document->model, document->buffer, document->len,
+                           document->adjustments, out_ids, out_count);
 }
 
 mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len) {
@@ -959,6 +1138,7 @@ mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_
 void mosaic_document_free(mosaic_document *document) {
     if (!document) return;
     mosaic_model_free(document->model);
+    free(document->adjustments);
     free(document->buffer);
     free(document);
 }
@@ -1012,13 +1192,30 @@ mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const u
 
 
 static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
-    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0v0.1.0\0";
+    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0v0.2.0\0";
     Sha256Ctx ctx;
     sha256_init(&ctx);
     (void)sha256_update(&ctx, domain, sizeof domain - 1u);
     (void)sha256_update(&ctx, tokenizer->model->pack, tokenizer->model->pack_len);
     (void)sha256_update(&ctx, tokenizer->unicode_data->pack, tokenizer->unicode_data->pack_len);
-    sha256_final(&ctx, tokenizer->fingerprint);
+    uint8_t count_bytes[4];
+    wr32be(count_bytes, (uint32_t)tokenizer->language_count);
+    (void)sha256_update(&ctx, count_bytes, sizeof count_bytes);
+    if (tokenizer->language_count) {
+        uint8_t hashes[64][32];
+        for (size_t i = 0; i < tokenizer->language_count; ++i)
+            memcpy(hashes[i], tokenizer->languages[i].hash, 32);
+        for (size_t i = 1; i < tokenizer->language_count; ++i) {
+            uint8_t key[32]; memcpy(key, hashes[i], 32);
+            size_t j = i;
+            while (j && memcmp(hashes[j - 1u], key, 32) > 0) {
+                memcpy(hashes[j], hashes[j - 1u], 32); --j;
+            }
+            memcpy(hashes[j], key, 32);
+        }
+        (void)sha256_update(&ctx, (const uint8_t *)hashes, tokenizer->language_count * 32u);
+    }
+    (void)sha256_final(&ctx, tokenizer->fingerprint);
 }
 
 mosaic_status mosaic_tokenizer_load_memory(const uint8_t *model_pack, size_t model_pack_len,
@@ -1052,10 +1249,86 @@ mosaic_status mosaic_tokenizer_load_files(const char *model_path, const char *un
     return status;
 }
 
+
+mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
+                                                   const uint8_t *language_pack, size_t language_pack_len) {
+    if (!tokenizer || (!language_pack && language_pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (tokenizer->language_count >= 64) return MOSAIC_ERROR_OVERFLOW;
+    LanguagePack candidate = {0};
+    mosaic_status status = language_pack_copy(language_pack, language_pack_len, &candidate);
+    if (status != MOSAIC_OK) return status;
+    for (size_t i = 0; i < tokenizer->language_count; ++i) {
+        if (language_same_tag(&tokenizer->languages[i], &candidate)) {
+            language_pack_release(&candidate);
+            return MOSAIC_ERROR_CONFLICT;
+        }
+    }
+    size_t adjustment_bytes;
+    if (!mul_size((size_t)tokenizer->model->vocab.count, sizeof(int64_t), &adjustment_bytes)) {
+        language_pack_release(&candidate); return MOSAIC_ERROR_OVERFLOW;
+    }
+    int64_t *next_adjustments = adjustment_bytes ? (int64_t *)malloc(adjustment_bytes) : NULL;
+    if (adjustment_bytes && !next_adjustments) { language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    if (adjustment_bytes) {
+        if (tokenizer->adjustments) memcpy(next_adjustments, tokenizer->adjustments, adjustment_bytes);
+        else memset(next_adjustments, 0, adjustment_bytes);
+    }
+    for (uint32_t i = 0; i < tokenizer->model->vocab.count; ++i) {
+        VocabEntry entry; Slice surface; int32_t delta = 0;
+        if (!vocab_entry(&tokenizer->model->vocab, i, &entry, &surface) ||
+            !language_surface_delta(&candidate.view, surface, &delta) ||
+            !add_i64(next_adjustments[i], (int64_t)delta, &next_adjustments[i])) {
+            free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_INTERNAL;
+        }
+        (void)entry;
+    }
+    if (tokenizer->language_count == tokenizer->language_capacity) {
+        size_t next = tokenizer->language_capacity ? tokenizer->language_capacity * 2u : 4u;
+        if (next > 64) next = 64;
+        LanguagePack *grown = (LanguagePack *)realloc(tokenizer->languages, next * sizeof *grown);
+        if (!grown) { free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        tokenizer->languages = grown;
+        tokenizer->language_capacity = next;
+    }
+    free(tokenizer->adjustments);
+    tokenizer->adjustments = next_adjustments;
+    tokenizer->languages[tokenizer->language_count++] = candidate;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_add_language_file(mosaic_tokenizer *tokenizer, const char *path) {
+    if (!tokenizer || !path) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    uint8_t *pack = NULL; size_t len = 0;
+    if (!read_file(path, &pack, &len)) return MOSAIC_ERROR_IO;
+    mosaic_status status = mosaic_tokenizer_add_language_memory(tokenizer, pack, len);
+    free(pack);
+    return status;
+}
+
+size_t mosaic_tokenizer_language_count(const mosaic_tokenizer *tokenizer) {
+    return tokenizer ? tokenizer->language_count : 0;
+}
+
+mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, size_t index,
+                                            char *buffer, size_t capacity, size_t *out_required) {
+    if (!tokenizer || index >= tokenizer->language_count || !out_required) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    const LanguageView *view = &tokenizer->languages[index].view;
+    size_t required = (size_t)view->tag_len + 1u;
+    *out_required = required;
+    if (!buffer) return capacity == 0 ? MOSAIC_OK : MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (capacity < required) return MOSAIC_ERROR_OVERFLOW;
+    memcpy(buffer, view->section + view->tag_offset, view->tag_len);
+    buffer[view->tag_len] = '\0';
+    return MOSAIC_OK;
+}
+
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     if (!tokenizer) return;
     mosaic_model_free(tokenizer->model);
     mosaic_unicode_free(tokenizer->unicode_data);
+    language_pack_array_free(tokenizer->languages, tokenizer->language_count);
+    free(tokenizer->adjustments);
     free(tokenizer);
 }
 
@@ -1068,13 +1341,13 @@ mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, ui
 mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                       uint32_t **out_ids, size_t *out_count) {
     if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return mosaic_encode(tokenizer->model, input, input_len, out_ids, out_count);
+    return encode_internal(tokenizer->model, input, input_len, tokenizer->adjustments, out_ids, out_count);
 }
 
 mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                              mosaic_token **out_tokens, size_t *out_count) {
     if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return mosaic_encode_tokens(tokenizer->model, input, input_len, out_tokens, out_count);
+    return encode_tokens_internal(tokenizer->model, input, input_len, tokenizer->adjustments, out_tokens, out_count);
 }
 
 mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const uint32_t *ids, size_t count,
@@ -1091,14 +1364,30 @@ mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer
 }
 
 mosaic_status mosaic_tokenizer_stream_create(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream) {
-    if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return mosaic_stream_create(tokenizer->model, out_stream);
+    if (!tokenizer || !out_stream) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_stream_create(tokenizer->model, out_stream);
+    if (status != MOSAIC_OK) return status;
+    if (tokenizer->adjustments) {
+        size_t bytes = (size_t)tokenizer->model->vocab.count * sizeof(int64_t);
+        (*out_stream)->adjustments = (int64_t *)malloc(bytes);
+        if (!(*out_stream)->adjustments) { mosaic_stream_free(*out_stream); *out_stream = NULL; return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy((*out_stream)->adjustments, tokenizer->adjustments, bytes);
+    }
+    return MOSAIC_OK;
 }
 
 mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                mosaic_document **out_document) {
-    if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return mosaic_document_create(tokenizer->model, input, input_len, out_document);
+    if (!tokenizer || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_document_create(tokenizer->model, input, input_len, out_document);
+    if (status != MOSAIC_OK) return status;
+    if (tokenizer->adjustments) {
+        size_t bytes = (size_t)tokenizer->model->vocab.count * sizeof(int64_t);
+        (*out_document)->adjustments = (int64_t *)malloc(bytes);
+        if (!(*out_document)->adjustments) { mosaic_document_free(*out_document); *out_document = NULL; return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy((*out_document)->adjustments, tokenizer->adjustments, bytes);
+    }
+    return MOSAIC_OK;
 }
 
 #ifndef MOSAIC_LIBRARY_ONLY
@@ -1112,8 +1401,11 @@ static void usage(const char *argv0) {
             "       %s decode-u32 MODEL_PACK IDS OUTPUT\n"
             "       %s graphemes UNICODE_PACK INPUT\n"
             "       %s fingerprint MODEL_PACK UNICODE_PACK\n"
-            "       %s analyze MODEL_PACK UNICODE_PACK INPUT\n",
-            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
+            "       %s fingerprint-languages MODEL_PACK UNICODE_PACK LANGUAGE_PACK...\n"
+            "       %s analyze MODEL_PACK UNICODE_PACK INPUT\n"
+            "       %s analyze-languages MODEL_PACK UNICODE_PACK INPUT LANGUAGE_PACK...\n"
+            "       %s roundtrip-languages MODEL_PACK UNICODE_PACK INPUT LANGUAGE_PACK...\n",
+            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -1128,21 +1420,42 @@ static void print_hex32(const uint8_t bytes[32]) {
 }
 
 static int integrated_cli(int argc, char **argv) {
-    if ((!strcmp(argv[1], "fingerprint") && argc != 4) ||
-        (!strcmp(argv[1], "analyze") && argc != 5)) return -1;
+    int fingerprint_only = !strcmp(argv[1], "fingerprint") || !strcmp(argv[1], "fingerprint-languages");
+    int roundtrip_languages = !strcmp(argv[1], "roundtrip-languages");
+    int with_languages = !strcmp(argv[1], "fingerprint-languages") || !strcmp(argv[1], "analyze-languages") || roundtrip_languages;
+    if ((!with_languages && fingerprint_only && argc != 4) ||
+        (!with_languages && !fingerprint_only && argc != 5) ||
+        (with_languages && fingerprint_only && argc < 5) ||
+        (with_languages && !fingerprint_only && argc < 6)) return -1;
     mosaic_tokenizer *tokenizer = NULL;
     if (mosaic_tokenizer_load_files(argv[2], argv[3], &tokenizer) != MOSAIC_OK) return 0;
+    int language_start = fingerprint_only ? 4 : 5;
+    if (with_languages) {
+        for (int i = language_start; i < argc; ++i) {
+            if (mosaic_tokenizer_add_language_file(tokenizer, argv[i]) != MOSAIC_OK) {
+                mosaic_tokenizer_free(tokenizer); return 0;
+            }
+        }
+    }
     uint8_t fingerprint[32];
     if (mosaic_tokenizer_fingerprint(tokenizer, fingerprint) != MOSAIC_OK) {
         mosaic_tokenizer_free(tokenizer); return 0;
     }
-    if (!strcmp(argv[1], "fingerprint")) {
+    if (fingerprint_only) {
         print_hex32(fingerprint);
         mosaic_tokenizer_free(tokenizer);
         return 1;
     }
     uint8_t *input = NULL; size_t input_len = 0;
     if (!read_file(argv[4], &input, &input_len)) { mosaic_tokenizer_free(tokenizer); return 0; }
+    if (roundtrip_languages) {
+        uint32_t *ids = NULL; size_t id_count = 0; uint8_t *decoded = NULL; size_t decoded_len = 0;
+        mosaic_status es = mosaic_tokenizer_encode(tokenizer, input, input_len, &ids, &id_count);
+        mosaic_status ds = es == MOSAIC_OK ? mosaic_tokenizer_decode(tokenizer, ids, id_count, &decoded, &decoded_len) : es;
+        int ok = es == MOSAIC_OK && ds == MOSAIC_OK && decoded_len == input_len && (!input_len || memcmp(decoded, input, input_len) == 0);
+        if (ok) printf("OK bytes=%zu tokens=%zu languages=%zu\n", input_len, id_count, mosaic_tokenizer_language_count(tokenizer));
+        mosaic_free(ids); mosaic_free(decoded); free(input); mosaic_tokenizer_free(tokenizer); return ok ? 1 : 0;
+    }
     mosaic_token *tokens = NULL; size_t token_count = 0;
     mosaic_range *ranges = NULL; size_t range_count = 0;
     mosaic_status a = mosaic_tokenizer_encode_tokens(tokenizer, input, input_len, &tokens, &token_count);
@@ -1153,7 +1466,8 @@ static int integrated_cli(int argc, char **argv) {
     printf("fingerprint=");
     static const char hex[] = "0123456789abcdef";
     for (size_t i = 0; i < 32; ++i) printf("%c%c", hex[fingerprint[i] >> 4], hex[fingerprint[i] & 0x0f]);
-    printf(" bytes=%zu tokens=%zu graphemes=%zu\n", input_len, token_count, range_count);
+    printf(" bytes=%zu tokens=%zu graphemes=%zu languages=%zu\n",
+           input_len, token_count, range_count, mosaic_tokenizer_language_count(tokenizer));
     for (size_t i = 0; i < token_count; ++i)
         printf("token id=%" PRIu32 " start=%" PRIu64 " length=%" PRIu64 " cost=%" PRId32 "\n",
                tokens[i].id, tokens[i].start, tokens[i].length, tokens[i].cost);
@@ -1168,7 +1482,9 @@ int main(int argc, char **argv) {
         printf("mosaic-tokenizer %s\n", mosaic_version_string());
         return 0;
     }
-    if (argc >= 2 && (!strcmp(argv[1], "fingerprint") || !strcmp(argv[1], "analyze"))) {
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint") || !strcmp(argv[1], "analyze") ||
+                      !strcmp(argv[1], "fingerprint-languages") || !strcmp(argv[1], "analyze-languages") ||
+                      !strcmp(argv[1], "roundtrip-languages"))) {
         int result = integrated_cli(argc, argv);
         if (result < 0) { usage(argv[0]); return 2; }
         return result ? 0 : 1;
@@ -1194,7 +1510,7 @@ int main(int argc, char **argv) {
         uint8_t *input = NULL; size_t input_len = 0;
         if (!read_file(argv[3], &input, &input_len)) { free(pack); return 1; }
         Tokenization result = {0};
-        if (!tokenize(&v, (Slice){input, input_len}, &result)) { free(input); free(pack); return 1; }
+        if (!tokenize_with_adjustments(&v, (Slice){input, input_len}, NULL, &result)) { free(input); free(pack); return 1; }
         int ok = roundtrip(&v, (Slice){input, input_len}, &result)
             && write_encoded_u32(&v, &result, argv[4]);
         tokenization_free(&result); free(input); free(pack);
@@ -1202,7 +1518,7 @@ int main(int argc, char **argv) {
     }
     if (argc != 4) { usage(argv[0]); free(pack); return 2; }
     uint8_t *input = NULL; size_t input_len = 0; if (!read_file(argv[3], &input, &input_len)) { free(pack); return 1; }
-    Tokenization result = {0}; if (!tokenize(&v, (Slice){input, input_len}, &result)) { free(input); free(pack); return 1; }
+    Tokenization result = {0}; if (!tokenize_with_adjustments(&v, (Slice){input, input_len}, NULL, &result)) { free(input); free(pack); return 1; }
     int ok = roundtrip(&v, (Slice){input, input_len}, &result);
     if (!ok) { fail("internal round-trip mismatch"); tokenization_free(&result); free(input); free(pack); return 1; }
     if (!strcmp(argv[1], "encode")) print_encoding(&v, (Slice){input, input_len}, &result);

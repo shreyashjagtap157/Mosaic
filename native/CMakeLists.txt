@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.1.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.2.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -33,7 +33,7 @@ mosaic_warnings(mosaic-tokenizer)
 
 if(BUILD_TESTING)
   set(MOSAIC_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../conformance/c)
-  set(MOSAIC_MODEL_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/m3-model-v1.mpack)
+  set(MOSAIC_MODEL_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack)
   set(MOSAIC_UNICODE_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack)
 
   add_executable(mosaic-api-smoke-static ${MOSAIC_TEST_DIR}/api_smoke.c)
@@ -58,6 +58,15 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME api-cpp COMMAND mosaic-api-smoke-cpp)
 
+  add_executable(mosaic-language-smoke ${MOSAIC_TEST_DIR}/language_smoke.c)
+  target_include_directories(mosaic-language-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-language-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-language-smoke)
+  add_test(NAME language COMMAND mosaic-language-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack)
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -71,6 +80,11 @@ install(TARGETS mosaic_static mosaic_shared mosaic-tokenizer
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES ${MOSAIC_INCLUDE}/mosaic.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/m3-model-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs)
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs/language)
