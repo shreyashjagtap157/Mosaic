@@ -61,7 +61,35 @@ typedef struct {
     size_t pack_len;
     LanguageView view;
     uint8_t hash[32];
+    int64_t *adjustments;
 } LanguagePack;
+
+typedef struct {
+    uint32_t tag_offset;
+    uint16_t tag_len;
+    int32_t min_score;
+} DetectorProfile;
+
+typedef struct {
+    uint32_t surface_offset;
+    uint16_t surface_len;
+    uint16_t profile_index;
+    int32_t weight;
+} DetectorFeature;
+
+typedef struct {
+    const uint8_t *section;
+    size_t section_len;
+    uint32_t profile_count;
+    uint32_t feature_count;
+    uint32_t profiles_offset;
+    uint32_t features_offset;
+    uint32_t first_index_offset;
+    uint32_t blob_offset;
+    uint32_t blob_len;
+    uint32_t max_feature_len;
+    int32_t min_margin;
+} DetectorView;
 
 typedef struct {
     size_t position;
@@ -431,6 +459,138 @@ static int language_surface_delta(const LanguageView *v, Slice surface, int32_t 
     return 1;
 }
 
+static int detector_profile(const DetectorView *v, uint32_t index, DetectorProfile *out, Slice *tag) {
+    if (index >= v->profile_count) return 0;
+    const uint8_t *e = v->section + v->profiles_offset + (size_t)index * 16u;
+    out->tag_offset = rd32(e);
+    out->tag_len = rd16(e + 4);
+    if (rd16(e + 6) != 0 || rd32(e + 12) != 0 || !out->tag_len || out->tag_len > 63 ||
+        out->tag_offset > v->blob_len || out->tag_len > v->blob_len - out->tag_offset) return 0;
+    out->min_score = rdi32(e + 8);
+    if (out->min_score < 0) return 0;
+    tag->bytes = v->section + v->blob_offset + out->tag_offset;
+    tag->len = out->tag_len;
+    return language_tag_valid(tag->bytes, tag->len);
+}
+
+static int detector_feature(const DetectorView *v, uint32_t index, DetectorFeature *out, Slice *surface) {
+    if (index >= v->feature_count) return 0;
+    const uint8_t *e = v->section + v->features_offset + (size_t)index * 16u;
+    out->surface_offset = rd32(e);
+    out->surface_len = rd16(e + 4);
+    out->profile_index = rd16(e + 6);
+    out->weight = rdi32(e + 8);
+    if (rd32(e + 12) != 0 || !out->surface_len || out->profile_index >= v->profile_count || out->weight <= 0 ||
+        out->surface_offset > v->blob_len || out->surface_len > v->blob_len - out->surface_offset) return 0;
+    surface->bytes = v->section + v->blob_offset + out->surface_offset;
+    surface->len = out->surface_len;
+    return 1;
+}
+
+static uint32_t detector_first(const DetectorView *v, uint32_t index) {
+    return rd32(v->section + v->first_index_offset + (size_t)index * 4u);
+}
+
+static int parse_detector(Slice s, DetectorView *v) {
+    if (s.len < 48 || memcmp(s.bytes, "MSDT", 4) != 0 || rd16(s.bytes + 4) != 1 || rd16(s.bytes + 6) != 0)
+        return fail("invalid detector header");
+    uint32_t profiles = rd32(s.bytes + 8), features = rd32(s.bytes + 12);
+    uint16_t profile_width = rd16(s.bytes + 16), feature_width = rd16(s.bytes + 18);
+    uint32_t profiles_off = rd32(s.bytes + 20), features_off = rd32(s.bytes + 24), first_off = rd32(s.bytes + 28);
+    uint32_t blob_off = rd32(s.bytes + 32), blob_len = rd32(s.bytes + 36), max_feature = rd32(s.bytes + 40);
+    int32_t min_margin = rdi32(s.bytes + 44);
+    if (!profiles || profiles > 256 || features > 65536 || profile_width != 16 || feature_width != 16 ||
+        profiles_off != 48 || min_margin < 0) return fail("invalid detector layout");
+    uint64_t profiles_end = (uint64_t)profiles_off + (uint64_t)profiles * 16u;
+    uint64_t features_end = (uint64_t)features_off + (uint64_t)features * 16u;
+    uint64_t first_end = (uint64_t)first_off + 257u * 4u;
+    uint64_t blob_end = (uint64_t)blob_off + blob_len;
+    if (!(profiles_end <= features_off && features_end <= first_off && first_end <= blob_off && blob_end == s.len))
+        return fail("detector regions overlap/out of bounds");
+    if (!all_zero(s.bytes + (size_t)profiles_end, features_off - (size_t)profiles_end) ||
+        !all_zero(s.bytes + (size_t)features_end, first_off - (size_t)features_end) ||
+        !all_zero(s.bytes + (size_t)first_end, blob_off - (size_t)first_end)) return fail("detector padding nonzero");
+    *v = (DetectorView){s.bytes, s.len, profiles, features, profiles_off, features_off, first_off,
+                        blob_off, blob_len, max_feature, min_margin};
+
+    Slice previous_tag = {0};
+    for (uint32_t i = 0; i < profiles; ++i) {
+        DetectorProfile profile; Slice tag;
+        if (!detector_profile(v, i, &profile, &tag)) return fail("invalid detector profile");
+        if (i && compare_slices(previous_tag, tag) >= 0) return fail("detector profile tags not canonical");
+        previous_tag = tag;
+    }
+    uint32_t observed_max = 0;
+    Slice previous_surface = {0}; uint16_t previous_profile = 0;
+    for (uint32_t i = 0; i < features; ++i) {
+        DetectorFeature feature; Slice surface;
+        if (!detector_feature(v, i, &feature, &surface)) return fail("invalid detector feature");
+        if (surface.len > observed_max) observed_max = (uint32_t)surface.len;
+        if (i) {
+            int cmp = compare_slices(previous_surface, surface);
+            if (cmp > 0 || (cmp == 0 && previous_profile >= feature.profile_index))
+                return fail("detector features not canonical");
+        }
+        previous_surface = surface; previous_profile = feature.profile_index;
+    }
+    if (observed_max != max_feature) return fail("detector maximum feature length mismatch");
+    if (detector_first(v, 0) != 0 || detector_first(v, 256) != features) return fail("invalid detector first-byte endpoints");
+    for (uint32_t b = 0; b < 256; ++b) {
+        uint32_t a = detector_first(v, b), z = detector_first(v, b + 1);
+        if (a > z || z > features) return fail("invalid detector first-byte range");
+        for (uint32_t i = a; i < z; ++i) {
+            DetectorFeature feature; Slice surface;
+            if (!detector_feature(v, i, &feature, &surface) || surface.bytes[0] != (uint8_t)b)
+                return fail("detector first-byte index points to wrong feature");
+        }
+    }
+    return 1;
+}
+
+static int load_detector_pack(const uint8_t *data, size_t len, DetectorView *v) {
+    Section *sections = NULL; uint32_t count = 0, manifest_i = 0, lock_i = 0;
+    if (!parse_outer(data, len, &sections, &count, &manifest_i, &lock_i)) return 0;
+    int detector_count = 0; Section detector_section = {0};
+    for (uint32_t i = 0; i < count; ++i) if (sections[i].kind == 6) { ++detector_count; detector_section = sections[i]; }
+    if (detector_count != 1) { free(sections); return fail("expected exactly one detector section"); }
+    int ok = validate_manifest_lock(sec_slice(data, &sections[manifest_i]), sec_slice(data, &sections[lock_i])) &&
+             parse_detector(sec_slice(data, &detector_section), v);
+    free(sections); return ok;
+}
+
+static int detector_detect_view(const DetectorView *v, Slice input, mosaic_detection *out) {
+    if (!v || !out) return 0;
+    memset(out, 0, sizeof *out);
+    int64_t scores[256] = {0};
+    for (size_t pos = 0; pos < input.len; ++pos) {
+        uint32_t a = detector_first(v, input.bytes[pos]), z = detector_first(v, (uint32_t)input.bytes[pos] + 1u);
+        for (uint32_t i = a; i < z; ++i) {
+            DetectorFeature feature; Slice surface;
+            if (!detector_feature(v, i, &feature, &surface)) return 0;
+            if (surface.len <= input.len - pos && memcmp(input.bytes + pos, surface.bytes, surface.len) == 0) {
+                if (!add_i64_i32(scores[feature.profile_index], feature.weight, &scores[feature.profile_index])) return 0;
+            }
+        }
+    }
+    uint32_t best = 0, second = UINT32_MAX;
+    for (uint32_t i = 1; i < v->profile_count; ++i) {
+        if (scores[i] > scores[best]) { second = best; best = i; }
+        else if (second == UINT32_MAX || scores[i] > scores[second]) second = i;
+    }
+    int64_t second_score = second == UINT32_MAX ? 0 : scores[second];
+    int64_t margin;
+    if (!add_i64(scores[best], -second_score, &margin)) return 0;
+    DetectorProfile profile; Slice tag;
+    if (!detector_profile(v, best, &profile, &tag)) return 0;
+    out->score = scores[best]; out->margin = margin;
+    if (scores[best] >= profile.min_score && margin >= v->min_margin) {
+        out->matched = 1u;
+        memcpy(out->language, tag.bytes, tag.len);
+        out->language[tag.len] = '\0';
+    }
+    return 1;
+}
+
 static int compare_path_tokens(const Vocab *v, const PathToken *a, size_t an, const PathToken *b, size_t bn) {
     if (an != bn) return an < bn ? -1 : 1;
     for (size_t i = 0; i < an; ++i) {
@@ -761,6 +921,13 @@ struct mosaic_unicode {
     UnicodeView view;
 };
 
+struct mosaic_detector {
+    uint8_t *pack;
+    size_t pack_len;
+    DetectorView view;
+    uint8_t hash[32];
+};
+
 struct mosaic_tokenizer {
     mosaic_model *model;
     mosaic_unicode *unicode_data;
@@ -768,6 +935,7 @@ struct mosaic_tokenizer {
     size_t language_count;
     size_t language_capacity;
     int64_t *adjustments;
+    mosaic_detector *detector;
     uint8_t fingerprint[32];
 };
 
@@ -789,7 +957,7 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.2.0"; }
+const char *mosaic_version_string(void) { return "0.3.0"; }
 
 const char *mosaic_status_string(mosaic_status status) {
     switch (status) {
@@ -817,6 +985,7 @@ static mosaic_status copy_bytes(const uint8_t *src, size_t len, uint8_t **out) {
 
 static void language_pack_release(LanguagePack *pack) {
     if (!pack) return;
+    free(pack->adjustments);
     free(pack->pack);
     *pack = (LanguagePack){0};
 }
@@ -844,6 +1013,49 @@ static int language_same_tag(const LanguagePack *a, const LanguagePack *b) {
     return memcmp(a->view.section + a->view.tag_offset,
                   b->view.section + b->view.tag_offset,
                   a->view.tag_len) == 0;
+}
+
+static int language_matches_cstr(const LanguagePack *pack, const char *tag) {
+    size_t len = strlen(tag);
+    return len == pack->view.tag_len &&
+           memcmp(pack->view.section + pack->view.tag_offset, tag, len) == 0;
+}
+
+mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector) {
+    if (!out_detector || (!pack && pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_detector = NULL;
+    mosaic_detector *detector = (mosaic_detector *)calloc(1, sizeof *detector);
+    if (!detector) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = copy_bytes(pack, pack_len, &detector->pack);
+    if (status != MOSAIC_OK) { free(detector); return status; }
+    detector->pack_len = pack_len;
+    if (!load_detector_pack(detector->pack, detector->pack_len, &detector->view) ||
+        !sha256_bytes(detector->pack, detector->pack_len, detector->hash)) {
+        mosaic_detector_free(detector); return MOSAIC_ERROR_INVALID_PACK;
+    }
+    *out_detector = detector;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector) {
+    if (!path || !out_detector) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_detector = NULL;
+    uint8_t *pack = NULL; size_t len = 0;
+    if (!read_file(path, &pack, &len)) return MOSAIC_ERROR_IO;
+    mosaic_status status = mosaic_detector_load_memory(pack, len, out_detector);
+    free(pack); return status;
+}
+
+void mosaic_detector_free(mosaic_detector *detector) {
+    if (!detector) return;
+    free(detector->pack); free(detector);
+}
+
+mosaic_status mosaic_detector_detect(const mosaic_detector *detector, const uint8_t *input, size_t input_len,
+                                     mosaic_detection *out_detection) {
+    if (!detector || (!input && input_len) || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (!detector_detect_view(&detector->view, (Slice){input, input_len}, out_detection)) return MOSAIC_ERROR_OVERFLOW;
+    return MOSAIC_OK;
 }
 
 mosaic_status mosaic_model_load_memory(const uint8_t *pack, size_t pack_len, mosaic_model **out_model) {
@@ -1192,7 +1404,7 @@ mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const u
 
 
 static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
-    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0v0.2.0\0";
+    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0v0.3.0\0";
     Sha256Ctx ctx;
     sha256_init(&ctx);
     (void)sha256_update(&ctx, domain, sizeof domain - 1u);
@@ -1215,6 +1427,9 @@ static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
         }
         (void)sha256_update(&ctx, (const uint8_t *)hashes, tokenizer->language_count * 32u);
     }
+    uint8_t detector_present = tokenizer->detector ? 1u : 0u;
+    (void)sha256_update(&ctx, &detector_present, 1u);
+    if (tokenizer->detector) (void)sha256_update(&ctx, tokenizer->detector->hash, 32u);
     (void)sha256_final(&ctx, tokenizer->fingerprint);
 }
 
@@ -1269,6 +1484,8 @@ mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
     }
     int64_t *next_adjustments = adjustment_bytes ? (int64_t *)malloc(adjustment_bytes) : NULL;
     if (adjustment_bytes && !next_adjustments) { language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    candidate.adjustments = adjustment_bytes ? (int64_t *)calloc((size_t)tokenizer->model->vocab.count, sizeof(int64_t)) : NULL;
+    if (adjustment_bytes && !candidate.adjustments) { free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
     if (adjustment_bytes) {
         if (tokenizer->adjustments) memcpy(next_adjustments, tokenizer->adjustments, adjustment_bytes);
         else memset(next_adjustments, 0, adjustment_bytes);
@@ -1280,6 +1497,7 @@ mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
             !add_i64(next_adjustments[i], (int64_t)delta, &next_adjustments[i])) {
             free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_INTERNAL;
         }
+        candidate.adjustments[i] = (int64_t)delta;
         (void)entry;
     }
     if (tokenizer->language_count == tokenizer->language_capacity) {
@@ -1323,11 +1541,81 @@ mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, s
     return MOSAIC_OK;
 }
 
+
+mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
+                                                   const uint8_t *detector_pack, size_t detector_pack_len) {
+    if (!tokenizer || (!detector_pack && detector_pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (tokenizer->detector) return MOSAIC_ERROR_CONFLICT;
+    mosaic_detector *detector = NULL;
+    mosaic_status status = mosaic_detector_load_memory(detector_pack, detector_pack_len, &detector);
+    if (status != MOSAIC_OK) return status;
+    tokenizer->detector = detector;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, const char *path) {
+    if (!tokenizer || !path) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (tokenizer->detector) return MOSAIC_ERROR_CONFLICT;
+    mosaic_detector *detector = NULL;
+    mosaic_status status = mosaic_detector_load_file(path, &detector);
+    if (status != MOSAIC_OK) return status;
+    tokenizer->detector = detector;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+
+int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer) {
+    return tokenizer && tokenizer->detector;
+}
+
+static const LanguagePack *tokenizer_language_for_detection(const mosaic_tokenizer *tokenizer,
+                                                             const mosaic_detection *detection) {
+    if (!detection->matched) return NULL;
+    for (size_t i = 0; i < tokenizer->language_count; ++i)
+        if (language_matches_cstr(&tokenizer->languages[i], detection->language)) return &tokenizer->languages[i];
+    return NULL;
+}
+
+mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
+                                               const uint8_t *input, size_t input_len,
+                                               mosaic_detection *out_detection) {
+    if (!tokenizer || !tokenizer->detector || (!input && input_len) || !out_detection)
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_detector_detect(tokenizer->detector, input, input_len, out_detection);
+    if (status != MOSAIC_OK) return status;
+    out_detection->available = tokenizer_language_for_detection(tokenizer, out_detection) ? 1u : 0u;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
+                                           const uint8_t *input, size_t input_len,
+                                           uint32_t **out_ids, size_t *out_count,
+                                           mosaic_detection *out_detection) {
+    if (!tokenizer || !out_ids || !out_count || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_tokenizer_detect_language(tokenizer, input, input_len, out_detection);
+    if (status != MOSAIC_OK) return status;
+    const LanguagePack *pack = tokenizer_language_for_detection(tokenizer, out_detection);
+    return encode_internal(tokenizer->model, input, input_len, pack ? pack->adjustments : NULL, out_ids, out_count);
+}
+
+mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer,
+                                                  const uint8_t *input, size_t input_len,
+                                                  mosaic_token **out_tokens, size_t *out_count,
+                                                  mosaic_detection *out_detection) {
+    if (!tokenizer || !out_tokens || !out_count || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_tokenizer_detect_language(tokenizer, input, input_len, out_detection);
+    if (status != MOSAIC_OK) return status;
+    const LanguagePack *pack = tokenizer_language_for_detection(tokenizer, out_detection);
+    return encode_tokens_internal(tokenizer->model, input, input_len, pack ? pack->adjustments : NULL, out_tokens, out_count);
+}
+
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     if (!tokenizer) return;
     mosaic_model_free(tokenizer->model);
     mosaic_unicode_free(tokenizer->unicode_data);
     language_pack_array_free(tokenizer->languages, tokenizer->language_count);
+    mosaic_detector_free(tokenizer->detector);
     free(tokenizer->adjustments);
     free(tokenizer);
 }
@@ -1404,8 +1692,13 @@ static void usage(const char *argv0) {
             "       %s fingerprint-languages MODEL_PACK UNICODE_PACK LANGUAGE_PACK...\n"
             "       %s analyze MODEL_PACK UNICODE_PACK INPUT\n"
             "       %s analyze-languages MODEL_PACK UNICODE_PACK INPUT LANGUAGE_PACK...\n"
-            "       %s roundtrip-languages MODEL_PACK UNICODE_PACK INPUT LANGUAGE_PACK...\n",
-            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
+            "       %s roundtrip-languages MODEL_PACK UNICODE_PACK INPUT LANGUAGE_PACK...\n"
+            "       %s detect DETECTOR_PACK INPUT\n"
+            "       %s fingerprint-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK LANGUAGE_PACK...\n"
+            "       %s analyze-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
+            "       %s roundtrip-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n",
+            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
+            argv0, argv0, argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -1477,10 +1770,68 @@ static int integrated_cli(int argc, char **argv) {
     return 1;
 }
 
+static int detector_cli(int argc, char **argv) {
+    if (argc != 4) return -1;
+    mosaic_detector *detector = NULL;
+    if (mosaic_detector_load_file(argv[2], &detector) != MOSAIC_OK) return 0;
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[3], &input, &input_len)) { mosaic_detector_free(detector); return 0; }
+    mosaic_detection detection;
+    mosaic_status status = mosaic_detector_detect(detector, input, input_len, &detection);
+    if (status == MOSAIC_OK) {
+        if (detection.matched) printf("language=%s score=%" PRId64 " margin=%" PRId64 "\n", detection.language, detection.score, detection.margin);
+        else printf("language=none score=%" PRId64 " margin=%" PRId64 "\n", detection.score, detection.margin);
+    }
+    free(input); mosaic_detector_free(detector); return status == MOSAIC_OK ? 1 : 0;
+}
+
+static int auto_cli(int argc, char **argv) {
+    int fingerprint_only = !strcmp(argv[1], "fingerprint-auto");
+    int roundtrip_only = !strcmp(argv[1], "roundtrip-auto");
+    if ((fingerprint_only && argc < 6) || (!fingerprint_only && argc < 7)) return -1;
+    mosaic_tokenizer *tokenizer = NULL;
+    if (mosaic_tokenizer_load_files(argv[2], argv[3], &tokenizer) != MOSAIC_OK) return 0;
+    if (mosaic_tokenizer_set_detector_file(tokenizer, argv[4]) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    int language_start = fingerprint_only ? 5 : 6;
+    for (int i = language_start; i < argc; ++i) {
+        if (mosaic_tokenizer_add_language_file(tokenizer, argv[i]) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    }
+    uint8_t fingerprint[32];
+    if (mosaic_tokenizer_fingerprint(tokenizer, fingerprint) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    if (fingerprint_only) { print_hex32(fingerprint); mosaic_tokenizer_free(tokenizer); return 1; }
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[5], &input, &input_len)) { mosaic_tokenizer_free(tokenizer); return 0; }
+    mosaic_detection detection;
+    if (roundtrip_only) {
+        uint32_t *ids=NULL; size_t id_count=0; uint8_t *decoded=NULL; size_t decoded_len=0;
+        mosaic_status es=mosaic_tokenizer_encode_auto(tokenizer,input,input_len,&ids,&id_count,&detection);
+        mosaic_status ds=es==MOSAIC_OK?mosaic_tokenizer_decode(tokenizer,ids,id_count,&decoded,&decoded_len):es;
+        int ok=es==MOSAIC_OK&&ds==MOSAIC_OK&&decoded_len==input_len&&(!input_len||memcmp(decoded,input,input_len)==0);
+        if(ok)printf("OK bytes=%zu tokens=%zu route=%s available=%u languages=%zu\n",input_len,id_count,detection.matched?detection.language:"none",detection.available,mosaic_tokenizer_language_count(tokenizer));
+        mosaic_free(ids);mosaic_free(decoded);free(input);mosaic_tokenizer_free(tokenizer);return ok?1:0;
+    }
+    mosaic_token *tokens=NULL;size_t token_count=0;mosaic_range*ranges=NULL;size_t range_count=0;
+    mosaic_status a=mosaic_tokenizer_encode_tokens_auto(tokenizer,input,input_len,&tokens,&token_count,&detection);
+    mosaic_status b=mosaic_tokenizer_grapheme_ranges(tokenizer,input,input_len,&ranges,&range_count);
+    if(a!=MOSAIC_OK||b!=MOSAIC_OK){mosaic_free(tokens);mosaic_free(ranges);free(input);mosaic_tokenizer_free(tokenizer);return 0;}
+    printf("fingerprint=");static const char hex[]="0123456789abcdef";for(size_t i=0;i<32;++i)printf("%c%c",hex[fingerprint[i]>>4],hex[fingerprint[i]&15]);
+    printf(" bytes=%zu tokens=%zu graphemes=%zu route=%s available=%u score=%" PRId64 " margin=%" PRId64 " languages=%zu\n",
+           input_len,token_count,range_count,detection.matched?detection.language:"none",detection.available,detection.score,detection.margin,mosaic_tokenizer_language_count(tokenizer));
+    for(size_t i=0;i<token_count;++i)printf("token id=%" PRIu32 " start=%" PRIu64 " length=%" PRIu64 " base_cost=%" PRId32 "\n",tokens[i].id,tokens[i].start,tokens[i].length,tokens[i].cost);
+    for(size_t i=0;i<range_count;++i)printf("grapheme start=%" PRIu64 " length=%" PRIu64 "\n",ranges[i].start,ranges[i].length);
+    mosaic_free(tokens);mosaic_free(ranges);free(input);mosaic_tokenizer_free(tokenizer);return 1;
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "version"))) {
         printf("mosaic-tokenizer %s\n", mosaic_version_string());
         return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "detect")) {
+        int result=detector_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
+    }
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-auto") || !strcmp(argv[1], "analyze-auto") || !strcmp(argv[1], "roundtrip-auto"))) {
+        int result=auto_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
     if (argc >= 2 && (!strcmp(argv[1], "fingerprint") || !strcmp(argv[1], "analyze") ||
                       !strcmp(argv[1], "fingerprint-languages") || !strcmp(argv[1], "analyze-languages") ||

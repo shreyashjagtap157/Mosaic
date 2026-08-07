@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.2.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.3.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -67,6 +67,16 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack)
 
+  add_executable(mosaic-detector-smoke ${MOSAIC_TEST_DIR}/detector_smoke.c)
+  target_include_directories(mosaic-detector-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-detector-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-detector-smoke)
+  add_test(NAME detector COMMAND mosaic-detector-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack)
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -83,6 +93,9 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs)
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs/detector)
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack

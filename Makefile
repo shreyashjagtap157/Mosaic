@@ -13,7 +13,9 @@ fixtures:
 	$(PYTHON) tools/build_m3_model_fixture.py --check
 	$(PYTHON) tools/build_model_v2_fixture.py --check
 	$(PYTHON) tools/build_language_packs.py --check
+	$(PYTHON) tools/build_detector_pack.py --check
 	$(PYTHON) tools/generate_language_malformed.py --check
+	$(PYTHON) tools/generate_detector_malformed.py --check
 	$(PYTHON) tools/build_unicode17_pack.py --check
 
 test: fixtures
@@ -24,7 +26,9 @@ test: fixtures
 	$(PYTHON) tools/validate_c_unicode_malformed.py
 	$(PYTHON) tools/validate_c_api.py
 	$(PYTHON) tools/validate_language_packs.py
+	$(PYTHON) tools/validate_detector.py
 	$(PYTHON) tools/benchmark_language_packs.py
+	$(PYTHON) tools/benchmark_detector.py
 
 qualify:
 	$(PYTHON) tools/qualify_native.py

@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 2
+#define MOSAIC_C_API_VERSION_MINOR 3
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -27,6 +27,7 @@ typedef enum mosaic_status {
 typedef struct mosaic_model mosaic_model;
 typedef struct mosaic_unicode mosaic_unicode;
 typedef struct mosaic_tokenizer mosaic_tokenizer;
+typedef struct mosaic_detector mosaic_detector;
 typedef struct mosaic_stream mosaic_stream;
 typedef struct mosaic_document mosaic_document;
 
@@ -42,6 +43,14 @@ typedef struct mosaic_range {
     uint64_t length;
 } mosaic_range;
 
+typedef struct mosaic_detection {
+    uint32_t matched;
+    uint32_t available;
+    int64_t score;
+    int64_t margin;
+    char language[64];
+} mosaic_detection;
+
 /* Returned buffers are owned by Mosaic and released with mosaic_free(). */
 void mosaic_free(void *pointer);
 const char *mosaic_version_string(void);
@@ -55,13 +64,30 @@ mosaic_status mosaic_tokenizer_load_memory(const uint8_t *model_pack, size_t mod
 mosaic_status mosaic_tokenizer_load_files(const char *model_path, const char *unicode_path,
                                           mosaic_tokenizer **out_tokenizer);
 /* Optional external language-specialization packs are copied, validated, and owned by the tokenizer.
- * At most one pack for a given BCP47-style language tag may be loaded in v0.2. */
+ * At most one pack for a given BCP47-style language tag may be loaded in v0.3. */
 mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *language_pack, size_t language_pack_len);
 mosaic_status mosaic_tokenizer_add_language_file(mosaic_tokenizer *tokenizer, const char *path);
 size_t mosaic_tokenizer_language_count(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, size_t index,
                                             char *buffer, size_t capacity, size_t *out_required);
+/* Optional document-level detector pack. A low-confidence or unavailable result falls back
+ * to the base model and never affects exact representability. One detector may be attached in v0.3. */
+mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
+                                                   const uint8_t *detector_pack, size_t detector_pack_len);
+mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, const char *path);
+int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
+                                               const uint8_t *input, size_t input_len,
+                                               mosaic_detection *out_detection);
+mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
+                                           const uint8_t *input, size_t input_len,
+                                           uint32_t **out_ids, size_t *out_count,
+                                           mosaic_detection *out_detection);
+mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer,
+                                                  const uint8_t *input, size_t input_len,
+                                                  mosaic_token **out_tokens, size_t *out_count,
+                                                  mosaic_detection *out_detection);
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
 mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
@@ -108,6 +134,12 @@ mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t sta
 mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count);
 mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len);
 void mosaic_document_free(mosaic_document *document);
+
+mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector);
+mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector);
+void mosaic_detector_free(mosaic_detector *detector);
+mosaic_status mosaic_detector_detect(const mosaic_detector *detector, const uint8_t *input, size_t input_len,
+                                     mosaic_detection *out_detection);
 
 mosaic_status mosaic_unicode_load_memory(const uint8_t *pack, size_t pack_len, mosaic_unicode **out_unicode);
 mosaic_status mosaic_unicode_load_file(const char *path, mosaic_unicode **out_unicode);

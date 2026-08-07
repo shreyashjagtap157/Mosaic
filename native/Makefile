@@ -22,9 +22,12 @@ SAN_OBJ := $(BUILD)/mosaic_lib_san.o
 SAN_API := $(BUILD)/mosaic-api-smoke-san
 SAN_MALFORMED := $(BUILD)/mosaic-malformed-smoke-san
 SAN_LANGUAGE := $(BUILD)/mosaic-language-smoke-san
+SAN_DETECTOR := $(BUILD)/mosaic-detector-smoke-san
 API_STATIC := $(BUILD)/mosaic-api-smoke-static
 API_SHARED := $(BUILD)/mosaic-api-smoke-shared
 API_CPP := $(BUILD)/mosaic-api-smoke-cpp
+DETECTOR := $(ROOT)/fixtures/packs/detector/reference-v1.mpack
+DETECTOR_SMOKE := $(BUILD)/mosaic-detector-smoke
 
 all: $(CLI) $(STATIC_LIB) $(SHARED_LIB)
 
@@ -55,6 +58,9 @@ $(SAN_MALFORMED): $(TESTS)/malformed_smoke.c $(SAN_OBJ)
 $(SAN_LANGUAGE): $(TESTS)/language_smoke.c $(SAN_OBJ)
 	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
 
+$(SAN_DETECTOR): $(TESTS)/detector_smoke.c $(SAN_OBJ)
+	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
+
 sanitize-api: $(SAN_API)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_API) $(MODEL) $(UNICODE)
 
@@ -63,6 +69,9 @@ sanitize-malformed: $(SAN_MALFORMED)
 
 sanitize-language: $(SAN_LANGUAGE)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_LANGUAGE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
+
+sanitize-detector: $(SAN_DETECTOR)
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_DETECTOR) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
 
 $(API_STATIC): $(TESTS)/api_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
@@ -73,6 +82,9 @@ $(API_SHARED): $(TESTS)/api_smoke.c $(SHARED_LIB)
 $(API_CPP): $(TESTS)/api_smoke.cpp $(SHARED_LIB)
 	$(CXX) $(CXXFLAGS) -I$(INC) $< -L$(BUILD) -Wl,-rpath,'$$ORIGIN' -lmosaic -o $@
 
+$(DETECTOR_SMOKE): $(TESTS)/detector_smoke.c $(STATIC_LIB)
+	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
+
 smoke: $(API_STATIC) $(API_SHARED)
 	$(API_STATIC) $(MODEL) $(UNICODE)
 	$(API_SHARED) $(MODEL) $(UNICODE)
@@ -80,11 +92,12 @@ smoke: $(API_STATIC) $(API_SHARED)
 cpp-smoke: $(API_CPP)
 	$(API_CPP)
 
-sanitize: sanitize-api sanitize-malformed sanitize-language
+sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector
 
-test: all smoke cpp-smoke sanitize
+test: all smoke cpp-smoke $(DETECTOR_SMOKE) sanitize
+	$(DETECTOR_SMOKE) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
 
 clean:
-	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(API_STATIC) $(API_SHARED) $(API_CPP)
+	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
 
-.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language smoke cpp-smoke test
+.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector smoke cpp-smoke test
