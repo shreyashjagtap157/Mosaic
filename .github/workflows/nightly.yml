@@ -1,0 +1,81 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  native-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python tools/generate_empty_pack.py --check
+      - run: python tools/build_m2_fixture.py --check
+      - run: python tools/generate_m2_malformed.py --check
+      - run: python tools/build_m3_model_fixture.py --check
+      - run: python tools/generate_m3_malformed.py --check
+      - run: python tools/build_unicode17_pack.py --check
+      - run: python tools/generate_unicode17_malformed.py --check
+      - run: python tools/validate_m2_fixture.py
+      - run: python tools/validate_path_order.py
+      - run: python tools/validate_manifest_identity.py
+      - run: python tools/validate_m3_model.py
+      - run: python tools/validate_unicode17.py
+      - run: cmake -S native -B build/cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - run: cmake --build build/cmake --config RelWithDebInfo
+      - run: ctest --test-dir build/cmake -C RelWithDebInfo --output-on-failure
+
+  native-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C native clean test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python tools/validate_c_reference.py
+      - run: python tools/validate_c_malformed.py
+      - run: python tools/validate_c_unicode.py
+      - run: python tools/validate_c_unicode_malformed.py
+      - run: python tools/validate_c_api.py
+
+  rust-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - run: cargo miri test -p mosaic-core
+      - run: cargo miri test -p mosaic-pack
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo fuzz run fuzz_source_bytes -- -max_total_time=60
+      - run: cargo fuzz run fuzz_pack_header -- -max_total_time=60
+      - run: cargo fuzz run fuzz_pack_v1 -- -max_total_time=120
+      - run: cargo fuzz run fuzz_dfa -- -max_total_time=120
