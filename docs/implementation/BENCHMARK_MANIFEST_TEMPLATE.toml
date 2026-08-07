@@ -1,0 +1,51 @@
+schema_version = 1
+benchmark_family = "B1" # B1 compatibility, B2 greenfield, B3 shared pipeline, B4 quality-adjusted
+run_id = "REPLACE-ME"
+run_timestamp_utc = "REPLACE-ME"
+
+[hardware]
+profile_id = "UNASSIGNED"
+cpu = "REPLACE-ME"
+physical_cores = 0
+logical_cores = 0
+memory_bytes = 0
+isa_extensions = []
+
+[software]
+os = "REPLACE-ME"
+kernel = "REPLACE-ME"
+rustc = "REPLACE-ME"
+linker = "REPLACE-ME"
+commit = "REPLACE-ME"
+
+[build]
+profile = "release"
+lto = "thin"
+codegen_units = 1
+features = []
+
+[input]
+corpus_id = "REPLACE-ME"
+content_hash = "REPLACE-ME"
+bytes = 0
+language_tags = []
+
+[tokenizer]
+manifest_hash = "REPLACE-ME"
+projection = "REPLACE-ME"
+output_density = "REPLACE-ME"
+warm_state = false
+threads = 1
+
+[baseline]
+name = "REPLACE-ME"
+version = "REPLACE-ME"
+semantic_equivalence_notes = "REPLACE-ME"
+
+[measurements]
+wall_time_ns = 0
+cpu_time_ns = 0
+peak_rss_bytes = 0
+allocations = 0
+input_bytes_per_second = 0.0
+output_tokens = 0
