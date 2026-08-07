@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-08-07
+
+Stable detector-pack and automatic document-routing release.
+
+- declarative first-byte-indexed detector packs;
+- fail-soft score/margin routing;
+- auto encode/token-span APIs;
+- detector-aware tokenizer fingerprint;
+- detector CLI and release-bundle integration;
+- 14 malformed detector fixtures and sanitizer coverage.
+
 ## 0.2.0 — 2026-08-07
 
 Stable external language-pack release.

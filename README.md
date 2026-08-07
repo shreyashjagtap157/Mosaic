@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.2.0
+## Stable tokenizer: 0.3.0
 
-Mosaic Tokenizer 0.2.0 is a stable native tokenizer release with:
+Mosaic Tokenizer 0.3.0 is a stable native tokenizer release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -16,6 +16,8 @@ Mosaic Tokenizer 0.2.0 is a stable native tokenizer release with:
 - pinned Unicode 17.0 grapheme segmentation with malformed UTF-8 preserved as opaque bytes;
 - one integrated `mosaic_tokenizer` handle for model + Unicode + optional language specialization;
 - **external composable language packs** loaded from memory or files;
+- **external detector packs** for deterministic document-level automatic language routing;
+- fail-soft routing: ambiguity, low confidence, or an unavailable detected language uses the base model;
 - pack-independent representability: removing every language pack never makes source bytes unencodable;
 - language-pack projection performed once at attachment time, leaving the encode hot path with one indexed adjustment per candidate;
 - deterministic order-independent tokenizer fingerprint for the exact set of loaded language packs;
@@ -25,9 +27,9 @@ Mosaic Tokenizer 0.2.0 is a stable native tokenizer release with:
 - deterministic release packaging;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 release remains preserved by Git tag `v0.1.0`. Version 0.2.0 adds the external language-pack architecture without changing the fundamental byte-exact model.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.3.0 adds detector packs and automatic document routing without making correctness depend on detection.
 
-This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Automatic language routing, production-scale vocabulary training, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
+This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Production detector training, span-level mixed-language routing, production-scale vocabulary training, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
 ## Repository layout
 
@@ -35,7 +37,7 @@ This is a stable **tokenizer** release, not a claim that the complete future tok
 native/                 stable native C runtime, public header, Make/CMake builds
 conformance/            independent C/C++ clients and malformed-input tests
 crates/                 intended primary Rust implementation and reference/engine crates
-fixtures/packs/          deterministic model, Unicode, language, and adversarial pack fixtures
+fixtures/packs/          deterministic model, Unicode, language, detector, and adversarial pack fixtures
 tools/                   deterministic pack builders, oracles, qualification, packaging
 docs/spec/               architecture baseline and binding convergence
 docs/adr/                architectural decision records
@@ -65,7 +67,7 @@ make test
 python tools/qualify_native.py
 ```
 
-Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language packs, Python/native differentials, Unicode 17 grapheme conformance, stream/full equality, edit/full equality, language-pack composition/order independence, and performance/RSS regression floors.
+Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector packs, Python/native differentials, Unicode 17 grapheme conformance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, and performance/RSS regression floors.
 
 ## CLI
 
@@ -94,9 +96,23 @@ Language-specialized tokenizer:
   fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
 ```
 
+Automatic document routing:
+
+```bash
+./build/mosaic-tokenizer detect \
+  fixtures/packs/detector/reference-v1.mpack INPUT
+
+./build/mosaic-tokenizer analyze-auto \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack \
+  fixtures/packs/detector/reference-v1.mpack INPUT \
+  fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
+```
+
+Auto mode applies a specialization only when the detector confidence gate passes and the exact language pack is loaded. Otherwise it uses the base model.
+
 ## Language-pack behavior
 
-A v0.2 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
+A v0.3 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
 
 The reference fixtures intentionally demonstrate this mechanism:
 
@@ -104,7 +120,7 @@ The reference fixtures intentionally demonstrate this mechanism:
 - `नमस्ते दुनिया`: base two pieces → Hindi pack one existing vocabulary piece;
 - `こんにちは世界`: base two pieces → Japanese pack one existing vocabulary piece.
 
-All three packs may be attached simultaneously. Their effects and tokenizer fingerprint are independent of attachment order. Duplicate packs for the same language tag fail with `MOSAIC_ERROR_CONFLICT` in v0.2 rather than silently stacking contradictory policies.
+All three packs may be attached simultaneously. Their effects and tokenizer fingerprint are independent of attachment order. Duplicate packs for the same language tag fail with `MOSAIC_ERROR_CONFLICT` in v0.3 rather than silently stacking contradictory policies.
 
 These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
@@ -114,7 +130,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.2.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.3.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 
@@ -124,6 +140,6 @@ Stable Rust remains the intended primary implementation language. Rust source ex
 
 The tokenizer itself now has a stable native byte/Unicode/model/language-pack execution path. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
-See `docs/implementation/STATUS.md` and `docs/implementation/INTEGRATION_AUDIT_0.2.0.md` for the exact implemented/not-implemented boundary.
+See `docs/implementation/STATUS.md` and `docs/implementation/INTEGRATION_AUDIT_0.3.0.md` for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.

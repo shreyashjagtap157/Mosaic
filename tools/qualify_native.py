@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.2 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.3 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -22,13 +22,13 @@ def main()->int:
         ['tools/generate_empty_pack.py','--check'],['tools/build_m2_fixture.py','--check'],
         ['tools/generate_m2_malformed.py','--check'],['tools/build_m3_model_fixture.py','--check'],
         ['tools/generate_m3_malformed.py','--check'],['tools/build_model_v2_fixture.py','--check'],
-        ['tools/build_language_packs.py','--check'],['tools/generate_language_malformed.py','--check'],['tools/build_unicode17_pack.py','--check'],
+        ['tools/build_language_packs.py','--check'],['tools/generate_language_malformed.py','--check'],['tools/build_detector_pack.py','--check'],['tools/generate_detector_malformed.py','--check'],['tools/build_unicode17_pack.py','--check'],
         ['tools/generate_unicode17_malformed.py','--check'],['tools/validate_m2_fixture.py'],
         ['tools/validate_path_order.py'],['tools/validate_manifest_identity.py'],
         ['tools/validate_m3_model.py'],['tools/validate_unicode17.py'],['tools/validate_repo.py']]
     for g in gates: run(py+g)
     run(['make','-C','native','clean','all','test'])
-    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','benchmark_language_packs.py']:
+    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','validate_detector.py','benchmark_language_packs.py','benchmark_detector.py']:
         run(py+['tools/'+script])
     # Sanitizer stress and all malformed classes run inside long-lived C processes above.
     # Clang is a genuinely independent compiler gate.
@@ -39,7 +39,7 @@ def main()->int:
     # Exercise the Clang build in long-lived ABI tests; the full CLI differential already
     # qualified the GCC build above and would otherwise spend most of release time in process startup.
     run([clang/'mosaic-tokenizer','--version'])
-    clang_api=os.environ.copy();clang_api['MOSAIC_LIB']=str(clang/'libmosaic.so');run(py+['tools/validate_c_api.py'],clang_api);run(py+['tools/validate_language_packs.py'],clang_api)
+    clang_api=os.environ.copy();clang_api['MOSAIC_LIB']=str(clang/'libmosaic.so');run(py+['tools/validate_c_api.py'],clang_api);run(py+['tools/validate_language_packs.py'],clang_api);run(py+['tools/validate_detector.py'],clang_api)
     # Deterministic 10 MiB benchmark fixture and conservative regression floor.
     bench=Path(tempfile.gettempdir())/'mosaic-release-10m.bin'
     chunk=b'hello world tokenizers :: value->_id '+ 'नमस्ते 世界 こんにちは\n'.encode()
@@ -56,7 +56,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.2 release qualification completed')
+    print('PASS: Mosaic native v0.3 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())
