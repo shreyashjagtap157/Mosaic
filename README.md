@@ -4,34 +4,38 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer core: 0.1.0
+## Stable tokenizer: 0.2.0
 
-The repository now contains a stable native tokenizer-core release with:
+Mosaic Tokenizer 0.2.0 is a stable native tokenizer release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
-- deterministic `i32` token costs and checked `i64` Viterbi accumulation;
-- token IDs with exact byte spans and costs;
-- deterministic validated model packs;
-- pinned Unicode 17.0 grapheme segmentation pack;
-- invalid UTF-8 preserved as opaque one-byte regions;
-- integrated `mosaic_tokenizer` handle combining model + Unicode projections;
-- deterministic tokenizer runtime fingerprint;
-- stable C 0.1 ABI, static library, shared library, and C++-compatible header;
-- streaming-at-EOF equivalence;
-- editable-document/full-tokenization equivalence;
-- CLI and deterministic Linux x86-64 release packaging;
+- deterministic integer-cost Viterbi segmentation;
+- exact byte spans for emitted model tokens;
+- deterministic, validated, self-contained model packs;
+- pinned Unicode 17.0 grapheme segmentation with malformed UTF-8 preserved as opaque bytes;
+- one integrated `mosaic_tokenizer` handle for model + Unicode + optional language specialization;
+- **external composable language packs** loaded from memory or files;
+- pack-independent representability: removing every language pack never makes source bytes unencodable;
+- language-pack projection performed once at attachment time, leaving the encode hot path with one indexed adjustment per candidate;
+- deterministic order-independent tokenizer fingerprint for the exact set of loaded language packs;
+- reference English, Hindi, and Japanese specialization packs demonstrating mixed-language composition;
+- static/shared C libraries and C++-compatible public header;
+- streaming/full semantic equivalence and editable-document/full-tokenization equivalence;
+- deterministic release packaging;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-This release is the **stable tokenizer core**, not a claim that every future universal-platform feature is complete. Language/script/domain pack composition, compiler/search/IDE projections, local incremental retokenization, rich Token IR, SIMD matching, the Wedge Tournament, and the Rust production port remain subsequent milestones.
+The 0.1.0 release remains preserved by Git tag `v0.1.0`. Version 0.2.0 adds the external language-pack architecture without changing the fundamental byte-exact model.
+
+This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Automatic language routing, production-scale vocabulary training, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
 ## Repository layout
 
 ```text
 native/                 stable native C runtime, public header, Make/CMake builds
-conformance/            independent C/C++ client and malformed-input tests
-crates/                 planned primary Rust implementation and reference/engine crates
-fixtures/packs/          deterministic model, Unicode, and adversarial pack fixtures
+conformance/            independent C/C++ clients and malformed-input tests
+crates/                 intended primary Rust implementation and reference/engine crates
+fixtures/packs/          deterministic model, Unicode, language, and adversarial pack fixtures
 tools/                   deterministic pack builders, oracles, qualification, packaging
 docs/spec/               architecture baseline and binding convergence
 docs/adr/                architectural decision records
@@ -39,19 +43,11 @@ docs/implementation/     milestone plans, audits, qualification reports
 .github/workflows/       PR, nightly, and release qualification
 ```
 
-The production/runtime implementation deliberately no longer lives under `conformance/`; tests consume the runtime rather than owning it.
-
-## Build the native tokenizer
+## Build
 
 ```bash
 make native
 ```
-
-Artifacts are written under `build/`:
-
-- `mosaic-tokenizer`
-- `libmosaic.a`
-- `libmosaic.so` on Linux
 
 CMake is also supported:
 
@@ -61,58 +57,73 @@ cmake --build build/cmake --config Release
 ctest --test-dir build/cmake -C Release --output-on-failure
 ```
 
-## Test
+## Test and qualify
 
 ```bash
 python -m pip install -r requirements-dev.txt
 make test
-```
-
-This executes deterministic pack regeneration, native C/C++ clients, ASan/UBSan stress, malformed-pack rejection, Python/native tokenizer differentials, Unicode differentials, streaming/full equality, and edit/full equality.
-
-Full native release qualification:
-
-```bash
 python tools/qualify_native.py
 ```
 
+Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language packs, Python/native differentials, Unicode 17 grapheme conformance, stream/full equality, edit/full equality, language-pack composition/order independence, and performance/RSS regression floors.
+
 ## CLI
+
+Base tokenizer:
 
 ```bash
 ./build/mosaic-tokenizer --version
-./build/mosaic-tokenizer fingerprint fixtures/packs/m3-model-v1.mpack fixtures/packs/unicode17-v1.mpack
-./build/mosaic-tokenizer analyze fixtures/packs/m3-model-v1.mpack fixtures/packs/unicode17-v1.mpack INPUT
-./build/mosaic-tokenizer encode fixtures/packs/m3-model-v1.mpack INPUT
-./build/mosaic-tokenizer roundtrip fixtures/packs/m3-model-v1.mpack INPUT
-./build/mosaic-tokenizer encode-u32 fixtures/packs/m3-model-v1.mpack INPUT IDS.bin
-./build/mosaic-tokenizer decode-u32 fixtures/packs/m3-model-v1.mpack IDS.bin OUTPUT
-./build/mosaic-tokenizer graphemes fixtures/packs/unicode17-v1.mpack INPUT
+./build/mosaic-tokenizer fingerprint fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack
+./build/mosaic-tokenizer analyze fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack INPUT
+./build/mosaic-tokenizer roundtrip fixtures/packs/model-v2.mpack INPUT
 ```
+
+Language-specialized tokenizer:
+
+```bash
+./build/mosaic-tokenizer fingerprint-languages \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack \
+  fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack
+
+./build/mosaic-tokenizer analyze-languages \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack INPUT \
+  fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
+
+./build/mosaic-tokenizer roundtrip-languages \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack INPUT \
+  fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
+```
+
+## Language-pack behavior
+
+A v0.2 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
+
+The reference fixtures intentionally demonstrate this mechanism:
+
+- `tokenizer`: base `[token, izer]` → English pack `[tokenizer]`;
+- `नमस्ते दुनिया`: base two pieces → Hindi pack one existing vocabulary piece;
+- `こんにちは世界`: base two pieces → Japanese pack one existing vocabulary piece.
+
+All three packs may be attached simultaneously. Their effects and tokenizer fingerprint are independent of attachment order. Duplicate packs for the same language tag fail with `MOSAIC_ERROR_CONFLICT` in v0.2 rather than silently stacking contradictory policies.
+
+These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
 ## Build a release bundle
 
 ```bash
-python tools/build_release.py
+make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.1.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact packs, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.2.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 
-Stable Rust remains the intended primary implementation language. Rust source exists under `crates/`, but the environment that produced the first native release has no `rustc`/`cargo` and no outbound DNS. Consequently the Rust implementation is **not falsely labeled qualified**. GitHub CI is configured to compile, Clippy-check, test, and no-std-check it on Rust-capable runners.
+Stable Rust remains the intended primary implementation language. Rust source exists under `crates/`, but the environment that produced the native releases has no `rustc`/`cargo` and no outbound DNS. Consequently the Rust implementation is **not falsely labeled qualified**. Repository CI is configured to compile, Clippy-check, test, and no-std-check it on Rust-capable runners once the GitHub repository receives these commits.
 
 ## Current project boundary
 
-The tokenizer core has reached a stable native release. The broader platform continues under the converged milestone model:
+The tokenizer itself now has a stable native byte/Unicode/model/language-pack execution path. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
-- M0 engineering substrate
-- M1 exact source substrate
-- M2 deterministic pack executor
-- M3 Unicode + static tokenizer
-- M4 Wedge Tournament
-- M5A/B/C/H measured product branch
-- M6–M8 incrementality, platform expansion, security/performance/storage hardening
-
-See `docs/implementation/INTEGRATION_AUDIT_0.1.0.md` for the exact implemented/not-implemented boundary.
+See `docs/implementation/STATUS.md` and `docs/implementation/INTEGRATION_AUDIT_0.2.0.md` for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.

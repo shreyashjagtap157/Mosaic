@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-08-07
+
+Stable external language-pack release.
+
+- composable declarative language specialization;
+- attach-time vocabulary-cost projection;
+- order-independent pack-set fingerprinting;
+- English/Hindi/Japanese reference packs;
+- specialized stream/document snapshots;
+- malformed-language and sanitizer qualification;
+- mixed-language conformance benchmark.
+
 ## 0.1.0 — 2026-08-07
 
 First stable native tokenizer-core release.

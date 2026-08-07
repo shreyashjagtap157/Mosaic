@@ -4,81 +4,54 @@ Date: 2026-08-07
 
 ## Stable release state
 
-**Mosaic Tokenizer 0.1.0 native core: STABLE NATIVE RELEASE QUALIFIED LOCALLY.**
+**Mosaic Tokenizer 0.2.0 native tokenizer: STABLE NATIVE RELEASE QUALIFIED LOCALLY.**
 
-The native tokenizer is integrated under `native/` and exposes one high-level tokenizer handle combining the validated static-model and Unicode-17 packs. It builds as a CLI, static library, and shared library.
+Version 0.2 adds a real external language-pack subsystem to the previously qualified byte/Unicode/model core. A high-level tokenizer now owns one model pack, one Unicode pack, and zero or more declarative language-specialization packs.
 
-Local native qualification currently demonstrates:
+### Implemented tokenizer path
 
-- exact arbitrary-byte round trip;
-- complete 256-byte fallback;
-- deterministic static Viterbi segmentation;
-- model/native Python differential tests;
-- Unicode 17 grapheme conformance against a pinned Unicode-17 oracle;
-- malformed UTF-8 byte preservation;
-- ASan + UBSan stress;
-- deterministic malformed-pack rejection;
-- C static/shared and C++ consumer tests;
-- streaming/full equivalence;
-- edit/full equivalence;
-- GCC and Clang builds;
-- GCC `-fanalyzer` clean run;
-- deterministic release packaging;
-- 10 MiB mixed-language benchmark within release floor.
+- exact arbitrary bytes and complete 256-byte fallback;
+- deterministic static integer-cost Viterbi;
+- exact token byte spans;
+- Unicode 17 grapheme view with malformed-byte preservation;
+- model pack and Unicode pack validation;
+- external language packs loaded from files or memory;
+- English/Hindi/Japanese reference language packs;
+- mixed-pack composition;
+- duplicate-tag rejection;
+- order-independent pack-set fingerprint;
+- attach-time projection of pack costs onto model vocabulary;
+- language-specialized streams and editable-document snapshots;
+- CLI, C ABI, static/shared libraries, CMake and Make builds;
+- deterministic release bundle.
+
+## Architectural direction audit
+
+The implementation remains aligned with the converged design. Language packs do not define representability and cannot introduce model IDs. They only specialize deterministic costs over model surfaces. Bytes remain authoritative, Unicode remains a mapped interpretation, and attaching/removing specialization never changes whether source data can be represented exactly.
+
+A performance-direction defect was found and corrected before 0.2: per-candidate/per-pack hot-path lookups were replaced by one-time attach-time vocabulary projection.
 
 ## Milestones
 
-### M0 Engineering substrate
+- **M0:** implemented.
+- **M1:** semantic/native behavior implemented; Rust qualification pending external CI.
+- **M2:** implemented and independently exercised natively; Rust qualification pending external CI.
+- **M3:** stable native Unicode/static tokenizer substrate implemented. Production-scale vocabulary training and semantics-equivalent external baseline benchmarking remain research gates.
+- **M4 Wedge Tournament:** not run and not silently bypassed.
 
-Status: **implemented**.
+## Remaining tokenizer work
 
-Repository, documentation, ADRs, CI topology, benchmark contracts, deterministic fixtures, fuzz skeletons, and qualification tooling exist.
+The next tokenizer-specific capabilities, before broader consumer projections, are:
 
-### M1 Exact source substrate
+1. automatic language routing/detector packs while keeping correctness independent of detection;
+2. scalable production vocabulary/language-pack training and evaluation;
+3. bounded-memory streaming that remains exactly equal at EOF;
+4. local incremental retokenization equivalent to full processing;
+5. hot matcher/SIMD work only after profiling;
+6. Wedge Tournament once the benchmark substrate is representative enough.
 
-Status: **implemented semantically; Rust qualification pending CI**.
+Compiler/search/IDE/security branches remain outside the stable tokenizer surface until evidence selects a product wedge.
 
-Byte coordinates, implicit one-byte leaves, exact source reads, minimal IR, source identity/versioning, and reference/engine byte projections exist in Rust source. Native 0.1 behavior additionally proves exact arbitrary-byte API semantics.
+## Environment limitation
 
-### M2 Deterministic pack executor
-
-Status: **implemented and independently exercised natively; Rust qualification pending CI**.
-
-Checked pack container, exact pack identity, manifest/lock semantics, deterministic costs, path-order vectors, DFA fixtures, and adversarial packs exist.
-
-### M3 Unicode + static tokenizer
-
-Status: **native stable core implemented; Rust source implemented substantially; benchmark-compatibility gate still incomplete**.
-
-Implemented:
-
-- deterministic 271-entry model fixture with all 256 byte fallback entries;
-- Viterbi static tokenizer;
-- Unicode 17 deterministic pack;
-- grapheme semantics including GB9c, emoji ZWJ, regional-indicator behavior, and malformed-byte preservation;
-- integrated C ABI/CLI;
-- stable release packaging.
-
-Still required before claiming the complete M3 research milestone:
-
-- stable-Rust compile/Clippy/Miri/fuzz qualification on CI;
-- semantics-equivalent performance comparison against strong production tokenizer baselines;
-- production-scale vocabulary training rather than the conformance/reference vocabulary.
-
-### M4 Wedge Tournament
-
-Status: **not run**.
-
-It remains intentionally blocked on a sufficiently representative M3 benchmark substrate. The project will not choose multilingual, compiler+LLM, or assurance investment by architectural preference alone.
-
-## Stable native 0.1 limitations
-
-- streaming buffers until EOF;
-- document edits currently cause full retokenization;
-- language/script/locale/domain packs are not yet composable runtime inputs;
-- no scanner VM or compiler profiles;
-- no rich universal Token IR runtime;
-- no SIMD model matching;
-- native release currently qualified on Linux x86-64 locally; CMake/CI declares cross-platform qualification jobs.
-
-These limitations are explicit rather than hidden beneath the word “stable.” Stable means the declared 0.1 API/semantics are qualified, not that the entire research roadmap is finished.
+This host still lacks `rustc`, `cargo`, GitHub CLI, and outbound DNS. Native GCC/Clang builds are locally qualified. Rust and cross-platform jobs are present in repository CI but cannot execute here until the commits reach a connected GitHub environment.
