@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-08-08
+
+Stable automatic stream/document routing release.
+
+- automatic routing streams snapshot the complete tokenizer and detect at EOF;
+- automatic editable documents re-detect after every edit;
+- child stream/document objects remain valid after parent-tokenizer destruction;
+- stream reset and edit-driven language transitions are conformance-tested;
+- C API advanced to 0.4.0 without removing 0.3 operations.
+
+
 ## 0.3.0 — 2026-08-07
 
 Stable detector-pack and automatic document-routing release.

@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-BIN=Path(os.environ.get('MOSAIC_REF_BIN', ROOT/'build/mosaic-ref'))
+BIN=Path(os.environ.get('MOSAIC_REF_BIN', ROOT/'build/mosaic-tokenizer'))
 VALID=ROOT/'fixtures/packs/m3-model-v1.mpack'
 MAL=ROOT/'fixtures/packs/malformed-m3'
 

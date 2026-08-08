@@ -942,6 +942,8 @@ struct mosaic_tokenizer {
 struct mosaic_stream {
     mosaic_model *model;
     int64_t *adjustments;
+    mosaic_tokenizer *tokenizer;
+    int auto_mode;
     uint8_t *buffer;
     size_t len;
     size_t capacity;
@@ -951,13 +953,15 @@ struct mosaic_stream {
 struct mosaic_document {
     mosaic_model *model;
     int64_t *adjustments;
+    mosaic_tokenizer *tokenizer;
+    int auto_mode;
     uint8_t *buffer;
     size_t len;
     size_t capacity;
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.3.0"; }
+const char *mosaic_version_string(void) { return "0.4.0"; }
 
 const char *mosaic_status_string(mosaic_status status) {
     switch (status) {
@@ -1261,8 +1265,28 @@ mosaic_status mosaic_stream_push(mosaic_stream *stream, const uint8_t *bytes, si
 
 mosaic_status mosaic_stream_finish(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count) {
     if (!stream || stream->finished || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    mosaic_status status = encode_internal(stream->model, stream->buffer, stream->len,
-                                           stream->adjustments, out_ids, out_count);
+    mosaic_status status;
+    if (stream->tokenizer) {
+        if (stream->auto_mode) {
+            mosaic_detection detection;
+            status = mosaic_tokenizer_encode_auto(stream->tokenizer, stream->buffer, stream->len,
+                                                   out_ids, out_count, &detection);
+        } else {
+            status = mosaic_tokenizer_encode(stream->tokenizer, stream->buffer, stream->len, out_ids, out_count);
+        }
+    } else {
+        status = encode_internal(stream->model, stream->buffer, stream->len, stream->adjustments, out_ids, out_count);
+    }
+    if (status == MOSAIC_OK) stream->finished = 1;
+    return status;
+}
+
+mosaic_status mosaic_stream_finish_auto(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count,
+                                        mosaic_detection *out_detection) {
+    if (!stream || !stream->tokenizer || !stream->auto_mode || stream->finished || !out_ids || !out_count || !out_detection)
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status status = mosaic_tokenizer_encode_auto(stream->tokenizer, stream->buffer, stream->len,
+                                                         out_ids, out_count, out_detection);
     if (status == MOSAIC_OK) stream->finished = 1;
     return status;
 }
@@ -1277,6 +1301,7 @@ mosaic_status mosaic_stream_reset(mosaic_stream *stream) {
 void mosaic_stream_free(mosaic_stream *stream) {
     if (!stream) return;
     mosaic_model_free(stream->model);
+    mosaic_tokenizer_free(stream->tokenizer);
     free(stream->adjustments);
     free(stream->buffer);
     free(stream);
@@ -1334,9 +1359,24 @@ mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t sta
 }
 
 mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count) {
-    if (!document) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return encode_internal(document->model, document->buffer, document->len,
-                           document->adjustments, out_ids, out_count);
+    if (!document || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (document->tokenizer) {
+        if (document->auto_mode) {
+            mosaic_detection detection;
+            return mosaic_tokenizer_encode_auto(document->tokenizer, document->buffer, document->len,
+                                                 out_ids, out_count, &detection);
+        }
+        return mosaic_tokenizer_encode(document->tokenizer, document->buffer, document->len, out_ids, out_count);
+    }
+    return encode_internal(document->model, document->buffer, document->len, document->adjustments, out_ids, out_count);
+}
+
+mosaic_status mosaic_document_encode_auto(const mosaic_document *document, uint32_t **out_ids, size_t *out_count,
+                                          mosaic_detection *out_detection) {
+    if (!document || !document->tokenizer || !document->auto_mode || !out_ids || !out_count || !out_detection)
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return mosaic_tokenizer_encode_auto(document->tokenizer, document->buffer, document->len,
+                                         out_ids, out_count, out_detection);
 }
 
 mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len) {
@@ -1350,6 +1390,7 @@ mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_
 void mosaic_document_free(mosaic_document *document) {
     if (!document) return;
     mosaic_model_free(document->model);
+    mosaic_tokenizer_free(document->tokenizer);
     free(document->adjustments);
     free(document->buffer);
     free(document);
@@ -1542,6 +1583,26 @@ mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, s
 }
 
 
+static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_tokenizer **out_tokenizer) {
+    if (!source || !out_tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_tokenizer = NULL;
+    mosaic_tokenizer *copy = NULL;
+    mosaic_status status = mosaic_tokenizer_load_memory(source->model->pack, source->model->pack_len,
+                                                        source->unicode_data->pack, source->unicode_data->pack_len,
+                                                        &copy);
+    if (status != MOSAIC_OK) return status;
+    for (size_t i = 0; i < source->language_count; ++i) {
+        status = mosaic_tokenizer_add_language_memory(copy, source->languages[i].pack, source->languages[i].pack_len);
+        if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
+    }
+    if (source->detector) {
+        status = mosaic_tokenizer_set_detector_memory(copy, source->detector->pack, source->detector->pack_len);
+        if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
+    }
+    *out_tokenizer = copy;
+    return MOSAIC_OK;
+}
+
 mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *detector_pack, size_t detector_pack_len) {
     if (!tokenizer || (!detector_pack && detector_pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -1653,29 +1714,44 @@ mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer
 
 mosaic_status mosaic_tokenizer_stream_create(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream) {
     if (!tokenizer || !out_stream) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    mosaic_status status = mosaic_stream_create(tokenizer->model, out_stream);
-    if (status != MOSAIC_OK) return status;
-    if (tokenizer->adjustments) {
-        size_t bytes = (size_t)tokenizer->model->vocab.count * sizeof(int64_t);
-        (*out_stream)->adjustments = (int64_t *)malloc(bytes);
-        if (!(*out_stream)->adjustments) { mosaic_stream_free(*out_stream); *out_stream = NULL; return MOSAIC_ERROR_OUT_OF_MEMORY; }
-        memcpy((*out_stream)->adjustments, tokenizer->adjustments, bytes);
-    }
+    *out_stream = NULL;
+    mosaic_stream *stream = (mosaic_stream *)calloc(1, sizeof *stream);
+    if (!stream) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = tokenizer_clone(tokenizer, &stream->tokenizer);
+    if (status != MOSAIC_OK) { free(stream); return status; }
+    *out_stream = stream;
     return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_stream_create_auto(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream) {
+    mosaic_status status = mosaic_tokenizer_stream_create(tokenizer, out_stream);
+    if (status == MOSAIC_OK) (*out_stream)->auto_mode = 1;
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                mosaic_document **out_document) {
-    if (!tokenizer || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    mosaic_status status = mosaic_document_create(tokenizer->model, input, input_len, out_document);
-    if (status != MOSAIC_OK) return status;
-    if (tokenizer->adjustments) {
-        size_t bytes = (size_t)tokenizer->model->vocab.count * sizeof(int64_t);
-        (*out_document)->adjustments = (int64_t *)malloc(bytes);
-        if (!(*out_document)->adjustments) { mosaic_document_free(*out_document); *out_document = NULL; return MOSAIC_ERROR_OUT_OF_MEMORY; }
-        memcpy((*out_document)->adjustments, tokenizer->adjustments, bytes);
+    if (!tokenizer || (!input && input_len) || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_document = NULL;
+    mosaic_document *document = (mosaic_document *)calloc(1, sizeof *document);
+    if (!document) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = tokenizer_clone(tokenizer, &document->tokenizer);
+    if (status != MOSAIC_OK) { free(document); return status; }
+    if (input_len) {
+        status = reserve_buffer(&document->buffer, &document->capacity, input_len);
+        if (status != MOSAIC_OK) { mosaic_document_free(document); return status; }
+        memcpy(document->buffer, input, input_len);
     }
+    document->len = input_len;
+    *out_document = document;
     return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_document_create_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+                                                    mosaic_document **out_document) {
+    mosaic_status status = mosaic_tokenizer_document_create(tokenizer, input, input_len, out_document);
+    if (status == MOSAIC_OK) (*out_document)->auto_mode = 1;
+    return status;
 }
 
 #ifndef MOSAIC_LIBRARY_ONLY

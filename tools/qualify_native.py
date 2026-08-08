@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.3 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.4 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -56,7 +56,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.3 release qualification completed')
+    print('PASS: Mosaic native v0.4 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())

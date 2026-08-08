@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os,subprocess,tempfile
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1];BIN=Path(os.environ.get('MOSAIC_REF_BIN', ROOT/'build/mosaic-ref'));MAL=ROOT/'fixtures/packs/malformed-unicode17'
+ROOT=Path(__file__).resolve().parents[1];BIN=Path(os.environ.get('MOSAIC_REF_BIN', ROOT/'build/mosaic-tokenizer'));MAL=ROOT/'fixtures/packs/malformed-unicode17'
 def main():
  with tempfile.NamedTemporaryFile() as f:
   f.write(b'a');f.flush();files=sorted(MAL.glob('*.mpack'))

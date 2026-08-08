@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.3.0
+## Stable tokenizer: 0.4.0
 
-Mosaic Tokenizer 0.3.0 is a stable native tokenizer release with:
+Mosaic Tokenizer 0.4.0 is a stable native tokenizer release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -27,7 +27,7 @@ Mosaic Tokenizer 0.3.0 is a stable native tokenizer release with:
 - deterministic release packaging;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.3.0 adds detector packs and automatic document routing without making correctness depend on detection.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extends automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs while preserving fail-soft behavior and exact bytes.
 
 This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Production detector training, span-level mixed-language routing, production-scale vocabulary training, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
@@ -112,7 +112,7 @@ Auto mode applies a specialization only when the detector confidence gate passes
 
 ## Language-pack behavior
 
-A v0.3 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
+A v0.4 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
 
 The reference fixtures intentionally demonstrate this mechanism:
 
@@ -120,7 +120,7 @@ The reference fixtures intentionally demonstrate this mechanism:
 - `नमस्ते दुनिया`: base two pieces → Hindi pack one existing vocabulary piece;
 - `こんにちは世界`: base two pieces → Japanese pack one existing vocabulary piece.
 
-All three packs may be attached simultaneously. Their effects and tokenizer fingerprint are independent of attachment order. Duplicate packs for the same language tag fail with `MOSAIC_ERROR_CONFLICT` in v0.3 rather than silently stacking contradictory policies.
+All three packs may be attached simultaneously. Their effects and tokenizer fingerprint are independent of attachment order. Duplicate packs for the same language tag fail with `MOSAIC_ERROR_CONFLICT` in v0.4 rather than silently stacking contradictory policies.
 
 These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
@@ -130,7 +130,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.3.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.4.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 
@@ -140,6 +140,6 @@ Stable Rust remains the intended primary implementation language. Rust source ex
 
 The tokenizer itself now has a stable native byte/Unicode/model/language-pack execution path. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
-See `docs/implementation/STATUS.md` and `docs/implementation/INTEGRATION_AUDIT_0.3.0.md` for the exact implemented/not-implemented boundary.
+See `docs/implementation/STATUS.md` and `docs/implementation/STATUS.md` for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.

@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 3
+#define MOSAIC_C_API_VERSION_MINOR 4
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -101,8 +101,13 @@ mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer
                                                const uint8_t *input, size_t input_len,
                                                mosaic_range **out_ranges, size_t *out_count);
 mosaic_status mosaic_tokenizer_stream_create(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
+/* Auto-routing stream snapshots model/Unicode/language/detector configuration at creation. */
+mosaic_status mosaic_tokenizer_stream_create_auto(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
 mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                mosaic_document **out_document);
+/* Auto-routing document re-detects from the current exact bytes after each edit. */
+mosaic_status mosaic_tokenizer_document_create_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+                                                    mosaic_document **out_document);
 
 /* Pack bytes are copied; caller may release its input immediately. */
 mosaic_status mosaic_model_load_memory(const uint8_t *pack, size_t pack_len, mosaic_model **out_model);
@@ -122,6 +127,9 @@ mosaic_status mosaic_decode(const mosaic_model *model, const uint32_t *ids, size
 mosaic_status mosaic_stream_create(const mosaic_model *model, mosaic_stream **out_stream);
 mosaic_status mosaic_stream_push(mosaic_stream *stream, const uint8_t *bytes, size_t len);
 mosaic_status mosaic_stream_finish(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count);
+/* Valid for auto-routing streams; returns the document-level detection used at EOF. */
+mosaic_status mosaic_stream_finish_auto(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count,
+                                        mosaic_detection *out_detection);
 mosaic_status mosaic_stream_reset(mosaic_stream *stream);
 void mosaic_stream_free(mosaic_stream *stream);
 
@@ -132,6 +140,9 @@ mosaic_status mosaic_document_create(const mosaic_model *model, const uint8_t *i
 mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t start, uint64_t delete_len,
                                          const uint8_t *replacement, size_t replacement_len);
 mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count);
+/* Valid for auto-routing documents; detection reflects the current edited bytes. */
+mosaic_status mosaic_document_encode_auto(const mosaic_document *document, uint32_t **out_ids, size_t *out_count,
+                                          mosaic_detection *out_detection);
 mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len);
 void mosaic_document_free(mosaic_document *document);
 

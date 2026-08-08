@@ -1,12 +1,12 @@
 # Implementation Status
 
-Date: 2026-08-07
+Date: 2026-08-08
 
 ## Stable release state
 
-**Mosaic Tokenizer 0.3.0 native tokenizer: STABLE NATIVE RELEASE QUALIFIED LOCALLY.**
+**Mosaic Tokenizer 0.4.0 native tokenizer: STABLE NATIVE RELEASE QUALIFIED LOCALLY.**
 
-Version 0.3 adds declarative detector packs and fail-soft automatic document routing to the qualified byte/Unicode/model/language core. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
+Version 0.4 extends the qualified byte/Unicode/model/language/detector core so automatic routing is semantically consistent across one-shot, stream-at-EOF, and editable-document APIs. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
 
 ### Implemented tokenizer path
 
@@ -23,6 +23,8 @@ Version 0.3 adds declarative detector packs and fail-soft automatic document rou
 - attach-time projection of pack costs onto model vocabulary;
 - language-specialized streams and editable-document snapshots;
 - deterministic detector packs and document-level automatic routing;
+- automatic stream snapshots with EOF detection and parent-lifetime independence;
+- automatic editable documents with re-detection after edits;
 - fallback to base model on ambiguous, low-confidence, or unavailable language results;
 - CLI, C ABI, static/shared libraries, CMake and Make builds;
 - deterministic release bundle.
