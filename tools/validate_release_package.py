@@ -221,5 +221,20 @@ int main(int argc, char **argv) {
 ''')
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-o',temp/'client'],check=True)
         subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True)
-    print(f'OK: packaged release {archive.name} passes CLI, detector/language/security/normalization/lexer packs, manifest, checksums, authoring, compatibility, and external static-client smoke');return 0
+        # Trust authoring is offline-only and must regenerate the deterministic conformance record.
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, PublicFormat, NoEncryption
+        tpriv=Ed25519PrivateKey.from_private_bytes(bytes(range(1,33)))
+        priv_pem=temp/'trust-private.pem'; pub_pem=temp/'trust-public.pem'; generated_sig=temp/'generated.sig'
+        priv_pem.write_bytes(tpriv.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
+        pub_pem.write_bytes(tpriv.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
+        subprocess.run([author,'sign-pack',model,priv_pem,generated_sig],check=True)
+        packaged_sig=d/'share/mosaic/trust/model-v2.mpack.sig'
+        if generated_sig.read_bytes()!=packaged_sig.read_bytes():raise SystemExit('packaged trust authoring is not deterministic')
+        expected_key=hashlib.sha256(tpriv.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)).hexdigest()
+        if run([author,'key-id',pub_pem])!=expected_key:raise SystemExit('packaged trust key-id mismatch')
+        trust_client=ROOT/'conformance/c/package_trust_client.c'
+        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',trust_client,d/'lib/libmosaic.a',d/'lib/libmosaic_trust.a','-lcrypto','-o',temp/'trust_client'],check=True)
+        subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True)
+    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, authoring, compatibility, trust signing/verification, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())

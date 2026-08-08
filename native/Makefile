@@ -55,6 +55,16 @@ SECURITY := $(ROOT)/fixtures/packs/security17-v1.mpack
 NORMALIZATION := $(ROOT)/fixtures/packs/normalization16-v1.mpack
 ICU_CFLAGS := $(shell pkg-config --cflags icu-uc)
 ICU_LIBS := $(shell pkg-config --libs icu-uc)
+OPENSSL_CFLAGS := $(shell pkg-config --cflags openssl)
+OPENSSL_LIBS := $(shell pkg-config --libs openssl)
+TRUST_OBJ := $(BUILD)/mosaic_trust.o
+TRUST_STATIC_LIB := $(BUILD)/libmosaic_trust.a
+TRUST_SHARED_LIB := $(BUILD)/libmosaic_trust.so
+TRUST_SAN_OBJ := $(BUILD)/mosaic_trust_san.o
+TRUST_SMOKE := $(BUILD)/mosaic-trust-smoke
+SAN_TRUST := $(BUILD)/mosaic-trust-smoke-san
+TRUST_PUB := $(ROOT)/fixtures/trust/conformance-ed25519.pub
+TRUST_SIG := $(ROOT)/fixtures/packs/model-v2.mpack.sig
 BPE_MODEL := $(ROOT)/fixtures/packs/raw-bpe-v1.mpack
 ONLINE_ADVERSARIAL := $(ROOT)/fixtures/packs/online-adversarial-v1.mpack
 API_STATIC := $(BUILD)/mosaic-api-smoke-static
@@ -63,7 +73,7 @@ API_CPP := $(BUILD)/mosaic-api-smoke-cpp
 DETECTOR := $(ROOT)/fixtures/packs/detector/reference-v1.mpack
 DETECTOR_SMOKE := $(BUILD)/mosaic-detector-smoke
 
-all: $(CLI) $(STATIC_LIB) $(SHARED_LIB)
+all: $(CLI) $(STATIC_LIB) $(SHARED_LIB) $(TRUST_STATIC_LIB) $(TRUST_SHARED_LIB)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -83,11 +93,29 @@ $(STATIC_LIB): $(OBJ)
 $(SHARED_LIB): $(OBJ)
 	$(CC) -shared $(OBJ) -o $@
 
+$(TRUST_OBJ): src/mosaic_trust.c $(INC)/mosaic_trust.h $(INC)/mosaic.h | $(BUILD)
+	$(CC) $(CFLAGS) $(PICFLAGS) $(OPENSSL_CFLAGS) -I$(INC) -c $< -o $@
+
+$(TRUST_STATIC_LIB): $(TRUST_OBJ)
+	$(AR) rcs $@ $(TRUST_OBJ)
+
+$(TRUST_SHARED_LIB): $(TRUST_OBJ)
+	$(CC) -shared $(TRUST_OBJ) $(OPENSSL_LIBS) -o $@
+
+$(TRUST_SAN_OBJ): src/mosaic_trust.c $(INC)/mosaic_trust.h $(INC)/mosaic.h | $(BUILD)
+	$(CC) $(SAN_FLAGS) $(OPENSSL_CFLAGS) -I$(INC) -c $< -o $@
+
 $(BUILD)/mosaic_lib_san.o: src/mosaic.c $(INC)/mosaic.h | $(BUILD)
 	$(CC) $(SAN_FLAGS) -I$(INC) -DMOSAIC_LIBRARY_ONLY -c $< -o $@
 
 $(BUILD)/mosaic_cache_san.o: src/mosaic_cache.c src/mosaic_internal.h $(INC)/mosaic.h | $(BUILD)
 	$(CC) $(SAN_FLAGS) -I$(INC) -c $< -o $@
+
+$(TRUST_SMOKE): $(TESTS)/trust_smoke.c $(STATIC_LIB) $(TRUST_STATIC_LIB)
+	$(CC) $(CFLAGS) $(OPENSSL_CFLAGS) -I$(INC) $< $(STATIC_LIB) $(TRUST_STATIC_LIB) $(OPENSSL_LIBS) -o $@
+
+$(SAN_TRUST): $(TESTS)/trust_smoke.c $(SAN_OBJ) $(TRUST_SAN_OBJ)
+	$(CC) $(SAN_FLAGS) $(OPENSSL_CFLAGS) -I$(INC) $< $(SAN_OBJ) $(TRUST_SAN_OBJ) $(OPENSSL_LIBS) -o $@
 
 $(SAN_API): $(TESTS)/api_smoke.c $(SAN_OBJ)
 	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
@@ -237,6 +265,9 @@ $(API_CPP): $(TESTS)/api_smoke.cpp $(SHARED_LIB)
 $(DETECTOR_SMOKE): $(TESTS)/detector_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
+sanitize-trust: $(SAN_TRUST)
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TRUST) $(MODEL) $(TRUST_PUB) $(TRUST_SIG)
+
 smoke: $(API_STATIC) $(API_SHARED)
 	$(API_STATIC) $(MODEL) $(UNICODE)
 	$(API_SHARED) $(MODEL) $(UNICODE)
@@ -244,9 +275,9 @@ smoke: $(API_STATIC) $(API_SHARED)
 cpp-smoke: $(API_CPP)
 	$(API_CPP)
 
-sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online sanitize-incremental sanitize-resync sanitize-token-document
+sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online sanitize-incremental sanitize-resync sanitize-token-document sanitize-trust
 
-test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(BLOCK_STORAGE_SMOKE) $(CACHE_SMOKE) $(CACHE_BACKEND_SMOKE) $(RUNTIME_POLICY_SMOKE) $(RESYNC_SMOKE) sanitize
+test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(BLOCK_STORAGE_SMOKE) $(CACHE_SMOKE) $(CACHE_BACKEND_SMOKE) $(RUNTIME_POLICY_SMOKE) $(TRUST_SMOKE) $(RESYNC_SMOKE) sanitize
 	$(DETECTOR_SMOKE) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
 	$(BPE_SMOKE) $(BPE_MODEL)
 	$(SECURITY_SMOKE) $(MODEL) $(UNICODE) $(SECURITY)
@@ -262,8 +293,9 @@ test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NOR
 	$(CACHE_SMOKE)
 	$(CACHE_BACKEND_SMOKE)
 	$(RUNTIME_POLICY_SMOKE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack
+	$(TRUST_SMOKE) $(MODEL) $(TRUST_PUB) $(TRUST_SIG)
 
 clean:
-	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(SAN_SECURITY) $(SAN_NORMALIZATION) $(SAN_ONLINE) $(SAN_INCREMENTAL) $(SAN_RESYNC) $(SAN_TOKEN_DOCUMENT) $(SAN_TOKEN_DOCUMENT_RICH) $(SAN_LEXER) $(SAN_SEMANTIC) $(SAN_BLOCK_STORAGE) $(SAN_CACHE) $(SAN_CACHE_BACKEND) $(SAN_RUNTIME_POLICY) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(BLOCK_STORAGE_SMOKE) $(CACHE_SMOKE) $(CACHE_BACKEND_SMOKE) $(RUNTIME_POLICY_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
+	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(SAN_SECURITY) $(SAN_NORMALIZATION) $(SAN_ONLINE) $(SAN_INCREMENTAL) $(SAN_RESYNC) $(SAN_TOKEN_DOCUMENT) $(SAN_TOKEN_DOCUMENT_RICH) $(SAN_LEXER) $(SAN_SEMANTIC) $(SAN_BLOCK_STORAGE) $(SAN_CACHE) $(SAN_CACHE_BACKEND) $(SAN_RUNTIME_POLICY) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(BLOCK_STORAGE_SMOKE) $(CACHE_SMOKE) $(CACHE_BACKEND_SMOKE) $(RUNTIME_POLICY_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE) $(TRUST_OBJ) $(TRUST_STATIC_LIB) $(TRUST_SHARED_LIB) $(TRUST_SAN_OBJ) $(TRUST_SMOKE) $(SAN_TRUST)
 
-.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online sanitize-incremental sanitize-resync sanitize-token-document smoke cpp-smoke test
+.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online sanitize-incremental sanitize-resync sanitize-token-document sanitize-trust smoke cpp-smoke test

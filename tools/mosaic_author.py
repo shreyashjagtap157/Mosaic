@@ -584,9 +584,38 @@ def cmd_inspect(args) -> None:
     print(json.dumps(info, indent=2, sort_keys=True))
 
 
+TRUST_DOMAIN = b"MOSAIC-PACK-SIGNATURE-v1"
+
+def _load_crypto():
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key, Encoding, PublicFormat
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+    except ImportError as exc:
+        raise ValueError("trust authoring requires the optional 'cryptography' package") from exc
+    return load_pem_private_key, load_pem_public_key, Encoding, PublicFormat, Ed25519PrivateKey, Ed25519PublicKey
+
+def cmd_sign_pack(args) -> None:
+    load_priv, _, Encoding, PublicFormat, Ed25519PrivateKey, _ = _load_crypto()
+    key = load_priv(args.private_key.read_bytes(), password=None)
+    if not isinstance(key, Ed25519PrivateKey): raise ValueError("private key must be Ed25519 PEM")
+    public = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    key_id = hashlib.sha256(public).digest(); pack_hash = hashlib.sha256(args.pack.read_bytes()).digest()
+    sig = key.sign(TRUST_DOMAIN + key_id + pack_hash)
+    record = b"MSSIGV01" + struct.pack("<IIII", 1, 160, 0, 1) + key_id + pack_hash + sig + b"\0" * 8
+    if len(record) != 160: raise ValueError("internal signature record size mismatch")
+    args.output.write_bytes(record)
+    print(json.dumps({"output": str(args.output), "key_id": key_id.hex(), "pack_sha256": pack_hash.hex(), "signature_record_sha256": hashlib.sha256(record).hexdigest()}, sort_keys=True))
+
+def cmd_key_id(args) -> None:
+    _, load_pub, Encoding, PublicFormat, _, Ed25519PublicKey = _load_crypto()
+    key = load_pub(args.public_key.read_bytes())
+    if not isinstance(key, Ed25519PublicKey): raise ValueError("public key must be Ed25519 PEM")
+    raw = key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+    print(hashlib.sha256(raw).hexdigest())
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mosaic-author", description="Deterministic Mosaic pack authoring")
-    p.add_argument("--version", action="version", version="mosaic-author 0.19.0")
+    p.add_argument("--version", action="version", version="mosaic-author 0.20.0")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("model", help="compile model vocabulary from JSON")
     m.add_argument("config", type=Path); m.add_argument("output", type=Path); m.set_defaults(func=cmd_model)
@@ -606,6 +635,10 @@ def parser() -> argparse.ArgumentParser:
     d.add_argument("config", type=Path); d.add_argument("output", type=Path); d.set_defaults(func=cmd_detector)
     lx = sub.add_parser("lexer", help="compile declarative lexer profile JSON")
     lx.add_argument("config", type=Path); lx.add_argument("output", type=Path); lx.set_defaults(func=cmd_lexer)
+    sp = sub.add_parser("sign-pack", help="sign exact pack identity with an Ed25519 PEM private key")
+    sp.add_argument("pack", type=Path); sp.add_argument("private_key", type=Path); sp.add_argument("output", type=Path); sp.set_defaults(func=cmd_sign_pack)
+    ki = sub.add_parser("key-id", help="print SHA-256 key id for an Ed25519 PEM public key")
+    ki.add_argument("public_key", type=Path); ki.set_defaults(func=cmd_key_id)
     i = sub.add_parser("inspect", help="inspect MOSPACK container metadata")
     i.add_argument("pack", type=Path); i.set_defaults(func=cmd_inspect)
     return p

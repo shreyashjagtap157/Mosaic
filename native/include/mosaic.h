@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 17
+#define MOSAIC_C_API_VERSION_MINOR 18
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -26,7 +26,9 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_UNSUPPORTED = 10,
     MOSAIC_ERROR_NOT_FOUND = 11,
     MOSAIC_ERROR_INTEGRITY = 12,
-    MOSAIC_ERROR_STATE = 13
+    MOSAIC_ERROR_STATE = 13,
+    MOSAIC_ERROR_UNTRUSTED = 14,
+    MOSAIC_ERROR_REVOKED = 15
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;

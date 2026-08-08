@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 — 2026-08-08
+
+Optional enterprise Ed25519 pack-trust release.
+
+- separate dependency-isolated trust library;
+- exact SHA-256 pack identity signatures;
+- bounded publisher trust store and revocation;
+- structural-validation-first authorization;
+- offline pack signing/key-ID authoring.
+
 ## 0.19.0 — 2026-08-08
 
 Enterprise immutable runtime-policy release.

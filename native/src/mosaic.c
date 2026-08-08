@@ -1748,7 +1748,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.19.0"; }
+const char *mosaic_version_string(void) { return "0.20.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {

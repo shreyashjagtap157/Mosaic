@@ -177,6 +177,10 @@ All three packs may be attached simultaneously. Their effects and tokenizer fing
 
 These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
+## Pack trust
+
+0.20 ships optional `libmosaic_trust` static/shared libraries. Trust verification authenticates exact SHA-256 pack identities with Ed25519 publisher keys and explicit revocation, after ordinary structural pack validation. The core tokenizer remains free of OpenSSL. See `docs/implementation/TRUST_v1.md`.
+
 ## Enterprise runtime policy
 
 0.19 adds explicit serving ceilings, immutable tokenizer sealing, deployment runtime identities, and lock-free operational counters. Configure packs and limits first, call `mosaic_tokenizer_seal`, then share the tokenizer across worker threads. Runtime ceilings are deployment policy and do not change the semantic tokenizer fingerprint. See `docs/implementation/RUNTIME_POLICY_v1.md`.

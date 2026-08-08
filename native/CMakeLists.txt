@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.19.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.20.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
 set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_cache.c)
 set(MOSAIC_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -34,6 +35,18 @@ add_executable(mosaic-tokenizer ${MOSAIC_SRC})
 target_include_directories(mosaic-tokenizer PRIVATE ${MOSAIC_INCLUDE})
 mosaic_warnings(mosaic-tokenizer)
 target_link_libraries(mosaic-tokenizer PRIVATE Threads::Threads)
+
+add_library(mosaic_trust_static STATIC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_trust.c)
+target_include_directories(mosaic_trust_static PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+set_target_properties(mosaic_trust_static PROPERTIES OUTPUT_NAME mosaic_trust)
+mosaic_warnings(mosaic_trust_static)
+target_link_libraries(mosaic_trust_static PUBLIC OpenSSL::Crypto)
+
+add_library(mosaic_trust_shared SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_trust.c)
+target_include_directories(mosaic_trust_shared PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+set_target_properties(mosaic_trust_shared PROPERTIES OUTPUT_NAME mosaic_trust WINDOWS_EXPORT_ALL_SYMBOLS ON)
+mosaic_warnings(mosaic_trust_shared)
+target_link_libraries(mosaic_trust_shared PUBLIC OpenSSL::Crypto)
 
 if(BUILD_TESTING)
   set(MOSAIC_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../conformance/c)
@@ -188,6 +201,14 @@ if(BUILD_TESTING)
   add_test(NAME runtime-policy COMMAND mosaic-runtime-policy-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack)
 
+  add_executable(mosaic-trust-smoke ${MOSAIC_TEST_DIR}/trust_smoke.c)
+  target_include_directories(mosaic-trust-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-trust-smoke PRIVATE mosaic_static mosaic_trust_static)
+  mosaic_warnings(mosaic-trust-smoke)
+  add_test(NAME trust COMMAND mosaic-trust-smoke ${MOSAIC_MODEL_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/trust/conformance-ed25519.pub
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack.sig)
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -195,11 +216,11 @@ if(BUILD_TESTING)
   add_test(NAME malformed COMMAND mosaic-malformed-smoke ${CMAKE_CURRENT_SOURCE_DIR}/..)
 endif()
 
-install(TARGETS mosaic_static mosaic_shared mosaic-tokenizer
+install(TARGETS mosaic_static mosaic_shared mosaic_trust_static mosaic_trust_shared mosaic-tokenizer
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES ${MOSAIC_INCLUDE}/mosaic.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES ${MOSAIC_INCLUDE}/mosaic.h ${MOSAIC_INCLUDE}/mosaic_trust.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack
