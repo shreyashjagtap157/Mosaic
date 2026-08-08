@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.26.0 — 2026-08-08
+
+Enterprise performance-hardening release.
+
+- eliminate redundant first-byte comparisons in validated Viterbi vocabulary buckets;
+- preserve exact canonical segmentation while reducing hot-path comparison work;
+- benchmark against the sealed v0.25 binary on the same 10 MiB fixture;
+- reject an expanded-vocabulary metadata experiment after it measured slower than the compact pack view;
+- retain the existing compact runtime representation and memory profile.
+
 ## 0.25.0 — 2026-08-08
 
 Supported Python binding release.

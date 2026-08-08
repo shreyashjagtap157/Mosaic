@@ -1022,7 +1022,9 @@ static int tokenize_viterbi_with_adjustments(const Vocab *v, Slice input, const 
         for (uint32_t i = a; i < z; ++i) {
             VocabEntry e; Slice surf;
             if (!vocab_entry(v, i, &e, &surf)) { free(ring); free(back); return fail("vocabulary changed after validation"); }
-            if (surf.len > input.len - start || memcmp(input.bytes + start, surf.bytes, surf.len) != 0) continue;
+            if (surf.len > input.len - start) continue;
+            /* The validated first-byte index already proves surf[0] == input[start]. */
+            if (surf.len > 1 && memcmp(input.bytes + start + 1, surf.bytes + 1, surf.len - 1) != 0) continue;
             size_t end = start + surf.len; int64_t total;
             if (!add_i64_i32(source_cost, e.cost, &total)) { free(ring); free(back); return fail("path cost overflow"); }
             if (adjustments && !add_i64(total, adjustments[i], &total)) {
@@ -1773,7 +1775,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.25.0"; }
+const char *mosaic_version_string(void) { return "0.26.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
