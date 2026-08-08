@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Current release
 
-**Mosaic Tokenizer 0.10.0: qualified exact incremental-document release.**
+**Mosaic Tokenizer 0.11.0: qualified checkpoint-resynchronizing incremental release.**
 
 The stable native tokenizer now provides exact arbitrary-byte model tokenization, deterministic Viterbi and raw-BPE execution, Unicode-17 grapheme views, composable language packs, fail-soft document routing, deterministic authoring/training tools, raw `.tiktoken` rank interchange, a separately versioned Unicode-17 script/security evidence pack, a separately pinned Unicode-16 normalization shadow-view pack, exact online Viterbi streaming, and callback-based bounded-output security evidence. Security and normalization evidence never mutate source bytes or model IDs.
 
@@ -34,14 +34,14 @@ The rejected 0.2 per-candidate language-pack lookup and rejected 0.7 per-byte se
 - **Unicode security evidence:** Unicode-17 script/property pack implemented.
 - **Mapped normalization:** Unicode-16 NFD/NFC/NFKD/NFKC/NFKC-casefold pack and exact source provenance implemented and qualified.
 - **Bounded streaming/security evidence:** exact survivor-prefix online Viterbi plus callback security visitor implemented and qualified.
-- **Incremental documents:** exact Viterbi safe-prefix reuse implemented; forward checkpoint resynchronization remains a later multiscale improvement.
+- **Incremental documents:** exact safe-prefix reuse plus exact checkpoint-state forward resynchronization implemented for weighted Viterbi; raw-BPE remains on full/reference paths until an exact merge-state restart proof is implemented.
 - **M4 Wedge Tournament:** not yet run and not silently bypassed.
 
 ## Remaining tokenizer work before the broader platform
 
 1. richer existing-tokenizer compatibility profiles including pre-tokenization semantics;
-2. forward-resynchronizing block/checkpoint incrementality for middle-of-document edits;
-3. production-scale vocabulary/language/detector training and quality evaluation;
+2. production-scale vocabulary/language/detector training and quality evaluation;
+3. richer source backends/block scheduling and checkpoint-policy tuning;
 4. Wedge Tournament after the common tokenizer benchmark substrate is representative.
 
 After that, the broader Mosaic platform still requires TokenDocument/Token IR, consumer projections/capability negotiation, structured/compiler profiles, semantic enrichment, sub-byte views, multiscale blocks, caching/packed serialization, trust/signature/registry infrastructure, cross-platform qualification, bindings, reliability campaigns, and a 1.0 compatibility freeze.

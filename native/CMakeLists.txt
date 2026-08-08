@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.10.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.11.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -108,6 +108,17 @@ if(BUILD_TESTING)
   target_link_libraries(mosaic-incremental-smoke PRIVATE mosaic_static)
   mosaic_warnings(mosaic-incremental-smoke)
   add_test(NAME incremental COMMAND mosaic-incremental-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/raw-bpe-v1.mpack)
+
+
+  add_executable(mosaic-resync-smoke ${MOSAIC_TEST_DIR}/resync_smoke.c)
+  target_include_directories(mosaic-resync-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-resync-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-resync-smoke)
+  add_test(NAME resync COMMAND mosaic-resync-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack

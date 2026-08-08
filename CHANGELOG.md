@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 — 2026-08-08
+
+Exact checkpoint-resynchronizing incremental Viterbi release.
+
+- cached resumable online-Viterbi checkpoints;
+- middle-edit forward state resynchronization with exact suffix reuse;
+- compact 8-byte internal resync token cache;
+- 500 randomized edit/full differentials plus sanitizer coverage;
+- 10 MiB middle edit reprocesses about 0.625% and is over 8x faster than a fresh full tokenization on the reference host;
+- raw-BPE explicitly remains unsupported by the Viterbi-specific resync API.
+
 ## 0.10.0 — 2026-08-08
 
 Stable exact incremental Viterbi document release.

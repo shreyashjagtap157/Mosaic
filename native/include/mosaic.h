@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 8
+#define MOSAIC_C_API_VERSION_MINOR 9
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -36,6 +36,7 @@ typedef struct mosaic_stream mosaic_stream;
 typedef struct mosaic_online_stream mosaic_online_stream;
 typedef struct mosaic_document mosaic_document;
 typedef struct mosaic_incremental_document mosaic_incremental_document;
+typedef struct mosaic_resync_document mosaic_resync_document;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -260,6 +261,29 @@ mosaic_status mosaic_incremental_document_copy_bytes(const mosaic_incremental_do
 size_t mosaic_incremental_document_last_reprocessed_bytes(const mosaic_incremental_document *document);
 size_t mosaic_incremental_document_last_reused_prefix_bytes(const mosaic_incremental_document *document);
 void mosaic_incremental_document_free(mosaic_incremental_document *document);
+
+/* Checkpoint-resynchronizing exact Viterbi document. Checkpoints snapshot the bounded online
+ * survivor state. After an edit, matching a shifted old checkpoint proves future execution state
+ * identity and permits exact suffix reuse without scanning to EOF. */
+mosaic_status mosaic_resync_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                            size_t checkpoint_bytes, size_t max_pending_bytes,
+                                            mosaic_resync_document **out_document);
+mosaic_status mosaic_tokenizer_resync_document_create(const mosaic_tokenizer *tokenizer,
+                                                      const uint8_t *input, size_t input_len,
+                                                      size_t checkpoint_bytes, size_t max_pending_bytes,
+                                                      mosaic_resync_document **out_document);
+mosaic_status mosaic_resync_document_apply_edit(mosaic_resync_document *document,
+                                                 uint64_t start, uint64_t delete_len,
+                                                 const uint8_t *replacement, size_t replacement_len);
+mosaic_status mosaic_resync_document_encode(const mosaic_resync_document *document,
+                                             uint32_t **out_ids, size_t *out_count);
+mosaic_status mosaic_resync_document_copy_bytes(const mosaic_resync_document *document,
+                                                 uint8_t **out_bytes, size_t *out_len);
+size_t mosaic_resync_document_last_reprocessed_bytes(const mosaic_resync_document *document);
+size_t mosaic_resync_document_last_reused_prefix_bytes(const mosaic_resync_document *document);
+size_t mosaic_resync_document_last_reused_suffix_bytes(const mosaic_resync_document *document);
+int mosaic_resync_document_last_resynchronized(const mosaic_resync_document *document);
+void mosaic_resync_document_free(mosaic_resync_document *document);
 
 mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector);
 mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector);

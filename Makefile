@@ -38,6 +38,7 @@ test: fixtures
 	$(PYTHON) tools/validate_security17.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py
+	$(PYTHON) tools/benchmark_resync.py
 
 qualify:
 	$(PYTHON) tools/qualify_native.py

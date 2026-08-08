@@ -1443,8 +1443,40 @@ struct mosaic_incremental_document {
     size_t last_reused_prefix_bytes;
 };
 
+typedef struct {
+    uint32_t id;
+    uint16_t length;
+    uint16_t reserved;
+} ResyncToken;
+
+typedef struct {
+    size_t consumed;
+    size_t committed_end;
+    size_t prefix_token_count;
+    uint8_t *pending;
+    size_t pending_len;
+} ResyncCheckpoint;
+
+struct mosaic_resync_document {
+    mosaic_model *model;
+    int64_t *adjustments;
+    uint8_t *buffer;
+    size_t len;
+    ResyncToken *tokens;
+    size_t token_count;
+    ResyncCheckpoint *checkpoints;
+    size_t checkpoint_count;
+    size_t checkpoint_capacity;
+    size_t checkpoint_bytes;
+    size_t max_pending_bytes;
+    size_t last_reprocessed_bytes;
+    size_t last_reused_prefix_bytes;
+    size_t last_reused_suffix_bytes;
+    int last_resynchronized;
+};
+
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.10.0"; }
+const char *mosaic_version_string(void) { return "0.11.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -2458,6 +2490,365 @@ size_t mosaic_online_stream_pending_bytes(const mosaic_online_stream *stream) { 
 void mosaic_online_stream_free(mosaic_online_stream *stream) {
     if (!stream) return;
     mosaic_model_free(stream->model); free(stream->adjustments); free(stream->pending); free(stream);
+}
+
+static void resync_checkpoint_free(ResyncCheckpoint *cp) {
+    if (!cp) return;
+    free(cp->pending);
+    *cp = (ResyncCheckpoint){0};
+}
+
+static void resync_checkpoint_array_free(ResyncCheckpoint *items, size_t count) {
+    if (!items) return;
+    for (size_t i = 0; i < count; ++i) resync_checkpoint_free(&items[i]);
+    free(items);
+}
+
+static int resync_checkpoint_append(ResyncCheckpoint **items, size_t *count, size_t *capacity,
+                                    size_t consumed, size_t committed_end, size_t prefix_token_count,
+                                    const uint8_t *pending, size_t pending_len) {
+    if (*count == *capacity) {
+        size_t next = *capacity ? *capacity * 2u : 16u;
+        if (next < *capacity || next > SIZE_MAX / sizeof **items) return 0;
+        ResyncCheckpoint *grown = (ResyncCheckpoint *)realloc(*items, next * sizeof *grown);
+        if (!grown) return 0;
+        *items = grown; *capacity = next;
+    }
+    uint8_t *copy = pending_len ? (uint8_t *)malloc(pending_len) : NULL;
+    if (pending_len && !copy) return 0;
+    if (pending_len) memcpy(copy, pending, pending_len);
+    (*items)[(*count)++] = (ResyncCheckpoint){consumed, committed_end, prefix_token_count, copy, pending_len};
+    return 1;
+}
+
+static int resync_token_append(ResyncToken **items, size_t *count, size_t *capacity, ResyncToken value) {
+    if (*count == *capacity) {
+        size_t next = *capacity ? *capacity * 2u : 64u;
+        if (next < *capacity || next > SIZE_MAX / sizeof **items) return 0;
+        ResyncToken *grown = (ResyncToken *)realloc(*items, next * sizeof *grown);
+        if (!grown) return 0;
+        *items = grown; *capacity = next;
+    }
+    (*items)[(*count)++] = value; return 1;
+}
+
+static int resync_append_ids_as_tokens(const mosaic_model *model, const uint8_t *source, size_t source_len,
+                                       size_t *cursor, const uint32_t *ids, size_t id_count,
+                                       ResyncToken **items, size_t *count, size_t *capacity) {
+    if (!model || !cursor || !items || !count || !capacity || (!ids && id_count) || (!source && (source_len || id_count)) || *cursor > source_len) return 0;
+    for (size_t i = 0; i < id_count; ++i) {
+        VocabEntry e; Slice surface;
+        if (!vocab_by_id(&model->vocab, ids[i], &e, &surface) || surface.len > source_len - *cursor || surface.len > UINT16_MAX) return 0;
+        if (surface.len && memcmp(source + *cursor, surface.bytes, surface.len) != 0) return 0;
+        if (!resync_token_append(items, count, capacity, (ResyncToken){e.token_id, (uint16_t)surface.len, 0u})) return 0;
+        *cursor += surface.len;
+    }
+    return 1;
+}
+
+static int resync_compare_ids_to_cached(const mosaic_resync_document *doc, const uint32_t *ids, size_t id_count,
+                                        size_t *index, size_t *byte_cursor) {
+    if (id_count > doc->token_count - *index) return 0;
+    for (size_t i = 0; i < id_count; ++i) {
+        const ResyncToken token = doc->tokens[*index + i];
+        if (token.id != ids[i] || token.length > SIZE_MAX - *byte_cursor) return 0;
+        *byte_cursor += token.length;
+    }
+    *index += id_count; return 1;
+}
+
+static mosaic_status resync_encode_compact(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                           const int64_t *adjustments, ResyncToken **out_tokens, size_t *out_count) {
+    if (!model || (!input && input_len) || !out_tokens || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_tokens = NULL; *out_count = 0;
+    Tokenization result = {0};
+    if (!tokenize_with_adjustments(&model->vocab, (Slice){input, input_len}, adjustments, &result)) return MOSAIC_ERROR_INTERNAL;
+    if (result.count > SIZE_MAX / sizeof(ResyncToken)) { tokenization_free(&result); return MOSAIC_ERROR_OVERFLOW; }
+    ResyncToken *tokens = result.count ? (ResyncToken *)malloc(result.count * sizeof *tokens) : NULL;
+    if (result.count && !tokens) { tokenization_free(&result); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    size_t pos = input_len, out = result.count;
+    while (pos) {
+        uint32_t entry_index = result.back[pos]; VocabEntry entry; Slice surface;
+        if (entry_index == UINT32_MAX || !vocab_entry(&model->vocab, entry_index, &entry, &surface) ||
+            !surface.len || surface.len > pos || surface.len > UINT16_MAX || !out) {
+            free(tokens); tokenization_free(&result); return MOSAIC_ERROR_INTERNAL;
+        }
+        tokens[--out] = (ResyncToken){entry.token_id, (uint16_t)surface.len, 0u};
+        pos -= surface.len;
+    }
+    if (out != 0u) { free(tokens); tokenization_free(&result); return MOSAIC_ERROR_INTERNAL; }
+    size_t count = result.count; tokenization_free(&result); *out_tokens = tokens; *out_count = count; return MOSAIC_OK;
+}
+
+static mosaic_status resync_build_checkpoints(mosaic_resync_document *doc) {
+    mosaic_online_stream *stream = NULL;
+    mosaic_status status = online_stream_allocate(doc->model, doc->adjustments, doc->max_pending_bytes, &stream);
+    if (status != MOSAIC_OK) return status;
+    ResyncCheckpoint *items = NULL; size_t count = 0, capacity = 0;
+    if (!resync_checkpoint_append(&items, &count, &capacity, 0, 0, 0, NULL, 0)) { mosaic_online_stream_free(stream); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    size_t pos = 0, token_index = 0, token_bytes = 0;
+    while (pos < doc->len) {
+        size_t target = doc->len - pos > doc->checkpoint_bytes ? pos + doc->checkpoint_bytes : doc->len;
+        size_t consumed = 0; uint32_t *ids = NULL; size_t id_count = 0;
+        status = mosaic_online_stream_push(stream, doc->buffer + pos, target - pos, &consumed, &ids, &id_count);
+        if (status != MOSAIC_OK || consumed != target - pos || !resync_compare_ids_to_cached(doc, ids, id_count, &token_index, &token_bytes)) {
+            mosaic_free(ids); resync_checkpoint_array_free(items, count); mosaic_online_stream_free(stream);
+            return status == MOSAIC_OK ? MOSAIC_ERROR_INTERNAL : status;
+        }
+        mosaic_free(ids); pos += consumed;
+        size_t committed_end = pos - stream->pending_len;
+        if (token_bytes != committed_end) {
+            resync_checkpoint_array_free(items, count); mosaic_online_stream_free(stream); return MOSAIC_ERROR_INTERNAL;
+        }
+        if (!resync_checkpoint_append(&items, &count, &capacity, pos, committed_end, token_index, stream->pending, stream->pending_len)) {
+            resync_checkpoint_array_free(items, count); mosaic_online_stream_free(stream); return MOSAIC_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    uint32_t *tail = NULL; size_t tail_count = 0;
+    status = mosaic_online_stream_finish(stream, &tail, &tail_count);
+    if (status != MOSAIC_OK || !resync_compare_ids_to_cached(doc, tail, tail_count, &token_index, &token_bytes) || token_index != doc->token_count || token_bytes != doc->len) {
+        mosaic_free(tail); resync_checkpoint_array_free(items, count); mosaic_online_stream_free(stream);
+        return status == MOSAIC_OK ? MOSAIC_ERROR_INTERNAL : status;
+    }
+    mosaic_free(tail); mosaic_online_stream_free(stream);
+    doc->checkpoints = items; doc->checkpoint_count = count; doc->checkpoint_capacity = capacity;
+    return MOSAIC_OK;
+}
+
+static mosaic_status resync_document_allocate(const mosaic_model *model, const int64_t *adjustments,
+                                               const uint8_t *input, size_t input_len,
+                                               size_t checkpoint_bytes, size_t max_pending_bytes,
+                                               mosaic_resync_document **out_document) {
+    if (!model || (!input && input_len) || !checkpoint_bytes || !max_pending_bytes || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_document = NULL;
+    if (model->vocab.algorithm != 0u) return MOSAIC_ERROR_UNSUPPORTED;
+    if (max_pending_bytes < model->vocab.max_surface_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_resync_document *doc = (mosaic_resync_document *)calloc(1, sizeof *doc);
+    if (!doc) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = mosaic_model_load_memory(model->pack, model->pack_len, &doc->model);
+    if (status != MOSAIC_OK) { free(doc); return status; }
+    if (adjustments) {
+        size_t n = (size_t)doc->model->vocab.count;
+        if (n > SIZE_MAX / sizeof *doc->adjustments) { mosaic_resync_document_free(doc); return MOSAIC_ERROR_OVERFLOW; }
+        doc->adjustments = n ? (int64_t *)malloc(n * sizeof *doc->adjustments) : NULL;
+        if (n && !doc->adjustments) { mosaic_resync_document_free(doc); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        if (n) memcpy(doc->adjustments, adjustments, n * sizeof *doc->adjustments);
+    }
+    if (input_len) {
+        doc->buffer = (uint8_t *)malloc(input_len);
+        if (!doc->buffer) { mosaic_resync_document_free(doc); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy(doc->buffer, input, input_len);
+    }
+    doc->len = input_len; doc->checkpoint_bytes = checkpoint_bytes; doc->max_pending_bytes = max_pending_bytes;
+    status = resync_encode_compact(doc->model, doc->buffer, doc->len, doc->adjustments, &doc->tokens, &doc->token_count);
+    if (status != MOSAIC_OK) { mosaic_resync_document_free(doc); return status; }
+    status = resync_build_checkpoints(doc);
+    if (status != MOSAIC_OK) { mosaic_resync_document_free(doc); return status; }
+    doc->last_reprocessed_bytes = input_len;
+    *out_document = doc; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_resync_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                            size_t checkpoint_bytes, size_t max_pending_bytes,
+                                            mosaic_resync_document **out_document) {
+    return resync_document_allocate(model, NULL, input, input_len, checkpoint_bytes, max_pending_bytes, out_document);
+}
+
+mosaic_status mosaic_tokenizer_resync_document_create(const mosaic_tokenizer *tokenizer,
+                                                      const uint8_t *input, size_t input_len,
+                                                      size_t checkpoint_bytes, size_t max_pending_bytes,
+                                                      mosaic_resync_document **out_document) {
+    if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return resync_document_allocate(tokenizer->model, tokenizer->adjustments, input, input_len,
+                                    checkpoint_bytes, max_pending_bytes, out_document);
+}
+
+static int resync_map_old_position(size_t old_pos, size_t delete_len, size_t replacement_len, size_t *new_pos) {
+    if (replacement_len >= delete_len) {
+        size_t add = replacement_len - delete_len;
+        if (old_pos > SIZE_MAX - add) return 0;
+        *new_pos = old_pos + add;
+    } else {
+        size_t sub = delete_len - replacement_len;
+        if (old_pos < sub) return 0;
+        *new_pos = old_pos - sub;
+    }
+    return 1;
+}
+
+static int resync_pending_equal(const mosaic_online_stream *stream, const ResyncCheckpoint *old) {
+    return stream->pending_len == old->pending_len && (!old->pending_len || memcmp(stream->pending, old->pending, old->pending_len) == 0);
+}
+
+mosaic_status mosaic_resync_document_apply_edit(mosaic_resync_document *doc,
+                                                 uint64_t start64, uint64_t delete64,
+                                                 const uint8_t *replacement, size_t replacement_len) {
+    if (!doc || (!replacement && replacement_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (start64 > SIZE_MAX || delete64 > SIZE_MAX) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t start = (size_t)start64, delete_len = (size_t)delete64;
+    if (start > doc->len || delete_len > doc->len - start) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t kept = doc->len - delete_len; if (replacement_len > SIZE_MAX - kept) return MOSAIC_ERROR_OVERFLOW;
+    size_t new_len = kept + replacement_len, old_tail = start + delete_len;
+    uint8_t *next_buffer = new_len ? (uint8_t *)malloc(new_len) : NULL;
+    if (new_len && !next_buffer) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    if (new_len) {
+        if (start) memcpy(next_buffer, doc->buffer, start);
+        if (replacement_len) memcpy(next_buffer + start, replacement, replacement_len);
+        size_t tail_len = doc->len - old_tail;
+        if (tail_len) memcpy(next_buffer + start + replacement_len, doc->buffer + old_tail, tail_len);
+    }
+
+    size_t base_cp = 0;
+    for (size_t i = 1; i < doc->checkpoint_count && doc->checkpoints[i].consumed <= start; ++i) base_cp = i;
+    const ResyncCheckpoint *base = &doc->checkpoints[base_cp];
+    const size_t base_committed_end = base->committed_end;
+    mosaic_online_stream *stream = NULL;
+    mosaic_status status = online_stream_allocate(doc->model, doc->adjustments, doc->max_pending_bytes, &stream);
+    if (status != MOSAIC_OK) { free(next_buffer); return status; }
+    if (base->pending_len) {
+        stream->pending = (uint8_t *)malloc(base->pending_len);
+        if (!stream->pending) { mosaic_online_stream_free(stream); free(next_buffer); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy(stream->pending, base->pending, base->pending_len); stream->pending_len = base->pending_len; stream->pending_capacity = base->pending_len;
+    }
+
+    ResyncToken *new_tokens = NULL; size_t new_count = 0, new_capacity = 0;
+    if (base->prefix_token_count) {
+        if (base->prefix_token_count > SIZE_MAX / sizeof *new_tokens) { mosaic_online_stream_free(stream); free(next_buffer); return MOSAIC_ERROR_OVERFLOW; }
+        new_capacity = base->prefix_token_count + 64u;
+        if (new_capacity < base->prefix_token_count || new_capacity > SIZE_MAX / sizeof *new_tokens) new_capacity = base->prefix_token_count;
+        new_tokens = (ResyncToken *)malloc(new_capacity * sizeof *new_tokens);
+        if (!new_tokens) { mosaic_online_stream_free(stream); free(next_buffer); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy(new_tokens, doc->tokens, base->prefix_token_count * sizeof *new_tokens); new_count = base->prefix_token_count;
+    }
+    size_t token_cursor = base->committed_end;
+    ResyncCheckpoint *new_cps = NULL; size_t new_cp_count = 0, new_cp_capacity = 0;
+    for (size_t i = 0; i <= base_cp; ++i) {
+        const ResyncCheckpoint *cp = &doc->checkpoints[i];
+        if (!resync_checkpoint_append(&new_cps, &new_cp_count, &new_cp_capacity, cp->consumed, cp->committed_end,
+                                      cp->prefix_token_count, cp->pending, cp->pending_len)) {
+            resync_checkpoint_array_free(new_cps, new_cp_count); free(new_tokens); mosaic_online_stream_free(stream); free(next_buffer); return MOSAIC_ERROR_OUT_OF_MEMORY;
+        }
+    }
+
+    size_t old_candidate = base_cp + 1u;
+    while (old_candidate < doc->checkpoint_count && doc->checkpoints[old_candidate].consumed < old_tail) ++old_candidate;
+    size_t pos = base->consumed, matched_old = SIZE_MAX;
+    while (pos < new_len) {
+        size_t candidate_target = new_len;
+        if (old_candidate < doc->checkpoint_count) {
+            if (!resync_map_old_position(doc->checkpoints[old_candidate].consumed, delete_len, replacement_len, &candidate_target)) {
+                status = MOSAIC_ERROR_OVERFLOW; break;
+            }
+            if (candidate_target < pos) { ++old_candidate; continue; }
+            if (candidate_target > new_len) candidate_target = new_len;
+        }
+        size_t target = candidate_target;
+        if (target - pos > doc->checkpoint_bytes) target = pos + doc->checkpoint_bytes;
+        if (target == pos && target < new_len) { status = MOSAIC_ERROR_INTERNAL; break; }
+        size_t consumed = 0; uint32_t *ids = NULL; size_t id_count = 0;
+        status = mosaic_online_stream_push(stream, next_buffer + pos, target - pos, &consumed, &ids, &id_count);
+        if (status != MOSAIC_OK || consumed != target - pos || !resync_append_ids_as_tokens(doc->model, next_buffer, new_len,
+                                                                                             &token_cursor, ids, id_count,
+                                                                                             &new_tokens, &new_count, &new_capacity)) {
+            mosaic_free(ids); if (status == MOSAIC_OK) status = MOSAIC_ERROR_INTERNAL; break;
+        }
+        mosaic_free(ids); pos += consumed;
+        size_t committed_end = pos - stream->pending_len;
+        if (token_cursor != committed_end) { status = MOSAIC_ERROR_INTERNAL; break; }
+        if (!resync_checkpoint_append(&new_cps, &new_cp_count, &new_cp_capacity, pos, committed_end, new_count,
+                                      stream->pending, stream->pending_len)) { status = MOSAIC_ERROR_OUT_OF_MEMORY; break; }
+        if (old_candidate < doc->checkpoint_count && pos == candidate_target) {
+            const ResyncCheckpoint *oldcp = &doc->checkpoints[old_candidate];
+            if (oldcp->consumed >= old_tail && resync_pending_equal(stream, oldcp)) { matched_old = old_candidate; break; }
+            ++old_candidate;
+        }
+    }
+
+    size_t reused_suffix = 0; int resynchronized = 0;
+    if (status == MOSAIC_OK && matched_old != SIZE_MAX) {
+        const ResyncCheckpoint *match = &doc->checkpoints[matched_old];
+        size_t new_match_committed = pos - stream->pending_len;
+        size_t mapped_committed;
+        if (!resync_map_old_position(match->committed_end, delete_len, replacement_len, &mapped_committed) || mapped_committed != new_match_committed) status = MOSAIC_ERROR_INTERNAL;
+        if (status == MOSAIC_OK) {
+            size_t before_suffix = new_count;
+            for (size_t i = match->prefix_token_count; i < doc->token_count; ++i) {
+                if (!resync_token_append(&new_tokens, &new_count, &new_capacity, doc->tokens[i])) { status = MOSAIC_ERROR_OUT_OF_MEMORY; break; }
+            }
+            if (status == MOSAIC_OK) {
+                for (size_t i = matched_old + 1u; i < doc->checkpoint_count; ++i) {
+                    const ResyncCheckpoint *oldcp = &doc->checkpoints[i]; size_t mapped_consumed, mapped_end;
+                    if (!resync_map_old_position(oldcp->consumed, delete_len, replacement_len, &mapped_consumed) ||
+                        !resync_map_old_position(oldcp->committed_end, delete_len, replacement_len, &mapped_end)) { status = MOSAIC_ERROR_OVERFLOW; break; }
+                    if (oldcp->prefix_token_count < match->prefix_token_count) { status = MOSAIC_ERROR_INTERNAL; break; }
+                    size_t suffix_token_offset = oldcp->prefix_token_count - match->prefix_token_count;
+                    if (suffix_token_offset > SIZE_MAX - before_suffix) { status = MOSAIC_ERROR_OVERFLOW; break; }
+                    size_t pc = before_suffix + suffix_token_offset;
+                    if (pc > new_count || !resync_checkpoint_append(&new_cps, &new_cp_count, &new_cp_capacity,
+                                                                     mapped_consumed, mapped_end, pc,
+                                                                     oldcp->pending, oldcp->pending_len)) { status = MOSAIC_ERROR_INTERNAL; break; }
+                }
+                if (status == MOSAIC_OK) { reused_suffix = new_len - new_match_committed; resynchronized = 1; }
+            }
+        }
+    } else if (status == MOSAIC_OK) {
+        uint32_t *tail = NULL; size_t tail_count = 0;
+        status = mosaic_online_stream_finish(stream, &tail, &tail_count);
+        if (status == MOSAIC_OK && !resync_append_ids_as_tokens(doc->model, next_buffer, new_len, &token_cursor, tail, tail_count,
+                                                                 &new_tokens, &new_count, &new_capacity)) status = MOSAIC_ERROR_INTERNAL;
+        mosaic_free(tail);
+        if (status == MOSAIC_OK && token_cursor != new_len) status = MOSAIC_ERROR_INTERNAL;
+    }
+    mosaic_online_stream_free(stream);
+    if (status != MOSAIC_OK) { resync_checkpoint_array_free(new_cps, new_cp_count); free(new_tokens); free(next_buffer); return status; }
+
+    /* Defensive exact partition check before committing transaction. */
+    size_t cursor = 0;
+    for (size_t i = 0; i < new_count; ++i) {
+        if (!new_tokens[i].length || new_tokens[i].length > new_len - cursor) {
+            resync_checkpoint_array_free(new_cps, new_cp_count); free(new_tokens); free(next_buffer); return MOSAIC_ERROR_INTERNAL;
+        }
+        cursor += new_tokens[i].length;
+    }
+    if (cursor != new_len) { resync_checkpoint_array_free(new_cps, new_cp_count); free(new_tokens); free(next_buffer); return MOSAIC_ERROR_INTERNAL; }
+
+    size_t reprocessed = (resynchronized ? (pos - base_committed_end) : (new_len - base_committed_end));
+    free(doc->buffer); free(doc->tokens); resync_checkpoint_array_free(doc->checkpoints, doc->checkpoint_count);
+    doc->buffer = next_buffer; doc->len = new_len; doc->tokens = new_tokens; doc->token_count = new_count;
+    doc->checkpoints = new_cps; doc->checkpoint_count = new_cp_count; doc->checkpoint_capacity = new_cp_capacity;
+    doc->last_reprocessed_bytes = reprocessed; doc->last_reused_prefix_bytes = base_committed_end;
+    doc->last_reused_suffix_bytes = reused_suffix; doc->last_resynchronized = resynchronized;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_resync_document_encode(const mosaic_resync_document *doc, uint32_t **out_ids, size_t *out_count) {
+    if (!doc || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_ids = NULL; *out_count = 0;
+    if (doc->token_count > SIZE_MAX / sizeof(uint32_t)) return MOSAIC_ERROR_OVERFLOW;
+    uint32_t *ids = doc->token_count ? (uint32_t *)malloc(doc->token_count * sizeof *ids) : NULL;
+    if (doc->token_count && !ids) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    for (size_t i = 0; i < doc->token_count; ++i) ids[i] = doc->tokens[i].id;
+    *out_ids = ids; *out_count = doc->token_count; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_resync_document_copy_bytes(const mosaic_resync_document *doc, uint8_t **out_bytes, size_t *out_len) {
+    if (!doc || !out_bytes || !out_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_bytes = NULL; *out_len = 0; mosaic_status status = copy_bytes(doc->buffer, doc->len, out_bytes);
+    if (status == MOSAIC_OK) *out_len = doc->len;
+    return status;
+}
+size_t mosaic_resync_document_last_reprocessed_bytes(const mosaic_resync_document *doc) { return doc ? doc->last_reprocessed_bytes : 0u; }
+size_t mosaic_resync_document_last_reused_prefix_bytes(const mosaic_resync_document *doc) { return doc ? doc->last_reused_prefix_bytes : 0u; }
+size_t mosaic_resync_document_last_reused_suffix_bytes(const mosaic_resync_document *doc) { return doc ? doc->last_reused_suffix_bytes : 0u; }
+int mosaic_resync_document_last_resynchronized(const mosaic_resync_document *doc) { return doc && doc->last_resynchronized; }
+void mosaic_resync_document_free(mosaic_resync_document *doc) {
+    if (!doc) return;
+    mosaic_model_free(doc->model);
+    free(doc->adjustments);
+    free(doc->buffer);
+    free(doc->tokens);
+    resync_checkpoint_array_free(doc->checkpoints, doc->checkpoint_count);
+    free(doc);
 }
 
 mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,

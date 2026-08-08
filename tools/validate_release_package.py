@@ -116,6 +116,17 @@ int main(int argc, char **argv) {
     mosaic_free(incremental_ids);
     mosaic_incremental_document_free(incremental);
 
+    const unsigned char rs[] = "tokenizer tokenizer tokenizer tokenizer";
+    mosaic_resync_document *resync = 0;
+    if (mosaic_tokenizer_resync_document_create(t, rs, sizeof rs - 1, 8, 4096, &resync) != MOSAIC_OK) return 24;
+    const unsigned char rz = 'X';
+    if (mosaic_resync_document_apply_edit(resync, 15, 1, &rz, 1) != MOSAIC_OK) return 25;
+    unsigned int *resync_ids = 0; size_t resync_n = 0;
+    if (mosaic_resync_document_encode(resync, &resync_ids, &resync_n) != MOSAIC_OK || !resync_n) return 26;
+    if (mosaic_resync_document_last_reprocessed_bytes(resync) > sizeof rs - 1) return 27;
+    mosaic_free(resync_ids);
+    mosaic_resync_document_free(resync);
+
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};
     if (mosaic_tokenizer_normalize(t, MOSAIC_NORMALIZE_NFD, ni, 2, &v) != MOSAIC_OK) return 11;
