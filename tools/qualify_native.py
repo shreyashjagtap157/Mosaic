@@ -5,7 +5,7 @@ import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION=(ROOT/'VERSION').read_text().strip()
+VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip()
 MODEL=ROOT/'fixtures/packs/model-v2.mpack'
 UNICODE=ROOT/'fixtures/packs/unicode17-v1.mpack'
 
@@ -54,7 +54,7 @@ def main()->int:
     elapsed_samples=[]; rss_samples=[]
     for _ in range(3):
         run(['/usr/bin/time','-f','%e %M','-o',timefile,ROOT/'build/mosaic-tokenizer','roundtrip',MODEL,bench])
-        elapsed,rss=map(float,timefile.read_text().split());elapsed_samples.append(elapsed);rss_samples.append(rss)
+        elapsed,rss=map(float,timefile.read_text(encoding="utf-8").split());elapsed_samples.append(elapsed);rss_samples.append(rss)
     elapsed_s=statistics.median(elapsed_samples);rss_kb=max(rss_samples);throughput=(n/(1024*1024))/max(elapsed_s,1e-9)
     if throughput < 20.0: raise SystemExit(f'FAIL: median throughput floor: {throughput:.1f} MiB/s < 20')
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')

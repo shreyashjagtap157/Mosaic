@@ -15,7 +15,7 @@ def fail(message: str) -> None:
 
 
 def main() -> int:
-    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     members = workspace["workspace"]["members"]
     for member in members:
         if not (ROOT / member / "Cargo.toml").is_file():
@@ -23,24 +23,24 @@ def main() -> int:
 
     for crate in ["mosaic-core", "mosaic-ir", "mosaic-pack"]:
         lib = CRATES / crate / "src" / "lib.rs"
-        text = lib.read_text()
+        text = lib.read_text(encoding="utf-8")
         if "#![forbid(unsafe_code)]" not in text:
             fail(f"{crate} does not forbid unsafe code")
 
     for path in CRATES.rglob("*.rs"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if re.search(r"\bunsafe\b", text) and "unsafe_code" not in text:
             fail(f"unexpected unsafe token in {path.relative_to(ROOT)}")
         if "unimplemented!" in text or "todo!" in text:
             fail(f"placeholder implementation macro in {path.relative_to(ROOT)}")
 
-    engine = tomllib.loads((CRATES / "mosaic-engine" / "Cargo.toml").read_text())
+    engine = tomllib.loads((CRATES / "mosaic-engine" / "Cargo.toml").read_text(encoding="utf-8"))
     if "mosaic-reference" in engine.get("dependencies", {}):
         fail("mosaic-engine production dependencies must not include mosaic-reference")
     if "mosaic-reference" not in engine.get("dev-dependencies", {}):
         fail("mosaic-engine must keep mosaic-reference as a differential-test dependency")
 
-    pack_lib = (CRATES / "mosaic-pack" / "src" / "lib.rs").read_text()
+    pack_lib = (CRATES / "mosaic-pack" / "src" / "lib.rs").read_text(encoding="utf-8")
     for module in ["dfa", "execution_manifest", "hash", "lock", "manifest", "v1"]:
         if f"mod {module};" not in pack_lib:
             fail(f"mosaic-pack missing module declaration: {module}")

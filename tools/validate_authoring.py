@@ -28,17 +28,17 @@ def main():
         sample=d/'sample.bin';sample.write_bytes(b'\x00tokenizer '+ 'नमस्ते दुनिया'.encode()+b' '+ 'こんにちは世界'.encode()+b'\xff')
         out=run(CLI,'roundtrip',model1,sample); assert 'OK' in out
         info=json.loads(run(AUTHOR,'inspect',model1));assert info['canonical_hash_valid'] and any(x['kind']==4 for x in info['sections'])
-        assert len(json.loads(report.read_text())['pieces'])<=64
+        assert len(json.loads(report.read_text(encoding="utf-8"))['pieces'])<=64
 
         model_cfg=d/'model.json';explicit=d/'explicit.mpack'
         model_cfg.write_text(json.dumps({'byte_cost':1000,'pieces':[{'text':'tokenizer','cost':100},{'text':'नमस्ते दुनिया','cost':90}]},ensure_ascii=False))
-        run(AUTHOR,'model',model_cfg,explicit);assert 'OK' in run(CLI,'roundtrip',explicit,sample)
+        run(AUTHOR,'mo, encoding="utf-8"del',model_cfg,explicit);assert 'OK' in run(CLI,'roundtrip',explicit,sample)
 
         lang_cfg=d/'lang.json';lang=d/'en.mpack'
-        lang_cfg.write_text(json.dumps({'language':'en','adjustments':[{'text':'tokenizer','delta':-50}]}))
+        lang_cfg.write_text(json.dumps({'language':'en','adjustments':[{'text':'tokenizer','delta':-50}]}), encoding="utf-8")
         run(AUTHOR,'language',lang_cfg,lang)
         det_cfg=d/'det.json';det=d/'det.mpack'
-        det_cfg.write_text(json.dumps({'min_margin':10,'profiles':{'en':{'min_score':50,'features':[{'text':'tokenizer','weight':100}]}}}))
+        det_cfg.write_text(json.dumps({'min_margin':10,'profiles':{'en':{'min_score':50,'features':[{'text':'tokenizer','weight':100}]}}}), encoding="utf-8")
         run(AUTHOR,'detector',det_cfg,det)
         # Both custom packs must be accepted by the integrated runtime.
         fp=run(CLI,'fingerprint-auto',explicit,UNICODE,det,lang);assert len(fp)==64
@@ -47,13 +47,13 @@ def main():
 
         # Authoring is fail-closed on invalid configs and malformed containers.
         bad=d/'bad.json';badout=d/'bad.mpack'
-        bad.write_text(json.dumps({'pieces':[{'text':'x','id':256},{'text':'y','id':256}]}))
+        bad.write_text(json.dumps({'pieces':[{'text':'x','id':256},{'text':'y','id':256}]}), encoding="utf-8")
         must_fail(AUTHOR,'model',bad,badout)
-        bad.write_text(json.dumps({'pieces':[{'hex':'00','cost':1}]}))
+        bad.write_text(json.dumps({'pieces':[{'hex':'00','cost':1}]}), encoding="utf-8")
         must_fail(AUTHOR,'model',bad,badout)
-        bad.write_text(json.dumps({'language':'bad tag!','adjustments':[]}))
+        bad.write_text(json.dumps({'language':'bad tag!','adjustments':[]}), encoding="utf-8")
         must_fail(AUTHOR,'language',bad,badout)
-        bad.write_text(json.dumps({'profiles':{'en':{'features':[{'text':'x','weight':0}]}}}))
+        bad.write_text(json.dumps({'profiles':{'en':{'features':[{'text':'x','weight':0}]}}}), encoding="utf-8")
         must_fail(AUTHOR,'detector',bad,badout)
         must_fail(AUTHOR,'train-model',d/'missing.txt','-o',badout)
         must_fail(AUTHOR,'train-model',corpus_a,'-o',badout,'--vocab-size','255')

@@ -146,7 +146,7 @@ def regex_spans(text:str)->list[tuple[int,int]]:
 
 
 def main():
-    data=PACK.read_bytes(); exp=tomllib.loads(EXPECTED.read_text())
+    data=PACK.read_bytes(); exp=tomllib.loads(EXPECTED.read_text(encoding="utf-8"))
     if len(data)!=exp['file_length'] or data[48:80].hex()!=exp['canonical_content_hash'] or hashlib.sha256(data).hexdigest()!=exp['file_sha256']: raise SystemExit('Unicode pack identity mismatch')
     t=parse_unicode(data)
     if len(t.gcb)!=exp['gcb_ranges'] or len(t.incb)!=exp['incb_ranges'] or len(t.ep)!=exp['extended_pictographic_ranges']: raise SystemExit('Unicode range count mismatch')

@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Stable enterprise release
 
-**1.0.0 — universal tokenization and token-native processing platform.**
+**1.0.1 — universal tokenization and token-native processing platform.**
 
 The qualified production implementation is the native C runtime. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
 
@@ -45,7 +45,7 @@ The qualified production implementation is the native C runtime. The supported r
 
 ## External qualification gates
 
-The current sandbox cannot execute these gates and does not fabricate them:
+The current Linux qualification environment cannot execute these gates and does not fabricate them:
 
 - Windows and macOS native CI execution;
 - stable Rust workspace build/clippy/tests;

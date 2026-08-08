@@ -7,7 +7,7 @@ FIXTURE=ROOT/'fixtures/conformance/tokenizer-manifest-v1.toml'
 DOMAIN=b'MOSAIC-TOKENIZER-MANIFEST-V1\0'
 
 def main():
-    data=tomllib.loads(FIXTURE.read_text())
+    data=tomllib.loads(FIXTURE.read_text(encoding="utf-8"))
     h=hashlib.sha256(); h.update(DOMAIN)
     for key in ['runtime_semantics_version','canonical_leaf_version','cost_semantics_version','tie_break_version','control_protocol_version','routing_policy_version','normalization_view_id']:
         h.update(int(data[key]).to_bytes(4,'little'))

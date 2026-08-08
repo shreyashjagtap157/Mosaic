@@ -8,7 +8,7 @@ CHUNK=b'hello world tokenizer :: '+ 'नमस्ते दुनिया こ�
 
 def timed(cmd, timefile):
     subprocess.run(['/usr/bin/time','-f','%e %M','-o',str(timefile),*map(str,cmd)],cwd=ROOT,check=True,stdout=subprocess.PIPE,text=True)
-    e,r=timefile.read_text().split();return float(e),float(r)
+    e,r=timefile.read_text(encoding="utf-8").split();return float(e),float(r)
 
 def main():
     subprocess.run(['make','-C','native','all'],cwd=ROOT,check=True,stdout=subprocess.DEVNULL)

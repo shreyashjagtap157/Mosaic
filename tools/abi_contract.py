@@ -12,7 +12,7 @@ EXCLUDED_DEFINES={'MOSAIC_RELEASE_VERSION'}
 def norm(s:str)->str:return ' '.join(s.split())
 
 def parse_header(path:Path)->dict:
-    lines=path.read_text().splitlines(); declarations=[];types=[];constants=[]
+    lines=path.read_text(encoding="utf-8").splitlines(); declarations=[];types=[];constants=[]
     i=0
     while i<len(lines):
         st=lines[i].strip()
@@ -77,9 +77,9 @@ def check(contract:dict, core:Path|None, trust:Path|None)->list[str]:
 def main()->int:
     ap=argparse.ArgumentParser();ap.add_argument('--generate',action='store_true');ap.add_argument('--core',type=Path);ap.add_argument('--trust',type=Path);a=ap.parse_args()
     if a.generate:
-        OUT.write_text(json.dumps(build_contract(),indent=2,sort_keys=True)+'\n');print(f'OK: wrote {OUT.relative_to(ROOT)}');return 0
+        OUT.write_text(json.dumps(build_contract(),indent=2,sort_keys=True)+'\n', encoding="utf-8");print(f'OK: wrote {OUT.relative_to(ROOT)}');return 0
     if not OUT.exists():raise SystemExit('stable contract missing; run --generate during freeze')
-    errors=check(json.loads(OUT.read_text()),a.core,a.trust)
+    errors=check(json.loads(OUT.read_text(encoding="utf-8")),a.core,a.trust)
     if errors:
         print('\n'.join('FAIL: '+e for e in errors));return 1
     print('OK: frozen public C declarations/types/constants and exports are compatible');return 0

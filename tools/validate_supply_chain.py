@@ -28,9 +28,9 @@ def main() -> int:
     ap.add_argument("--source-checksums", type=Path, required=True)
     a = ap.parse_args()
     stage = a.stage.resolve()
-    sbom = json.loads((stage / "share/mosaic/sbom.spdx.json").read_text())
-    prov = json.loads((stage / "share/mosaic/provenance.intoto.json").read_text())
-    manifest = json.loads((stage / "share/mosaic/release-manifest.json").read_text())
+    sbom = json.loads((stage / "share/mosaic/sbom.spdx.json").read_text(encoding="utf-8"))
+    prov = json.loads((stage / "share/mosaic/provenance.intoto.json").read_text(encoding="utf-8"))
+    manifest = json.loads((stage / "share/mosaic/release-manifest.json").read_text(encoding="utf-8"))
 
     assert sbom["spdxVersion"] == "SPDX-2.3"
     assert sbom["documentNamespace"].startswith(REPO_BASE + "/spdx/")
@@ -69,7 +69,7 @@ def main() -> int:
     assert bool(params["gitDirty"]) == bool(git_text("status", "--porcelain"))
 
     sums: dict[str, str] = {}
-    for line in (stage / "SHA256SUMS").read_text().splitlines():
+    for line in (stage / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
         expected, rel = line.split("  ", 1)
         if rel in sums:
             raise AssertionError(f"duplicate checksum path: {rel}")

@@ -92,7 +92,7 @@ def main() -> int:
         "relationships": relationships,
     }
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    out.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(out)
     return 0
 

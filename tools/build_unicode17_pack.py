@@ -84,8 +84,8 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--check',action='store_true'); a=ap.parse_args(); data,gc,ic,ec=build(); exp=expected(data,gc,ic,ec)
     if a.check:
         if not OUT.exists() or OUT.read_bytes()!=data: raise SystemExit('Unicode 17 pack differs from deterministic output')
-        if not EXPECTED.exists() or EXPECTED.read_text()!=exp: raise SystemExit('Unicode 17 expected metadata differs')
+        if not EXPECTED.exists() or EXPECTED.read_text(encoding="utf-8")!=exp: raise SystemExit('Unicode 17 expected metadata differs')
         print(f'OK: Unicode 17 pack deterministic bytes={len(data)} gcb={gc} incb={ic} ep={ec} sha256={hashlib.sha256(data).hexdigest()}')
         return 0
-    OUT.parent.mkdir(parents=True,exist_ok=True); OUT.write_bytes(data); EXPECTED.write_text(exp); print(f'wrote {OUT.relative_to(ROOT)} ({len(data)} bytes)'); print(exp,end=''); return 0
+    OUT.parent.mkdir(parents=True,exist_ok=True); OUT.write_bytes(data); EXPECTED.write_text(exp, encoding="utf-8"); print(f'wrote {OUT.relative_to(ROOT)} ({len(data)} bytes)'); print(exp,end=''); return 0
 if __name__=='__main__': raise SystemExit(main())

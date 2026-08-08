@@ -113,11 +113,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(); ap.add_argument('--check', action='store_true'); args = ap.parse_args()
     data = build_pack(); exp = expected(data); OUT.parent.mkdir(parents=True, exist_ok=True)
     if args.check:
-        if not OUT.exists() or OUT.read_bytes() != data or not EXPECTED.exists() or EXPECTED.read_text() != exp:
+        if not OUT.exists() or OUT.read_bytes() != data or not EXPECTED.exists() or EXPECTED.read_text(encoding="utf-8") != exp:
             raise SystemExit('detector fixture differs')
         print(f'OK: detector deterministic profiles={len(PROFILES)} bytes={len(data)} sha256={hashlib.sha256(data).hexdigest()}')
         return 0
-    OUT.write_bytes(data); EXPECTED.write_text(exp)
+    OUT.write_bytes(data); EXPECTED.write_text(exp, encoding="utf-8")
     print(f'wrote {OUT.relative_to(ROOT)} sha256={hashlib.sha256(data).hexdigest()}')
     return 0
 

@@ -19,7 +19,7 @@ def path_key(path):
     return prefix+tuple(structural)
 
 def main():
-    data=tomllib.loads(FIXTURE.read_text())
+    data=tomllib.loads(FIXTURE.read_text(encoding="utf-8"))
     for case in data['case']:
         left=path_key(case['left']); right=path_key(case['right'])
         winner='left' if left < right else 'right' if right < left else 'equal'

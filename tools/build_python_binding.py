@@ -4,7 +4,7 @@ import argparse, hashlib, os, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION=(ROOT/'VERSION').read_text().strip()
+VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip()
 
 def sha(path:Path)->str:
     h=hashlib.sha256();h.update(path.read_bytes());return h.hexdigest()

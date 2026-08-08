@@ -1,0 +1,8 @@
+# Mosaic source text is canonical UTF-8/LF across all supported platforms.
+* text=auto eol=lf
+
+# Binary pack/trust fixtures must never receive line-ending conversion.
+*.mpack binary
+*.bin binary
+*.sig binary
+*.pub binary

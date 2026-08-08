@@ -197,7 +197,7 @@ def write_atomic(path:Path,data:bytes):
     finally:tmp.unlink(missing_ok=True)
 
 def main()->int:
-    ap=argparse.ArgumentParser(prog='mosaic-registry');ap.add_argument('--version',action='version',version='mosaic-registry 1.0.0');sub=ap.add_subparsers(dest='cmd',required=True)
+    ap=argparse.ArgumentParser(prog='mosaic-registry');ap.add_argument('--version',action='version',version='mosaic-registry 1.0.1');sub=ap.add_subparsers(dest='cmd',required=True)
     q=sub.add_parser('init');q.add_argument('registry',type=Path)
     q=sub.add_parser('install');q.add_argument('registry',type=Path);q.add_argument('pack',type=Path);q.add_argument('--publisher',required=True);q.add_argument('--name',required=True);q.add_argument('--version',required=True);q.add_argument('--signature',type=Path);q.add_argument('--public-key',type=Path);q.add_argument('--require-signature',action='store_true')
     q=sub.add_parser('list');q.add_argument('registry',type=Path)
@@ -211,9 +211,9 @@ def main()->int:
     elif a.cmd=='install':print(json.dumps(asdict(r.install(a.pack,a.publisher,a.name,a.version,a.signature,a.public_key,a.require_signature)),sort_keys=True))
     elif a.cmd=='list':print(json.dumps([asdict(x) for x in sorted(r.rows(),key=lambda z:(z.publisher,z.name,semver(z.version)))],indent=2,sort_keys=True))
     elif a.cmd=='resolve':
-        lock=r.resolve(json.loads(a.requirements.read_text()));write_atomic(a.output,canon(lock));print(json.dumps({'output':str(a.output),'lock_sha256':lock['lock_sha256']},sort_keys=True))
+        lock=r.resolve(json.loads(a.requirements.read_text(encoding="utf-8")));write_atomic(a.output,canon(lock));print(json.dumps({'output':str(a.output),'lock_sha256':lock['lock_sha256']},sort_keys=True))
     elif a.cmd=='verify-lock':
-        e=r.verify_lock(json.loads(a.lock.read_text()));print(json.dumps({'ok':not e,'errors':e},sort_keys=True));return 0 if not e else 1
+        e=r.verify_lock(json.loads(a.lock.read_text(encoding="utf-8")));print(json.dumps({'ok':not e,'errors':e},sort_keys=True));return 0 if not e else 1
     elif a.cmd=='audit':
         e=r.audit();print(json.dumps({'ok':not e,'errors':e,'catalog_sha256':r.catalog_hash()},sort_keys=True));return 0 if not e else 1
     elif a.cmd=='repair':print(json.dumps({'sha256':r.repair(a.pack)},sort_keys=True))

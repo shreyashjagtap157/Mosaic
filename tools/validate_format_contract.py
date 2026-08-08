@@ -3,8 +3,8 @@ from __future__ import annotations
 import json,re
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-contract=json.loads((ROOT/'abi/format-contract-v1.json').read_text())
-core=(ROOT/'native/src/mosaic.c').read_text();cache=(ROOT/'native/src/mosaic_cache.c').read_text();trust=(ROOT/'native/src/mosaic_trust.c').read_text();registry=(ROOT/'tools/mosaic_registry.py').read_text()
+contract=json.loads((ROOT/'abi/format-contract-v1.json').read_text(encoding="utf-8"))
+core=(ROOT/'native/src/mosaic.c').read_text(encoding="utf-8");cache=(ROOT/'native/src/mosaic_cache.c').read_text(encoding="utf-8");trust=(ROOT/'native/src/mosaic_trust.c').read_text(encoding="utf-8");registry=(ROOT/'tools/mosaic_registry.py').read_text(encoding="utf-8")
 errors=[]
 def need(ok,msg):
     if not ok:errors.append(msg)

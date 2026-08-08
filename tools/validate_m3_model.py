@@ -176,7 +176,7 @@ def decode(entries: list[VocabEntry], id_index: list[int], token_ids: list[int])
 
 def main() -> int:
     data = PACK.read_bytes()
-    expected = tomllib.loads(EXPECTED.read_text())
+    expected = tomllib.loads(EXPECTED.read_text(encoding="utf-8"))
     if len(data) != expected["file_length"]:
         raise SystemExit("M3 expected file length mismatch")
     if data[48:80].hex() != expected["canonical_content_hash"]:

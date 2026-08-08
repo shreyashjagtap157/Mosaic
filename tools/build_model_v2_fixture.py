@@ -60,7 +60,7 @@ def expected(data): return f'file_length = {len(data)}\nfile_sha256 = "{hashlib.
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--check',action='store_true'); a=ap.parse_args(); data=build(); exp=expected(data)
     if a.check:
-        if not OUT.exists() or OUT.read_bytes()!=data or not EXPECTED.exists() or EXPECTED.read_text()!=exp: raise SystemExit('model v2 fixture differs')
+        if not OUT.exists() or OUT.read_bytes()!=data or not EXPECTED.exists() or EXPECTED.read_text(encoding="utf-8")!=exp: raise SystemExit('model v2 fixture differs')
         print(f'OK: model v2 deterministic entries={len(rows())} sha256={hashlib.sha256(data).hexdigest()}'); return 0
-    OUT.write_bytes(data); EXPECTED.write_text(exp); print(f'wrote {OUT.relative_to(ROOT)}'); return 0
+    OUT.write_bytes(data); EXPECTED.write_text(exp, encoding="utf-8"); print(f'wrote {OUT.relative_to(ROOT)}'); return 0
 if __name__=='__main__': raise SystemExit(main())

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 — 2026-08-08
+
+Cross-platform source-integrity and Windows tooling patch.
+
+- make repository Python tooling explicitly UTF-8 instead of depending on the host locale encoding;
+- add canonical LF Git attributes while preserving binary pack/trust fixtures byte-for-byte;
+- make source checksums canonical across LF/CRLF text checkouts;
+- exclude Git-ignored/generated working-tree artifacts from source identity;
+- preserve native/trust ABI 1.0.0, tokenizer semantics version 2, and all stable binary formats unchanged.
+
 ## 1.0.0 — 2026-08-08
 
 First stable enterprise universal-platform release.

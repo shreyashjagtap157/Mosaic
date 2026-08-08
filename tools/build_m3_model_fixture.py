@@ -186,7 +186,7 @@ def main() -> int:
     if args.check:
         if not OUT.exists() or OUT.read_bytes() != data:
             raise SystemExit("M3 model fixture differs from deterministic output")
-        if not EXPECTED.exists() or EXPECTED.read_text() != expected:
+        if not EXPECTED.exists() or EXPECTED.read_text(encoding="utf-8") != expected:
             raise SystemExit("M3 expected metadata differs from deterministic output")
         print(
             f"OK: {OUT.relative_to(ROOT)} deterministic ({len(data)} bytes) "
@@ -195,7 +195,7 @@ def main() -> int:
         return 0
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(data)
-    EXPECTED.write_text(expected)
+    EXPECTED.write_text(expected, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)} ({len(data)} bytes)")
     print(expected, end="")
     return 0

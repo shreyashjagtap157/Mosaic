@@ -4,7 +4,7 @@ import argparse, gzip, hashlib, json, platform, shutil, subprocess, tarfile, tem
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION=(ROOT/'VERSION').read_text().strip()
+VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip()
 MODEL=ROOT/'fixtures/packs/model-v2.mpack'
 UNICODE=ROOT/'fixtures/packs/unicode17-v1.mpack'
 LANGUAGES={tag:ROOT/f'fixtures/packs/language/{tag}-v1.mpack' for tag in ('en','hi','ja')}
@@ -23,7 +23,7 @@ def run(*cmd:str)->str:
     return subprocess.check_output(cmd,cwd=ROOT,text=True).strip()
 
 def c_api_version()->str:
-    text=(ROOT/'native/include/mosaic.h').read_text()
+    text=(ROOT/'native/include/mosaic.h').read_text(encoding="utf-8")
     values={}
     for key in ('MAJOR','MINOR','PATCH'):
         prefix=f'#define MOSAIC_C_API_VERSION_{key} '
@@ -88,7 +88,7 @@ def main()->int:
     api_doc=ROOT/f'docs/implementation/API_C_{VERSION.rsplit(".",1)[0]}.md'
     if not api_doc.exists():api_doc=ROOT/'docs/implementation/API_C_0.1.md'
     shutil.copy2(api_doc,stage/'docs/API_C.md')
-    pc=f'''prefix=/usr/local\nexec_prefix=${{prefix}}\nlibdir=${{exec_prefix}}/lib\nincludedir=${{prefix}}/include\n\nName: mosaic\nDescription: Mosaic exact byte tokenizer core\nVersion: {VERSION}\nLibs: -L${{libdir}} -lmosaic\nCflags: -I${{includedir}}\n''';(stage/'share/pkgconfig/mosaic.pc').write_text(pc)
+    pc=f'''prefix=/usr/local\nexec_prefix=${{prefix}}\nlibdir=${{exec_prefix}}/lib\nincludedir=${{prefix}}/include\n\nName: mosaic\nDescription: Mosaic exact byte tokenizer core\nVersion: {VERSION}\nLibs: -L${{libdir}} -lmosaic\nCflags: -I${{includedir}}\n''';(stage/'share/pkgconfig/mosaic.pc').write_text(pc, encoding="utf-8")
     fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint',str(MODEL),str(UNICODE))
     language_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-languages',str(MODEL),str(UNICODE),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))
     security_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-security',str(MODEL),str(UNICODE),str(SECURITY))
@@ -97,13 +97,13 @@ def main()->int:
     auto_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-auto',str(MODEL),str(UNICODE),str(DETECTOR),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))
     manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':c_api_version(),'tokenizer_semantics_version':2,'tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'reference_security_fingerprint_sha256':security_fingerprint,'reference_normalization_fingerprint_sha256':normalization_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'security_pack':{'file':'security17-v1.mpack','sha256':sha(SECURITY),'unicode_version':'17.0.0'},'normalization_pack':{'file':'normalization16-v1.mpack','sha256':sha(NORMALIZATION),'unicode_version':'16.0.0','icu_generator_version':'76.1'},'trust':{'library':'libmosaic_trust','signature_algorithm':'Ed25519','conformance_public_key_sha256':sha(ROOT/'fixtures/trust/conformance-ed25519.pub'),'model_signature_sha256':sha(ROOT/'fixtures/packs/model-v2.mpack.sig')},'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'lexer_packs':{t:{'file':f'lexer/{t}-v1.mpack','sha256':sha(p),'tokenizer_fingerprint_sha256':lexer_fingerprints[t]} for t,p in LEXERS.items()},'python_binding':{'file':f'mosaic_tokenizer-{VERSION}-py3-none-any.whl','sha256':sha(py_wheel)},'artifacts':{}}
     for rel in ['bin/mosaic-tokenizer','bin/mosaic-author','bin/mosaic-registry','lib/libmosaic.so','lib/libmosaic.a','lib/libmosaic_trust.so','lib/libmosaic_trust.a','include/mosaic.h','include/mosaic_trust.h']:manifest['artifacts'][rel]=sha(stage/rel)
-    (stage/'share/mosaic/release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+    (stage/'share/mosaic/release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n', encoding="utf-8")
     subprocess.run([str(ROOT/'tools/generate_sbom.py'),str(stage),'--version',VERSION,'--output',str(stage/'share/mosaic/sbom.spdx.json')],cwd=ROOT,check=True)
     subprocess.run([str(ROOT/'tools/generate_provenance.py'),str(stage),'--version',VERSION,'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256'),'--output',str(stage/'share/mosaic/provenance.intoto.json')],cwd=ROOT,check=True)
     sums=[]
     for p in sorted(stage.rglob('*')):
         if p.is_file() and p.name!='SHA256SUMS':sums.append(f'{sha(p)}  {p.relative_to(stage).as_posix()}')
-    (stage/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
+    (stage/'SHA256SUMS').write_text('\n'.join(sums)+'\n', encoding="utf-8")
     archive=dist/f'{name}.tar.gz'
     if archive.name != f'mosaic-tokenizer-{VERSION}-{tag}.tar.gz':
         raise RuntimeError(f'unexpected release archive name: {archive.name}')

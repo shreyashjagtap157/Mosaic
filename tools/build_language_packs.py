@@ -48,8 +48,8 @@ def main():
         data=build_pack(tag,rows); path=outdir/f'{tag}-v1.mpack'; exp=outdir/f'{tag}-v1.expected.toml'
         text=f'language = "{tag}"\nentries = {len(rows)}\nfile_length = {len(data)}\nfile_sha256 = "{hashlib.sha256(data).hexdigest()}"\n'
         if a.check:
-            if not path.exists() or path.read_bytes()!=data or not exp.exists() or exp.read_text()!=text: raise SystemExit(f'{tag} language pack differs')
-        else: path.write_bytes(data); exp.write_text(text)
+            if not path.exists() or path.read_bytes()!=data or not exp.exists() or exp.read_text(encoding="utf-8")!=text: raise SystemExit(f'{tag} language pack differs')
+        else: path.write_bytes(data); exp.write_text(text, encoding="utf-8")
         print(f'OK: language {tag} entries={len(rows)} bytes={len(data)} sha256={hashlib.sha256(data).hexdigest()}')
     return 0
 if __name__=='__main__': raise SystemExit(main())

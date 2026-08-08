@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse,base64,hashlib,json,os,subprocess,sys,tarfile,tempfile
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1];VERSION=(ROOT/'VERSION').read_text().strip()
+ROOT=Path(__file__).resolve().parents[1];VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip()
 def run(cmd,cwd=None):return subprocess.check_output([str(x) for x in cmd],cwd=cwd,text=True).strip()
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('archive',nargs='?',default=str(ROOT/f'dist/mosaic-tokenizer-{VERSION}-linux-x86_64.tar.gz'));a=ap.parse_args();archive=Path(a.archive).resolve()
@@ -19,10 +19,10 @@ def main():
         if not py_wheel.exists(): raise SystemExit('packaged Python wheel missing')
         py_target=temp/'python-install';py_target.mkdir()
         subprocess.run([sys.executable,'-m','pip','install','--no-deps','--no-index','--target',str(py_target),str(py_wheel)],check=True,stdout=subprocess.DEVNULL)
-        py_script=temp/'python-smoke.py';py_script.write_text("from mosaic import Tokenizer, BatchExecutor\nimport sys\nroot=sys.argv[1]\nwith Tokenizer(root+'/share/mosaic/packs/model-v2.mpack',root+'/share/mosaic/packs/unicode17-v1.mpack',library_path=root+'/lib/libmosaic.so') as t:\n    data=bytes(range(256))*2\n    ids=t.encode(data)\n    assert t.decode(ids)==data\n    t.seal()\n    with BatchExecutor(worker_count=2,queue_capacity=2,max_batch_items=8,max_total_input_bytes=1024,library_path=root+'/lib/libmosaic.so') as ex:\n        rs=ex.encode(t,[b'hello',b'world'])\n        assert len(rs)==2 and all(r.status==0 and r.ids for r in rs)\n")
+        py_script=temp/'python-smoke.py';py_script.write_text("from mosaic import Tokenizer, BatchExecutor\nimport sys\nroot=sys.argv[1]\nwith Tokenizer(root+'/share/mosaic/packs/model-v2.mpack',root+'/share/mosaic/packs/unicode17-v1.mpack',library_path=root+'/lib/libmosaic.so') as t:\n    data=bytes(range(256))*2\n    ids=t.encode(data)\n    assert t.decode(ids)==data\n    t.seal()\n    with BatchExecutor(worker_count=2,queue_capacity=2,max_batch_items=8,max_total_input_bytes=1024,library_path=root+'/lib/libmosaic.so') as ex:\n        rs=ex.encode(t,[b'hello',b'world'])\n        assert len(rs)==2 and all(r.status==0 and r.ids for r in rs)\n", encoding="utf-8")
         py_env=os.environ.copy();py_env['PYTHONPATH']=str(py_target);py_env['MOSAIC_LIBRARY']=str(d/'lib/libmosaic.so')
         subprocess.run([sys.executable,str(py_script),str(d)],check=True,env=py_env)
-        manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
+        manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text(encoding="utf-8"))
         if run([cli,'fingerprint',model,uni])!=manifest['tokenizer_fingerprint_sha256']:raise SystemExit('packaged base fingerprint mismatch')
         lf=run([cli,'fingerprint-languages',model,uni,langs['ja'],langs['en'],langs['hi']])
         if lf!=manifest['reference_language_fingerprint_sha256']:raise SystemExit('packaged language fingerprint mismatch/order instability')
@@ -38,7 +38,7 @@ def main():
         lexer_sample=temp/'lexer.c';lexer_sample.write_bytes(b'int main(){return 0;} // hi\n')
         lexer_out=run([cli,'lexer',lexers['c'],lexer_sample])
         if 'profile=c' not in lexer_out or 'kind=keyword' not in lexer_out or 'kind=comment' not in lexer_out:raise SystemExit('packaged lexer CLI smoke failed')
-        for line in (d/'SHA256SUMS').read_text().splitlines():
+        for line in (d/'SHA256SUMS').read_text(encoding="utf-8").splitlines():
             expected,rel=line.split('  ',1);actual=hashlib.sha256((d/rel).read_bytes()).hexdigest()
             if actual!=expected:raise SystemExit(f'checksum mismatch: {rel}')
         sample=temp/'mixed.txt';sample.write_bytes(b'tokenizer '+ 'नमस्ते दुनिया'.encode()+b' '+ 'こんにちは世界'.encode())
@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
     mosaic_token_document_free(tdoc);
     return ok ? 0 : 7;
 }
-''')
+''', encoding="utf-8")
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-pthread','-o',temp/'client'],check=True)
         subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True)
         # Trust authoring is offline-only and must regenerate the deterministic conformance record.
@@ -290,11 +290,11 @@ int main(int argc, char **argv) {
         subprocess.run([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature'],check=True)
         subprocess.run([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0'],check=True)
         req=temp/'requirements.json'; lock=temp/'mosaic.lock.json'
-        req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}))
+        req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}), encoding="utf-8")
         subprocess.run([registry,'resolve',regdir,req,'-o',lock],check=True)
         subprocess.run([registry,'verify-lock',regdir,lock],check=True)
         subprocess.run([registry,'audit',regdir],check=True)
-        locked=json.loads(lock.read_text())
+        locked=json.loads(lock.read_text(encoding="utf-8"))
         if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
         subprocess.run([sys.executable,str(ROOT/'tools/validate_supply_chain.py'),str(d),'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256')],check=True,cwd=ROOT)
     expected_archive=f'mosaic-tokenizer-{VERSION}-linux-x86_64.tar.gz'

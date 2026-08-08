@@ -58,7 +58,7 @@ def main()->int:
     registry=registry_chaos()
     report={'schema':1,'tier':a.tier,'iterations':iterations,'seed':a.seed,'native':{'replay':first['replay'],'first_elapsed_seconds':first['elapsed_seconds'],'second_elapsed_seconds':second['elapsed_seconds'],'summary':first['output']},'registry':registry}
     if a.output:
-        a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+        a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n', encoding="utf-8")
     print(json.dumps(report,sort_keys=True))
     return 0
 if __name__=='__main__':raise SystemExit(main())

@@ -179,7 +179,7 @@ def validate(data: bytes, deep: bool = True) -> list[bytes]:
 def main() -> int:
     valid = VALID.read_bytes()
     hashes = validate(valid)
-    expected = tomllib.loads((ROOT / "fixtures" / "packs" / "m2-v1.expected.toml").read_text())
+    expected = tomllib.loads((ROOT / "fixtures" / "packs" / "m2-v1.expected.toml").read_text(encoding="utf-8"))
     if len(valid) != expected["file_length"]:
         raise SystemExit("m2 expected file length mismatch")
     if valid[48:80].hex() != expected["canonical_content_hash"]:

@@ -13,7 +13,7 @@ def main():
     m=re.search(r'bytes=(\d+) reprocessed=(\d+) reused_prefix=(\d+) reused_suffix=(\d+) inc=([0-9.]+) full=([0-9.]+) speedup=([0-9.]+)',out)
     if not m: raise SystemExit('FAIL: malformed resync benchmark output')
     n,r,pre,suf,inc,full,speed=m.groups(); n=int(n);r=int(r);pre=int(pre);suf=int(suf);speed=float(speed)
-    rss_kb=int(timefile.read_text().strip())
+    rss_kb=int(timefile.read_text(encoding="utf-8").strip())
     if r>n//50: raise SystemExit(f'FAIL: middle edit reprocessed {r}/{n} > 2%')
     if pre<n//3 or suf<n//3: raise SystemExit('FAIL: checkpoint resync did not reuse both sides materially')
     if speed<3.0: raise SystemExit(f'FAIL: resync speedup {speed:.2f}x < 3x')

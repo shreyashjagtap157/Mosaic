@@ -35,26 +35,26 @@ def expected_occurrences(version: str) -> dict[str, str]:
 def check(version: str) -> list[str]:
     problems = []
     for key, needle in expected_occurrences(version).items():
-        text = FILES[key].read_text()
+        text = FILES[key].read_text(encoding="utf-8")
         if needle not in text:
             problems.append(f"{FILES[key].relative_to(ROOT)} missing {needle!r}")
-    if (ROOT / "VERSION").read_text().strip() != version:
+    if (ROOT / "VERSION").read_text(encoding="utf-8").strip() != version:
         problems.append("VERSION does not match")
     return problems
 
 
 def replace_regex(path: Path, pattern: str, replacement: str) -> None:
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     new, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
     if count != 1:
         raise SystemExit(f"could not update {path.relative_to(ROOT)} using {pattern!r}")
-    path.write_text(new)
+    path.write_text(new, encoding="utf-8")
 
 
 def set_version(version: str) -> None:
     if not SEMVER.match(version):
         raise SystemExit(f"invalid SemVer: {version}")
-    (ROOT / "VERSION").write_text(version + "\n")
+    (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
     replace_regex(FILES["cmake"], r"project\(mosaic VERSION [^ ]+ LANGUAGES C CXX\)", f"project(mosaic VERSION {version} LANGUAGES C CXX)")
     replace_regex(FILES["header"], r'#define MOSAIC_RELEASE_VERSION "[^"]+"', f'#define MOSAIC_RELEASE_VERSION "{version}"')
     replace_regex(FILES["author"], r'version="mosaic-author [^"]+"', f'version="mosaic-author {version}"')
@@ -77,7 +77,7 @@ def main() -> int:
         set_version(args.version)
         version = args.version
     else:
-        version = (ROOT / "VERSION").read_text().strip()
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     problems = check(version)
     if problems:
         for problem in problems:
