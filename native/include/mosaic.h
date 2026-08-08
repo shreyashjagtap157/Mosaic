@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 6
+#define MOSAIC_C_API_VERSION_MINOR 7
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -21,7 +21,9 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_OVERFLOW = 5,
     MOSAIC_ERROR_UNKNOWN_TOKEN_ID = 6,
     MOSAIC_ERROR_INTERNAL = 7,
-    MOSAIC_ERROR_CONFLICT = 8
+    MOSAIC_ERROR_CONFLICT = 8,
+    MOSAIC_ERROR_RESOURCE_LIMIT = 9,
+    MOSAIC_ERROR_UNSUPPORTED = 10
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;
@@ -31,6 +33,7 @@ typedef struct mosaic_detector mosaic_detector;
 typedef struct mosaic_security mosaic_security;
 typedef struct mosaic_normalization mosaic_normalization;
 typedef struct mosaic_stream mosaic_stream;
+typedef struct mosaic_online_stream mosaic_online_stream;
 typedef struct mosaic_document mosaic_document;
 
 typedef struct mosaic_token {
@@ -68,6 +71,8 @@ typedef struct mosaic_security_finding {
     uint64_t start;
     uint64_t length;
 } mosaic_security_finding;
+
+typedef mosaic_status (*mosaic_security_visitor)(void *context, const mosaic_security_finding *finding);
 
 
 typedef enum mosaic_normalization_mode {
@@ -140,6 +145,9 @@ int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer,
                                               const uint8_t *input, size_t input_len,
                                               mosaic_security_finding **out_findings, size_t *out_count);
+mosaic_status mosaic_tokenizer_security_visit(const mosaic_tokenizer *tokenizer,
+                                               const uint8_t *input, size_t input_len,
+                                               mosaic_security_visitor visitor, void *context, size_t *out_count);
 /* Optional mapped-normalization pack. The pack version is independent of segmentation/security packs. */
 mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,
                                                         const uint8_t *normalization_pack, size_t normalization_pack_len);
@@ -204,6 +212,21 @@ mosaic_status mosaic_stream_finish_auto(mosaic_stream *stream, uint32_t **out_id
 mosaic_status mosaic_stream_reset(mosaic_stream *stream);
 void mosaic_stream_free(mosaic_stream *stream);
 
+/* Exact online Viterbi stream. Unlike mosaic_stream, this API commits token prefixes before EOF
+ * and bounds unresolved source bytes by max_pending_bytes. Raw-BPE models are intentionally
+ * unsupported because their merge semantics require a different online compatibility algorithm.
+ * On MOSAIC_ERROR_RESOURCE_LIMIT, out_consumed reports how many input bytes were accepted and
+ * out_ids may contain prefixes already proven canonical. */
+mosaic_status mosaic_online_stream_create(const mosaic_model *model, size_t max_pending_bytes,
+                                          mosaic_online_stream **out_stream);
+mosaic_status mosaic_tokenizer_online_stream_create(const mosaic_tokenizer *tokenizer, size_t max_pending_bytes,
+                                                     mosaic_online_stream **out_stream);
+mosaic_status mosaic_online_stream_push(mosaic_online_stream *stream, const uint8_t *bytes, size_t len,
+                                        size_t *out_consumed, uint32_t **out_ids, size_t *out_count);
+mosaic_status mosaic_online_stream_finish(mosaic_online_stream *stream, uint32_t **out_ids, size_t *out_count);
+size_t mosaic_online_stream_pending_bytes(const mosaic_online_stream *stream);
+void mosaic_online_stream_free(mosaic_online_stream *stream);
+
 /* Editable-document v0.1 preserves exact semantics and currently retokenizes the
  * complete document after edits. Future incremental engines must be equivalent. */
 mosaic_status mosaic_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
@@ -237,6 +260,8 @@ mosaic_status mosaic_security_script_name(const mosaic_security *security, uint1
                                           char *buffer, size_t capacity, size_t *out_required);
 mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                    mosaic_security_finding **out_findings, size_t *out_count);
+mosaic_status mosaic_security_visit(const mosaic_security *security, const uint8_t *input, size_t input_len,
+                                    mosaic_security_visitor visitor, void *context, size_t *out_count);
 
 /* Version-pinned normalization shadow views. Source bytes are never modified. */
 mosaic_status mosaic_normalization_load_memory(const uint8_t *pack, size_t pack_len, mosaic_normalization **out_normalization);

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0 — 2026-08-08
+
+Stable bounded-processing release.
+
+- exact online weighted-Viterbi streaming with survivor-prefix commitment before EOF;
+- caller-defined unresolved-source memory ceiling and explicit resource-limit behavior;
+- callback/visitor Unicode-security evidence without findings-array materialization;
+- adversarial no-prefix fixture plus arbitrary-byte/chunk differential and sanitizer coverage;
+- bounded-processing 10 MiB throughput/RSS regression gates;
+- backward-compatible C API advanced to 0.7.0 while tokenization semantics remain version 2.
+
 ## 0.8.0 — 2026-08-08
 
 Stable source-mapped normalization shadow-view release.

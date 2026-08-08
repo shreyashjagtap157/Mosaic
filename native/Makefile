@@ -26,14 +26,17 @@ SAN_DETECTOR := $(BUILD)/mosaic-detector-smoke-san
 SAN_BPE := $(BUILD)/mosaic-bpe-smoke-san
 SAN_SECURITY := $(BUILD)/mosaic-security-smoke-san
 SAN_NORMALIZATION := $(BUILD)/mosaic-normalization-smoke-san
+SAN_ONLINE := $(BUILD)/mosaic-online-stream-smoke-san
 BPE_SMOKE := $(BUILD)/mosaic-bpe-smoke
 SECURITY_SMOKE := $(BUILD)/mosaic-security-smoke
 NORMALIZATION_SMOKE := $(BUILD)/mosaic-normalization-smoke
+ONLINE_SMOKE := $(BUILD)/mosaic-online-stream-smoke
 SECURITY := $(ROOT)/fixtures/packs/security17-v1.mpack
 NORMALIZATION := $(ROOT)/fixtures/packs/normalization16-v1.mpack
 ICU_CFLAGS := $(shell pkg-config --cflags icu-uc)
 ICU_LIBS := $(shell pkg-config --libs icu-uc)
 BPE_MODEL := $(ROOT)/fixtures/packs/raw-bpe-v1.mpack
+ONLINE_ADVERSARIAL := $(ROOT)/fixtures/packs/online-adversarial-v1.mpack
 API_STATIC := $(BUILD)/mosaic-api-smoke-static
 API_SHARED := $(BUILD)/mosaic-api-smoke-shared
 API_CPP := $(BUILD)/mosaic-api-smoke-cpp
@@ -81,6 +84,9 @@ $(SAN_SECURITY): $(TESTS)/security_smoke.c $(SAN_OBJ)
 $(SAN_NORMALIZATION): $(TESTS)/normalization_smoke.c $(SAN_OBJ)
 	$(CC) $(SAN_FLAGS) -I$(INC) $(ICU_CFLAGS) $< $(SAN_OBJ) $(ICU_LIBS) -o $@
 
+$(SAN_ONLINE): $(TESTS)/online_stream_smoke.c $(SAN_OBJ)
+	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
+
 $(BPE_SMOKE): $(TESTS)/bpe_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
@@ -89,6 +95,9 @@ $(SECURITY_SMOKE): $(TESTS)/security_smoke.c $(STATIC_LIB)
 
 $(NORMALIZATION_SMOKE): $(TESTS)/normalization_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $(ICU_CFLAGS) $< $(STATIC_LIB) $(ICU_LIBS) -o $@
+
+$(ONLINE_SMOKE): $(TESTS)/online_stream_smoke.c $(STATIC_LIB)
+	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
 sanitize-api: $(SAN_API)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_API) $(MODEL) $(UNICODE)
@@ -111,6 +120,9 @@ sanitize-security: $(SAN_SECURITY)
 sanitize-normalization: $(SAN_NORMALIZATION)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_NORMALIZATION) $(NORMALIZATION) $(MODEL) $(UNICODE)
 
+sanitize-online: $(SAN_ONLINE)
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_ONLINE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack $(BPE_MODEL) $(ONLINE_ADVERSARIAL)
+
 $(API_STATIC): $(TESTS)/api_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
@@ -130,15 +142,16 @@ smoke: $(API_STATIC) $(API_SHARED)
 cpp-smoke: $(API_CPP)
 	$(API_CPP)
 
-sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization
+sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online
 
-test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) sanitize
+test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) sanitize
 	$(DETECTOR_SMOKE) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
 	$(BPE_SMOKE) $(BPE_MODEL)
 	$(SECURITY_SMOKE) $(MODEL) $(UNICODE) $(SECURITY)
 	$(NORMALIZATION_SMOKE) $(NORMALIZATION) $(MODEL) $(UNICODE)
+	$(ONLINE_SMOKE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack $(BPE_MODEL) $(ONLINE_ADVERSARIAL)
 
 clean:
-	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(SAN_SECURITY) $(SAN_NORMALIZATION) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
+	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(SAN_SECURITY) $(SAN_NORMALIZATION) $(SAN_ONLINE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
 
-.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization smoke cpp-smoke test
+.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online smoke cpp-smoke test

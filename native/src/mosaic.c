@@ -1216,6 +1216,58 @@ static int security_scan_internal(const SecurityView *v, Slice input, mosaic_sec
     *out_findings=findings;*out_count=n;return 1;
 }
 
+static mosaic_status security_visit_internal(const SecurityView *v, Slice input, mosaic_security_visitor visitor, void *context, size_t *out_count) {
+    if (!visitor || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_count = 0;
+    uint64_t script_counts[1025] = {0}; size_t i = 0;
+    while (i < input.len) {
+        ScalarUnit unit = decode_one_unit(input, i);
+        if (unit.valid) {
+            uint16_t sid = security_script_lookup(v, unit.cp);
+            if (security_significant_script(v, sid)) {
+                if (script_counts[sid] == UINT64_MAX) return MOSAIC_ERROR_OVERFLOW;
+                ++script_counts[sid];
+            }
+        }
+        i = unit.end;
+    }
+    uint16_t primary = 0; uint64_t best = 0; size_t active = 0;
+    for (uint32_t sid = 1; sid <= v->script_count; ++sid) {
+        if (script_counts[sid]) {
+            ++active;
+            if (script_counts[sid] > best || (script_counts[sid] == best && (!primary || sid < primary))) {
+                best = script_counts[sid]; primary = (uint16_t)sid;
+            }
+        }
+    }
+    size_t n = 0; i = 0;
+    while (i < input.len) {
+        ScalarUnit unit = decode_one_unit(input, i);
+        if (unit.valid) {
+            uint32_t cp = unit.cp; uint16_t sid = security_script_lookup(v, cp);
+            uint32_t kinds[4]; size_t kn = 0;
+            if (security_bool_lookup(v, v->bidi_offset, v->bidi_count, cp)) kinds[kn++] = MOSAIC_SECURITY_BIDI_CONTROL;
+            if (security_bool_lookup(v, v->ignorable_offset, v->ignorable_count, cp)) kinds[kn++] = MOSAIC_SECURITY_DEFAULT_IGNORABLE;
+            if (security_bool_lookup(v, v->nonchar_offset, v->nonchar_count, cp)) kinds[kn++] = MOSAIC_SECURITY_NONCHARACTER;
+            if (security_bool_lookup(v, v->deprecated_offset, v->deprecated_count, cp)) kinds[kn++] = MOSAIC_SECURITY_DEPRECATED;
+            for (size_t k = 0; k < kn; ++k) {
+                mosaic_security_finding f = {kinds[k], sid, 0, (uint64_t)unit.start, (uint64_t)(unit.end - unit.start)};
+                mosaic_status status = visitor(context, &f); if (status != MOSAIC_OK) { *out_count = n; return status; }
+                if (n == SIZE_MAX) return MOSAIC_ERROR_OVERFLOW;
+                ++n;
+            }
+            if (active > 1 && security_significant_script(v, sid) && sid != primary) {
+                mosaic_security_finding f = {MOSAIC_SECURITY_MIXED_SCRIPT, sid, 0, (uint64_t)unit.start, (uint64_t)(unit.end - unit.start)};
+                mosaic_status status = visitor(context, &f); if (status != MOSAIC_OK) { *out_count = n; return status; }
+                if (n == SIZE_MAX) return MOSAIC_ERROR_OVERFLOW;
+                ++n;
+            }
+        }
+        i = unit.end;
+    }
+    *out_count = n; return MOSAIC_OK;
+}
+
 static uint8_t ugcb(const UnicodeView*u,const ScalarUnit*x){return x->valid?unicode_prop_lookup(u,u->gcb_offset,u->gcb_count,x->cp):0;}
 static uint8_t uincb(const UnicodeView*u,const ScalarUnit*x){return x->valid?unicode_prop_lookup(u,u->incb_offset,u->incb_count,x->cp):0;}
 static int uep(const UnicodeView*u,const ScalarUnit*x){return x->valid&&unicode_ep_lookup(u,x->cp);}
@@ -1360,6 +1412,16 @@ struct mosaic_stream {
     int finished;
 };
 
+struct mosaic_online_stream {
+    mosaic_model *model;
+    int64_t *adjustments;
+    uint8_t *pending;
+    size_t pending_len;
+    size_t pending_capacity;
+    size_t max_pending_bytes;
+    int finished;
+};
+
 struct mosaic_document {
     mosaic_model *model;
     int64_t *adjustments;
@@ -1371,7 +1433,7 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.8.0"; }
+const char *mosaic_version_string(void) { return "0.9.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1385,6 +1447,8 @@ const char *mosaic_status_string(mosaic_status status) {
         case MOSAIC_ERROR_UNKNOWN_TOKEN_ID: return "unknown token ID";
         case MOSAIC_ERROR_INTERNAL: return "internal error";
         case MOSAIC_ERROR_CONFLICT: return "conflict";
+        case MOSAIC_ERROR_RESOURCE_LIMIT: return "resource limit";
+        case MOSAIC_ERROR_UNSUPPORTED: return "unsupported";
         default: return "unknown status";
     }
 }
@@ -1855,6 +1919,7 @@ void mosaic_security_free(mosaic_security *security){if(!security)return;free(se
 mosaic_status mosaic_security_script_name(const mosaic_security *security,uint16_t script_id,char *buffer,size_t capacity,size_t *out_required){if(!security||!script_id||script_id>security->view.script_count||!out_required)return MOSAIC_ERROR_INVALID_ARGUMENT;Slice name;uint16_t sid;if(!security_script_meta(&security->view,(uint32_t)script_id-1u,&name,&sid)||sid!=script_id)return MOSAIC_ERROR_INTERNAL;*out_required=name.len+1u;if(!buffer)return capacity==0?MOSAIC_OK:MOSAIC_ERROR_INVALID_ARGUMENT;if(capacity<name.len+1u)return MOSAIC_ERROR_OVERFLOW;memcpy(buffer,name.bytes,name.len);buffer[name.len]='\0';return MOSAIC_OK;}
 mosaic_status mosaic_security_script_ranges(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_script_span **out_ranges,size_t *out_count){if(!security||(!input&&input_len)||!out_ranges||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_ranges=NULL;*out_count=0;if(!security_script_ranges_internal(&security->view,(Slice){input,input_len},out_ranges,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
 mosaic_status mosaic_security_scan(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_security_finding **out_findings,size_t *out_count){if(!security||(!input&&input_len)||!out_findings||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_findings=NULL;*out_count=0;if(!security_scan_internal(&security->view,(Slice){input,input_len},out_findings,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
+mosaic_status mosaic_security_visit(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_security_visitor visitor,void *context,size_t *out_count){if(!security||(!input&&input_len)||!visitor||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;return security_visit_internal(&security->view,(Slice){input,input_len},visitor,context,out_count);}
 
 mosaic_status mosaic_normalization_load_memory(const uint8_t *pack,size_t pack_len,mosaic_normalization **out_normalization){
     if(!out_normalization||(!pack&&pack_len))return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -2059,6 +2124,187 @@ static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_toke
     return MOSAIC_OK;
 }
 
+static int online_parent_position(const Vocab *v, const uint32_t *back, size_t position, size_t *out_parent) {
+    if (!position) { *out_parent = 0; return 1; }
+    uint32_t entry_index = back[position];
+    VocabEntry e; Slice surface;
+    if (entry_index == UINT32_MAX || !vocab_entry(v, entry_index, &e, &surface) || !surface.len || surface.len > position) return 0;
+    *out_parent = position - surface.len;
+    return 1;
+}
+
+static int online_lca(const Vocab *v, const uint32_t *back, const size_t *depth, size_t a, size_t b, size_t *out) {
+    while (depth[a] > depth[b]) { if (!online_parent_position(v, back, a, &a)) return 0; }
+    while (depth[b] > depth[a]) { if (!online_parent_position(v, back, b, &b)) return 0; }
+    while (a != b) {
+        if (!online_parent_position(v, back, a, &a) || !online_parent_position(v, back, b, &b)) return 0;
+    }
+    *out = a; return 1;
+}
+
+static int online_ids_to_end(const Vocab *v, const uint32_t *back, size_t end, uint32_t **out_ids, size_t *out_count) {
+    size_t count = 0, cursor = end;
+    while (cursor) {
+        size_t parent;
+        if (!online_parent_position(v, back, cursor, &parent) || count == SIZE_MAX) return 0;
+        ++count; cursor = parent;
+    }
+    if (count > SIZE_MAX / sizeof(uint32_t)) return 0;
+    uint32_t *ids = count ? (uint32_t *)malloc(count * sizeof *ids) : NULL;
+    if (count && !ids) return 0;
+    cursor = end; size_t pos = count;
+    while (cursor) {
+        uint32_t entry_index = back[cursor]; VocabEntry e; Slice surface; size_t parent;
+        if (!online_parent_position(v, back, cursor, &parent) || !vocab_entry(v, entry_index, &e, &surface) || !pos) { free(ids); return 0; }
+        ids[--pos] = e.token_id; cursor = parent;
+    }
+    if (pos) { free(ids); return 0; }
+    *out_ids = ids; *out_count = count; return 1;
+}
+
+static int append_ids(uint32_t **items, size_t *count, size_t *capacity, const uint32_t *more, size_t more_count) {
+    if (!more_count) return 1;
+    if (more_count > SIZE_MAX - *count) return 0;
+    size_t needed = *count + more_count;
+    if (needed > *capacity) {
+        size_t next = *capacity ? *capacity : 64;
+        while (next < needed) { if (next > SIZE_MAX / 2) { next = needed; break; } next *= 2; }
+        if (next > SIZE_MAX / sizeof(uint32_t)) return 0;
+        uint32_t *grown = (uint32_t *)realloc(*items, next * sizeof *grown);
+        if (!grown) return 0;
+        *items = grown; *capacity = next;
+    }
+    memcpy(*items + *count, more, more_count * sizeof *more);
+    *count = needed; return 1;
+}
+
+static mosaic_status online_commit_prefix(mosaic_online_stream *stream, int eof, uint32_t **out_ids, size_t *out_count, size_t *out_committed_bytes) {
+    *out_ids = NULL; *out_count = 0; *out_committed_bytes = 0;
+    if (!stream->pending_len) return MOSAIC_OK;
+    if (stream->model->vocab.algorithm != 0u) return MOSAIC_ERROR_UNSUPPORTED;
+    Tokenization result = {0};
+    if (!tokenize_viterbi_with_adjustments(&stream->model->vocab, (Slice){stream->pending, stream->pending_len}, stream->adjustments, &result))
+        return MOSAIC_ERROR_INTERNAL;
+    size_t commit_end = stream->pending_len;
+    if (!eof) {
+        size_t n = stream->pending_len;
+        size_t max_len = stream->model->vocab.max_surface_len;
+        size_t frontier_start = n >= max_len - 1u ? n - (max_len - 1u) : 0u;
+        if (n > SIZE_MAX / sizeof(size_t) - 1u) { tokenization_free(&result); return MOSAIC_ERROR_OVERFLOW; }
+        size_t *depth = (size_t *)malloc((n + 1u) * sizeof *depth);
+        if (!depth) { tokenization_free(&result); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        depth[0] = 0;
+        for (size_t pos = 1; pos <= n; ++pos) {
+            size_t parent;
+            if (!online_parent_position(&stream->model->vocab, result.back, pos, &parent) || depth[parent] == SIZE_MAX) {
+                free(depth); tokenization_free(&result); return MOSAIC_ERROR_INTERNAL;
+            }
+            depth[pos] = depth[parent] + 1u;
+        }
+        commit_end = frontier_start;
+        for (size_t pos = frontier_start + 1u; pos <= n && commit_end; ++pos) {
+            size_t lca;
+            if (!online_lca(&stream->model->vocab, result.back, depth, commit_end, pos, &lca)) {
+                free(depth); tokenization_free(&result); return MOSAIC_ERROR_INTERNAL;
+            }
+            commit_end = lca;
+        }
+        free(depth);
+    }
+    mosaic_status status = MOSAIC_OK;
+    if (commit_end && !online_ids_to_end(&stream->model->vocab, result.back, commit_end, out_ids, out_count)) status = MOSAIC_ERROR_OUT_OF_MEMORY;
+    tokenization_free(&result);
+    if (status != MOSAIC_OK) return status;
+    if (commit_end) {
+        memmove(stream->pending, stream->pending + commit_end, stream->pending_len - commit_end);
+        stream->pending_len -= commit_end;
+        *out_committed_bytes = commit_end;
+    }
+    return MOSAIC_OK;
+}
+
+static mosaic_status online_stream_allocate(const mosaic_model *model, const int64_t *adjustments, size_t max_pending_bytes,
+                                            mosaic_online_stream **out_stream) {
+    if (!model || !out_stream || !max_pending_bytes) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (model->vocab.algorithm != 0u) return MOSAIC_ERROR_UNSUPPORTED;
+    if (max_pending_bytes < model->vocab.max_surface_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_stream = NULL;
+    mosaic_online_stream *stream = (mosaic_online_stream *)calloc(1, sizeof *stream);
+    if (!stream) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = mosaic_model_load_memory(model->pack, model->pack_len, &stream->model);
+    if (status != MOSAIC_OK) { free(stream); return status; }
+    if (adjustments) {
+        stream->adjustments = (int64_t *)malloc((size_t)stream->model->vocab.count * sizeof *stream->adjustments);
+        if (!stream->adjustments) { mosaic_model_free(stream->model); free(stream); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy(stream->adjustments, adjustments, (size_t)stream->model->vocab.count * sizeof *stream->adjustments);
+    }
+    stream->max_pending_bytes = max_pending_bytes;
+    *out_stream = stream; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_online_stream_create(const mosaic_model *model, size_t max_pending_bytes, mosaic_online_stream **out_stream) {
+    return online_stream_allocate(model, NULL, max_pending_bytes, out_stream);
+}
+
+mosaic_status mosaic_tokenizer_online_stream_create(const mosaic_tokenizer *tokenizer, size_t max_pending_bytes,
+                                                     mosaic_online_stream **out_stream) {
+    if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return online_stream_allocate(tokenizer->model, tokenizer->adjustments, max_pending_bytes, out_stream);
+}
+
+mosaic_status mosaic_online_stream_push(mosaic_online_stream *stream, const uint8_t *bytes, size_t len,
+                                        size_t *out_consumed, uint32_t **out_ids, size_t *out_count) {
+    if (!stream || (!bytes && len) || !out_consumed || !out_ids || !out_count || stream->finished) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_consumed = 0; *out_ids = NULL; *out_count = 0;
+    uint32_t *all = NULL; size_t all_count = 0, all_capacity = 0;
+    while (*out_consumed < len) {
+        if (stream->pending_len == stream->max_pending_bytes) {
+            uint32_t *ids = NULL; size_t count = 0, committed = 0;
+            mosaic_status status = online_commit_prefix(stream, 0, &ids, &count, &committed);
+            if (status != MOSAIC_OK) { free(ids); free(all); return status; }
+            if (!append_ids(&all, &all_count, &all_capacity, ids, count)) { free(ids); free(all); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+            free(ids);
+            if (!committed) { *out_ids = all; *out_count = all_count; return MOSAIC_ERROR_RESOURCE_LIMIT; }
+        }
+        size_t room = stream->max_pending_bytes - stream->pending_len;
+        size_t remaining = len - *out_consumed;
+        size_t step = remaining < room ? remaining : room;
+        if (step > 65536u) step = 65536u;
+        if (stream->pending_len + step > stream->pending_capacity) {
+            size_t needed = stream->pending_len + step;
+            size_t next = stream->pending_capacity ? stream->pending_capacity : 4096u;
+            while (next < needed) { if (next > stream->max_pending_bytes / 2u) { next = stream->max_pending_bytes; break; } next *= 2u; }
+            if (next < needed) next = needed;
+            uint8_t *grown = (uint8_t *)realloc(stream->pending, next);
+            if (!grown) { free(all); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+            stream->pending = grown; stream->pending_capacity = next;
+        }
+        memcpy(stream->pending + stream->pending_len, bytes + *out_consumed, step);
+        stream->pending_len += step; *out_consumed += step;
+        uint32_t *ids = NULL; size_t count = 0, committed = 0;
+        mosaic_status status = online_commit_prefix(stream, 0, &ids, &count, &committed);
+        if (status != MOSAIC_OK) { free(ids); free(all); return status; }
+        if (!append_ids(&all, &all_count, &all_capacity, ids, count)) { free(ids); free(all); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        free(ids);
+    }
+    *out_ids = all; *out_count = all_count; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_online_stream_finish(mosaic_online_stream *stream, uint32_t **out_ids, size_t *out_count) {
+    if (!stream || !out_ids || !out_count || stream->finished) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t committed = 0;
+    mosaic_status status = online_commit_prefix(stream, 1, out_ids, out_count, &committed);
+    if (status == MOSAIC_OK) stream->finished = 1;
+    return status;
+}
+
+size_t mosaic_online_stream_pending_bytes(const mosaic_online_stream *stream) { return stream ? stream->pending_len : 0u; }
+
+void mosaic_online_stream_free(mosaic_online_stream *stream) {
+    if (!stream) return;
+    mosaic_model_free(stream->model); free(stream->adjustments); free(stream->pending); free(stream);
+}
+
 mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *detector_pack, size_t detector_pack_len) {
     if (!tokenizer || (!detector_pack && detector_pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -2114,6 +2360,11 @@ mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer, 
                                               mosaic_security_finding **out_findings, size_t *out_count) {
     if (!tokenizer || !tokenizer->security) return MOSAIC_ERROR_INVALID_ARGUMENT;
     return mosaic_security_scan(tokenizer->security, input, input_len, out_findings, out_count);
+}
+mosaic_status mosaic_tokenizer_security_visit(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+                                               mosaic_security_visitor visitor, void *context, size_t *out_count) {
+    if (!tokenizer || !tokenizer->security) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return mosaic_security_visit(tokenizer->security, input, input_len, visitor, context, out_count);
 }
 
 mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,const uint8_t *pack,size_t pack_len){

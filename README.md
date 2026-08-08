@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.8.0
+## Stable tokenizer: 0.9.0
 
-Mosaic Tokenizer 0.8.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, Unicode-security, and mapped-normalization release with:
+Mosaic Tokenizer 0.9.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, Unicode-security, mapped-normalization, and bounded-processing release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -26,6 +26,8 @@ Mosaic Tokenizer 0.8.0 is a stable native tokenizer, deterministic pack-authorin
 - a separately versioned Unicode 16 normalization pack with exact source-mapped NFD/NFC/NFKD/NFKC/NFKC-casefold shadow views;
 - normalization provenance that supports decomposition, combining-mark reordering, multi-source composition, compatibility mappings, Hangul, and malformed UTF-8 barriers without modifying source;
 - static/shared C libraries and C++-compatible public header;
+- exact online Viterbi streaming that commits only survivor-prefix token IDs before EOF under a caller-defined pending-byte ceiling;
+- callback/visitor Unicode-security scanning that can process millions of findings without materializing a finding array;
 - streaming/full semantic equivalence and editable-document/full-tokenization equivalence;
 - deterministic release packaging;
 - supported deterministic `mosaic-author` CLI for model/language/detector packs;
@@ -34,9 +36,9 @@ Mosaic Tokenizer 0.8.0 is a stable native tokenizer, deterministic pack-authorin
 - byte fallback is surface-based, so existing model token IDs need not equal byte values;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 adds a separately pinned Unicode-16 normalization shadow-view pack and advances the backward-compatible C API surface to 0.6.0. Canonical tokenization semantics remain version 2.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 added a separately pinned Unicode-16 normalization shadow-view pack. Version 0.9.0 adds exact bounded online Viterbi streaming and bounded-output security visitors and advances the backward-compatible C API surface to 0.7.0. Canonical tokenization semantics remain version 2.
 
-This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
+This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
 ## Repository layout
 
@@ -74,7 +76,7 @@ make test
 python tools/qualify_native.py
 ```
 
-Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector/security/normalization packs, Python/native differentials, Unicode 17 grapheme/security conformance, 10,000 ICU-backed Unicode-16 normalization comparisons, exact normalization provenance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, and performance/RSS regression floors.
+Qualification covers exact bounded streaming and security visitors, deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector/security/normalization packs, Python/native differentials, Unicode 17 grapheme/security conformance, 10,000 ICU-backed Unicode-16 normalization comparisons, exact normalization provenance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, and performance/RSS regression floors.
 
 ## CLI
 
@@ -117,6 +119,10 @@ Automatic document routing:
 
 Auto mode applies a specialization only when the detector confidence gate passes and the exact language pack is loaded. Otherwise it uses the base model.
 
+
+## Bounded processing
+
+0.9 adds `mosaic_online_stream` for exact survivor-prefix Viterbi streaming and `mosaic_security_visit` for callback-based security evidence without output-array materialization. The online API fails explicitly with `MOSAIC_ERROR_RESOURCE_LIMIT` if the configured unresolved-source ceiling cannot be respected; raw-BPE models are explicitly unsupported by this Viterbi-specific API. See `docs/implementation/ONLINE_STREAMING_0.9.md`.
 
 ## Mapped normalization
 
@@ -174,7 +180,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.8.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.9.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 

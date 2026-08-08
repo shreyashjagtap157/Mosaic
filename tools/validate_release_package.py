@@ -55,6 +55,14 @@ def main():
 #include <stddef.h>
 #include <string.h>
 
+typedef struct { size_t count; } visitor_state;
+static mosaic_status count_security(void *ctx, const mosaic_security_finding *finding) {
+    (void)finding;
+    visitor_state *s = (visitor_state *)ctx;
+    ++s->count;
+    return MOSAIC_OK;
+}
+
 int main(int argc, char **argv) {
     if (argc != 7) return 2;
     mosaic_tokenizer *t = 0;
@@ -75,6 +83,27 @@ int main(int argc, char **argv) {
     size_t fn = 0;
     if (mosaic_tokenizer_security_scan(t, in, 9, &f, &fn) != MOSAIC_OK) return 9;
     mosaic_free(f);
+    visitor_state vs = {0};
+    size_t visited = 0;
+    if (mosaic_tokenizer_security_visit(t, in, 9, count_security, &vs, &visited) != MOSAIC_OK) return 12;
+    if (visited != fn || vs.count != fn) return 13;
+
+    mosaic_online_stream *online = 0;
+    if (mosaic_tokenizer_online_stream_create(t, 4096, &online) != MOSAIC_OK) return 14;
+    size_t consumed = 0;
+    unsigned int *online_ids = 0;
+    size_t online_n = 0;
+    if (mosaic_online_stream_push(online, in, 9, &consumed, &online_ids, &online_n) != MOSAIC_OK) return 15;
+    if (consumed != 9) return 16;
+    unsigned int *online_tail = 0;
+    size_t online_tail_n = 0;
+    if (mosaic_online_stream_finish(online, &online_tail, &online_tail_n) != MOSAIC_OK) return 17;
+    if (online_n + online_tail_n != 1) return 18;
+    unsigned int online_id = online_n ? online_ids[0] : online_tail[0];
+    if (online_id != 271) return 19;
+    mosaic_free(online_ids);
+    mosaic_free(online_tail);
+    mosaic_online_stream_free(online);
 
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};

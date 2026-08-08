@@ -22,6 +22,7 @@ fixtures:
 	$(PYTHON) tools/generate_security17_malformed.py --check
 	$(PYTHON) tools/build_normalization16_pack.py --check
 	$(PYTHON) tools/generate_normalization16_malformed.py --check
+	$(PYTHON) tools/build_online_stream_fixture.py --check
 
 test: fixtures
 	$(MAKE) -C native test

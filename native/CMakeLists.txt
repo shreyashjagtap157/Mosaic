@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.8.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.9.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -91,6 +91,17 @@ if(BUILD_TESTING)
   target_link_libraries(mosaic-normalization-smoke PRIVATE mosaic_static ICU::uc)
   mosaic_warnings(mosaic-normalization-smoke)
   add_test(NAME normalization COMMAND mosaic-normalization-smoke ${MOSAIC_NORMALIZATION_PACK} ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+
+  add_executable(mosaic-online-stream-smoke ${MOSAIC_TEST_DIR}/online_stream_smoke.c)
+  target_include_directories(mosaic-online-stream-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-online-stream-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-online-stream-smoke)
+  add_test(NAME online-stream COMMAND mosaic-online-stream-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/raw-bpe-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/online-adversarial-v1.mpack)
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
