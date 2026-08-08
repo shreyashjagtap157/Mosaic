@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.11.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.12.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -123,6 +123,16 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/raw-bpe-v1.mpack)
+
+  add_executable(mosaic-token-document-smoke ${MOSAIC_TEST_DIR}/token_document_smoke.c)
+  target_include_directories(mosaic-token-document-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-token-document-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-token-document-smoke)
+  add_test(NAME token-document COMMAND mosaic-token-document-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack)
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})

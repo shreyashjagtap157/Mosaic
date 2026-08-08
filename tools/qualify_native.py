@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.11 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.12 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -55,6 +55,9 @@ def main()->int:
     run(['clang','-O2','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Inative/include','conformance/c/resync_smoke.c',clang/'mosaic_lib.o','-o',resync_smoke])
     clang_resync_env=os.environ.copy(); clang_resync_env['MOSAIC_RESYNC_EDITS']='100'
     run([resync_smoke,MODEL,UNICODE,ROOT/'fixtures/packs/language/en-v1.mpack',ROOT/'fixtures/packs/language/hi-v1.mpack',ROOT/'fixtures/packs/language/ja-v1.mpack',ROOT/'fixtures/packs/raw-bpe-v1.mpack'],clang_resync_env)
+    token_document_smoke=clang/'mosaic-token-document-smoke'
+    run(['clang','-O2','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Inative/include','conformance/c/token_document_smoke.c',clang/'mosaic_lib.o','-o',token_document_smoke])
+    run([token_document_smoke,MODEL,UNICODE,ROOT/'fixtures/packs/language/en-v1.mpack',ROOT/'fixtures/packs/language/hi-v1.mpack',ROOT/'fixtures/packs/language/ja-v1.mpack',ROOT/'fixtures/packs/detector/reference-v1.mpack'])
     # Deterministic 10 MiB benchmark fixture and conservative regression floor.
     bench=Path(tempfile.gettempdir())/'mosaic-release-10m.bin'
     chunk=b'hello world tokenizers :: value->_id '+ 'नमस्ते 世界 こんにちは\n'.encode()
@@ -71,7 +74,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.11 release qualification completed')
+    print('PASS: Mosaic native v0.12 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0 — 2026-08-08
+
+Core TokenDocument / Token IR release.
+
+- immutable exact source snapshot with source SHA-256 and tokenizer fingerprint;
+- compact model-token ID/byte-length column with exact byte-span projection;
+- optional Unicode grapheme projection;
+- explicit density flags with no hidden construction of unrequested views;
+- automatic-routing snapshot records its detection decision;
+- document lifetime is independent from its parent tokenizer.
+
 ## 0.11.0 — 2026-08-08
 
 Exact checkpoint-resynchronizing incremental Viterbi release.

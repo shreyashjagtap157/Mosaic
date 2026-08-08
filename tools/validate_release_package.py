@@ -127,6 +127,14 @@ int main(int argc, char **argv) {
     mosaic_free(resync_ids);
     mosaic_resync_document_free(resync);
 
+    mosaic_token_document *tdoc = 0;
+    if (mosaic_tokenizer_token_document_create(t, in, 9, MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES, &tdoc) != MOSAIC_OK) return 28;
+    mosaic_token_document_info tinfo = {0};
+    if (mosaic_token_document_get_info(tdoc, &tinfo) != MOSAIC_OK || tinfo.source_length != 9 || !tinfo.model_token_count) return 29;
+    mosaic_document_token *dtokens = 0; size_t dtn = 0;
+    if (mosaic_token_document_model_tokens(tdoc, &dtokens, &dtn) != MOSAIC_OK || dtn != tinfo.model_token_count) return 30;
+    mosaic_free(dtokens);
+
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};
     if (mosaic_tokenizer_normalize(t, MOSAIC_NORMALIZE_NFD, ni, 2, &v) != MOSAIC_OK) return 11;
@@ -134,6 +142,10 @@ int main(int argc, char **argv) {
     mosaic_normalized_view_free(&v);
     mosaic_free(ids);
     mosaic_tokenizer_free(t);
+    unsigned char *doc_copy = 0; size_t doc_copy_n = 0;
+    if (mosaic_token_document_copy_source(tdoc, &doc_copy, &doc_copy_n) != MOSAIC_OK || doc_copy_n != 9 || memcmp(doc_copy, in, 9)) return 31;
+    mosaic_free(doc_copy);
+    mosaic_token_document_free(tdoc);
     return ok ? 0 : 7;
 }
 ''')
