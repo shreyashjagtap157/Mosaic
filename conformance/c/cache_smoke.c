@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "test_thread.h"
 
 typedef struct {
     mosaic_cache *cache;
@@ -89,15 +89,14 @@ int main(void) {
     cfg = (mosaic_cache_config){sizeof cfg, 0u, 2048u, 2u * 1024u * 1024u, 4096u};
     if (mosaic_cache_create(&cfg, &cache) != MOSAIC_OK) return 15;
     enum { THREAD_COUNT = 8 };
-    thrd_t threads[THREAD_COUNT];
+    mosaic_thread_t threads[THREAD_COUNT];
     Worker workers[THREAD_COUNT];
     for (unsigned i = 0; i < THREAD_COUNT; ++i) {
         workers[i] = (Worker){cache, i, 0};
-        if (thrd_create(&threads[i], worker, &workers[i]) != thrd_success) return 16;
+        if (mosaic_thread_create(&threads[i], worker, &workers[i]) == 0) return 16;
     }
     for (unsigned i = 0; i < THREAD_COUNT; ++i) {
-        int rc = 0;
-        if (thrd_join(threads[i], &rc) != thrd_success || rc != 0 || workers[i].failed != 0) return 17;
+        if (!mosaic_thread_join(threads[i]) || workers[i].failed != 0) return 17;
     }
     if (mosaic_cache_get_stats(cache, &stats) != MOSAIC_OK ||
         stats.entries > 2048u || stats.bytes > 2u * 1024u * 1024u ||

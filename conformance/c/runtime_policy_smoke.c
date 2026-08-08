@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "test_thread.h"
 
 typedef struct { mosaic_tokenizer *tokenizer; int failed; } Worker;
 static int worker(void *arg) {
@@ -27,8 +27,8 @@ int main(int argc,char **argv){
     mosaic_document *doc=NULL;if(mosaic_tokenizer_document_create(t,(const uint8_t*)"abc",3,&doc)!=MOSAIC_OK)return 12;if(mosaic_document_apply_edit(doc,3,0,(const uint8_t*)"123456",6)!=MOSAIC_ERROR_RESOURCE_LIMIT)return 13;mosaic_document_free(doc);
     mosaic_incremental_document *inc=NULL;if(mosaic_tokenizer_incremental_document_create(t,(const uint8_t*)"abc",3,&inc)!=MOSAIC_OK)return 14;if(mosaic_incremental_document_apply_edit(inc,3,0,(const uint8_t*)"123456",6)!=MOSAIC_ERROR_RESOURCE_LIMIT)return 15;mosaic_incremental_document_free(inc);
     if(mosaic_tokenizer_reset_metrics(t)!=MOSAIC_OK)return 16;
-    enum{N=8};thrd_t threads[N];Worker workers[N];for(unsigned i=0;i<N;++i){workers[i]=(Worker){t,0};if(thrd_create(&threads[i],worker,&workers[i])!=thrd_success)return 17;}
-    for(unsigned i=0;i<N;++i){int rc=0;if(thrd_join(threads[i],&rc)!=thrd_success||rc||workers[i].failed)return 18;}
+    enum{N=8};mosaic_thread_t threads[N];Worker workers[N];for(unsigned i=0;i<N;++i){workers[i]=(Worker){t,0};if(!mosaic_thread_create(&threads[i],worker,&workers[i]))return 17;}
+    for(unsigned i=0;i<N;++i){if(!mosaic_thread_join(threads[i])||workers[i].failed)return 18;}
     mosaic_runtime_metrics metrics={0};if(mosaic_tokenizer_get_metrics(t,&metrics)!=MOSAIC_OK||metrics.encode_calls!=8000u||metrics.bytes_in!=40000u||metrics.tokens_out<8000u||metrics.failures)return 19;
     printf("OK sealed runtime threads=%u encode_calls=%llu bytes=%llu tokens=%llu\n",N,(unsigned long long)metrics.encode_calls,(unsigned long long)metrics.bytes_in,(unsigned long long)metrics.tokens_out);
     mosaic_tokenizer_free(t);return 0;

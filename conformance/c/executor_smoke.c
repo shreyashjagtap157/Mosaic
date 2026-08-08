@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "test_thread.h"
 
 #define CALLERS 8
 #define ITEMS 100
@@ -88,13 +88,13 @@ int main(int argc, char **argv) {
     mosaic_executor_free(small_executor);
 
     if (mosaic_executor_reset_metrics(executor) != MOSAIC_OK) return fail("reset metrics");
-    caller_ctx callers[CALLERS]; thrd_t threads[CALLERS];
+    caller_ctx callers[CALLERS]; mosaic_thread_t threads[CALLERS];
     for (size_t i = 0; i < CALLERS; ++i) {
         callers[i] = (caller_ctx){executor, tokenizer, (unsigned)(0x1234u + i * 31u), 0};
-        if (thrd_create(&threads[i], caller_main, &callers[i]) != thrd_success) return fail("create caller");
+        if (mosaic_thread_create(&threads[i], caller_main, &callers[i]) == 0) return fail("create caller");
     }
     for (size_t i = 0; i < CALLERS; ++i) {
-        thrd_join(threads[i], NULL);
+        if (!mosaic_thread_join(threads[i])) return fail("join caller");
         if (callers[i].failed) return fail("concurrent batch mismatch");
     }
     mosaic_executor_metrics metrics = {0};

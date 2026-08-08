@@ -4,14 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "test_thread.h"
 
 #define BATCH 200
 #define SEQ_MAX 1024
 #define OP_MAX 8
 
 typedef struct observer_state {
-    mtx_t mutex;
+    mosaic_mutex_t mutex;
     uint8_t fingerprint[32];
     unsigned char seen[SEQ_MAX];
     atomic_uint_fast64_t success;
@@ -35,13 +35,13 @@ static void observe(void *context, const mosaic_event *event) {
         atomic_fetch_add_explicit(&state->bad, 1u, memory_order_relaxed);
         return;
     }
-    if (mtx_lock(&state->mutex) != thrd_success) {
+    if (!mosaic_mutex_lock(&state->mutex)) {
         atomic_fetch_add_explicit(&state->bad, 1u, memory_order_relaxed);
         return;
     }
     if (state->seen[event->sequence]) atomic_fetch_add_explicit(&state->bad, 1u, memory_order_relaxed);
     state->seen[event->sequence] = 1u;
-    mtx_unlock(&state->mutex);
+    mosaic_mutex_unlock(&state->mutex);
 
     if (event->kind == MOSAIC_EVENT_SUCCESS && event->status == MOSAIC_OK) {
         atomic_fetch_add_explicit(&state->success, 1u, memory_order_relaxed);
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
 
     observer_state state = {0};
     state.tokenizer = tokenizer;
-    if (mtx_init(&state.mutex, mtx_plain) != thrd_success) return fail("observer mutex");
+    if (!mosaic_mutex_init(&state.mutex)) return fail("observer mutex");
     if (mosaic_tokenizer_fingerprint(tokenizer, state.fingerprint) != MOSAIC_OK) return fail("fingerprint");
     uint8_t identity_before[32], identity_after[32];
     if (mosaic_tokenizer_runtime_identity(tokenizer, identity_before) != MOSAIC_OK) return fail("identity before");
@@ -169,6 +169,6 @@ int main(int argc, char **argv) {
         return fail("observability capability");
     printf("OK observer success=%llu failure=%llu resource=%llu concurrent=%u operations=8\n",
            (unsigned long long)success, (unsigned long long)failure, (unsigned long long)resource, BATCH);
-    mosaic_tokenizer_free(tokenizer); mtx_destroy(&state.mutex);
+    mosaic_tokenizer_free(tokenizer); mosaic_mutex_destroy(&state.mutex);
     return 0;
 }
