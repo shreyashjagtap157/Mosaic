@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.27.0 — 2026-08-08
+
+Enterprise portability and release-supply-chain hardening release.
+
+- repository-root CMake superbuild and reproducible core/full presets;
+- dependency-minimal core builds without OpenSSL or ICU;
+- Windows `_beginthreadex`/Win32 synchronization and POSIX pthread portability shim;
+- cross-platform Linux/macOS/Windows core CI topology with Windows Clang C11 selection;
+- deterministic SPDX 2.3 SBOM and SLSA-shaped in-toto provenance;
+- staged SHA-256 inventory and source-checksum-manifest binding;
+- official release builds refuse dirty Git trees while preflight builds record dirty provenance;
+- release archive naming and supply-chain validation defects fixed;
+- SECURITY/SUPPORT/release-engineering policy documents;
+- mechanical release-version synchronization and validation.
+
 ## 0.26.0 — 2026-08-08
 
 Enterprise performance-hardening release.

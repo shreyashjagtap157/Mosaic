@@ -13,3 +13,6 @@ __pycache__/
 
 /build/
 /dist/
+
+# Clang static-analyzer byproducts
+/*.plist
