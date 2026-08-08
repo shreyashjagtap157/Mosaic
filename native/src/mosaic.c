@@ -4415,8 +4415,9 @@ static int security_cli(int argc, char **argv) {
         printf("bytes=%zu script_spans=%zu findings=%zu\n", input_len, span_count, finding_count);
         for (size_t i = 0; i < span_count; ++i) {
             char name[64] = "INVALID"; size_t need = 0;
-            if (spans[i].script_id == 0) strcpy(name, "OPAQUE");
-            else if (mosaic_security_script_name(security, spans[i].script_id, name, sizeof name, &need) != MOSAIC_OK) strcpy(name, "UNKNOWN");
+            if (spans[i].script_id == 0) memcpy(name, "OPAQUE", sizeof "OPAQUE");
+            else if (mosaic_security_script_name(security, spans[i].script_id, name, sizeof name, &need) != MOSAIC_OK)
+                memcpy(name, "UNKNOWN", sizeof "UNKNOWN");
             printf("script start=%" PRIu64 " length=%" PRIu64 " id=%u name=%s\n",
                    spans[i].start, spans[i].length, (unsigned)spans[i].script_id, name);
         }

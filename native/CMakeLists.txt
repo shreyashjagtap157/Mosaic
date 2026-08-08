@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 1.0.2 LANGUAGES C CXX)
+project(mosaic VERSION 1.0.3 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -14,6 +14,13 @@ set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c ${CMAKE_CURRENT_SOURCE_D
 set(MOSAIC_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 function(mosaic_warnings target)
+  if(WIN32)
+    # Mosaic intentionally uses ISO C interfaces such as fopen for portable
+    # binary I/O. Microsoft's UCRT marks several standard C APIs deprecated in
+    # favor of non-standard *_s variants. Suppress only that CRT portability
+    # annotation; all compiler warnings remain errors.
+    target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX)
   else()
@@ -110,11 +117,7 @@ if(BUILD_TESTING)
   target_include_directories(mosaic-api-smoke-cpp PRIVATE ${MOSAIC_INCLUDE})
   target_compile_definitions(mosaic-api-smoke-cpp PRIVATE MOSAIC_USE_SHARED)
   target_link_libraries(mosaic-api-smoke-cpp PRIVATE mosaic_shared)
-  if(MSVC)
-    target_compile_options(mosaic-api-smoke-cpp PRIVATE /W4 /WX)
-  else()
-    target_compile_options(mosaic-api-smoke-cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
-  endif()
+  mosaic_warnings(mosaic-api-smoke-cpp)
   add_test(NAME api-cpp COMMAND mosaic-api-smoke-cpp)
 
   add_executable(mosaic-language-smoke ${MOSAIC_TEST_DIR}/language_smoke.c)

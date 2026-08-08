@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3 — 2026-08-08
+
+Windows UCRT strict-warning portability patch.
+
+- retain portable ISO C file I/O while suppressing only Microsoft UCRT secure-CRT deprecation annotations on Windows targets;
+- keep all compiler warnings promoted to errors (`/W4 /WX` or `-Wall -Wextra -Wpedantic -Werror`);
+- replace fixed-literal `strcpy` calls in the CLI security projection with compile-time-sized bounded copies;
+- apply the Windows CRT policy consistently to native libraries, CLI, C/C++ conformance clients, and optional trust tests;
+- preserve native/trust ABI 1.0.0, tokenizer semantics version 2, and all stable binary formats unchanged.
+
 ## 1.0.2 — 2026-08-08
 
 Windows native build portability patch.

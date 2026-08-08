@@ -12,7 +12,7 @@ from ._ffi import (
     CToken, CTokenDocumentInfo, CTokenDocumentOptions, CTokenizerCapabilities, ObserverCallback, load_library,
 )
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 OK = 0
 ERROR_RESOURCE_LIMIT = 9
