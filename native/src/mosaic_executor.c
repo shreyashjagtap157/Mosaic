@@ -3,7 +3,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "mosaic_thread.h"
 
 #define MOSAIC_EXECUTOR_MAX_WORKERS 256u
 #define MOSAIC_EXECUTOR_MAX_QUEUE 1048576u
@@ -19,22 +19,22 @@ typedef struct mosaic_executor_task {
 } mosaic_executor_task;
 
 struct mosaic_batch_context {
-    mtx_t mutex;
-    cnd_t done;
+    mosaic_mutex_t mutex;
+    mosaic_cond_t done;
     size_t remaining;
 };
 
 struct mosaic_executor {
     mosaic_executor_config config;
-    thrd_t *workers;
+    mosaic_thread_t *workers;
     mosaic_executor_task *queue;
     size_t head;
     size_t tail;
     size_t queued;
     int stopping;
-    mtx_t mutex;
-    cnd_t not_empty;
-    cnd_t not_full;
+    mosaic_mutex_t mutex;
+    mosaic_cond_t not_empty;
+    mosaic_cond_t not_full;
     atomic_uint_fast64_t batches;
     atomic_uint_fast64_t items;
     atomic_uint_fast64_t succeeded_items;
@@ -43,31 +43,31 @@ struct mosaic_executor {
 };
 
 static void batch_complete(mosaic_batch_context *batch) {
-    if (mtx_lock(&batch->mutex) != thrd_success) return;
+    if (!mosaic_mutex_lock(&batch->mutex)) return;
     if (batch->remaining) --batch->remaining;
-    if (!batch->remaining) cnd_broadcast(&batch->done);
-    mtx_unlock(&batch->mutex);
+    if (!batch->remaining) mosaic_cond_broadcast(&batch->done);
+    mosaic_mutex_unlock(&batch->mutex);
 }
 
 static int executor_worker(void *context) {
     mosaic_executor *executor = (mosaic_executor *)context;
     for (;;) {
-        if (mtx_lock(&executor->mutex) != thrd_success) return -1;
+        if (!mosaic_mutex_lock(&executor->mutex)) return -1;
         while (!executor->stopping && !executor->queued) {
-            if (cnd_wait(&executor->not_empty, &executor->mutex) != thrd_success) {
-                mtx_unlock(&executor->mutex);
+            if (!mosaic_cond_wait(&executor->not_empty, &executor->mutex)) {
+                mosaic_mutex_unlock(&executor->mutex);
                 return -1;
             }
         }
         if (executor->stopping && !executor->queued) {
-            mtx_unlock(&executor->mutex);
+            mosaic_mutex_unlock(&executor->mutex);
             return 0;
         }
         mosaic_executor_task task = executor->queue[executor->head];
         executor->head = (executor->head + 1u) % executor->config.queue_capacity;
         --executor->queued;
-        cnd_signal(&executor->not_full);
-        mtx_unlock(&executor->mutex);
+        mosaic_cond_signal(&executor->not_full);
+        mosaic_mutex_unlock(&executor->mutex);
 
         uint32_t *ids = NULL;
         size_t count = 0;
@@ -98,28 +98,28 @@ mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosai
     mosaic_executor *executor = (mosaic_executor *)calloc(1u, sizeof *executor);
     if (!executor) return MOSAIC_ERROR_OUT_OF_MEMORY;
     executor->config = *config;
-    executor->workers = (thrd_t *)calloc(config->worker_count, sizeof *executor->workers);
+    executor->workers = (mosaic_thread_t *)calloc(config->worker_count, sizeof *executor->workers);
     executor->queue = (mosaic_executor_task *)calloc(config->queue_capacity, sizeof *executor->queue);
     if (!executor->workers || !executor->queue) goto oom;
-    if (mtx_init(&executor->mutex, mtx_plain) != thrd_success) goto init_fail;
+    if (!mosaic_mutex_init(&executor->mutex)) goto init_fail;
     int mutex_ready = 1;
-    if (cnd_init(&executor->not_empty) != thrd_success) goto cnd_empty_fail;
+    if (!mosaic_cond_init(&executor->not_empty)) goto cnd_empty_fail;
     int empty_ready = 1;
-    if (cnd_init(&executor->not_full) != thrd_success) goto cnd_full_fail;
+    if (!mosaic_cond_init(&executor->not_full)) goto cnd_full_fail;
     size_t created = 0;
     for (; created < config->worker_count; ++created) {
-        if (thrd_create(&executor->workers[created], executor_worker, executor) != thrd_success) break;
+        if (!mosaic_thread_create(&executor->workers[created], executor_worker, executor)) break;
     }
     if (created != config->worker_count) {
-        if (mtx_lock(&executor->mutex) == thrd_success) {
+        if (mosaic_mutex_lock(&executor->mutex)) {
             executor->stopping = 1;
-            cnd_broadcast(&executor->not_empty);
-            mtx_unlock(&executor->mutex);
+            mosaic_cond_broadcast(&executor->not_empty);
+            mosaic_mutex_unlock(&executor->mutex);
         }
-        for (size_t i = 0; i < created; ++i) thrd_join(executor->workers[i], NULL);
-        cnd_destroy(&executor->not_full);
-        cnd_destroy(&executor->not_empty);
-        mtx_destroy(&executor->mutex);
+        for (size_t i = 0; i < created; ++i) mosaic_thread_join(executor->workers[i]);
+        mosaic_cond_destroy(&executor->not_full);
+        mosaic_cond_destroy(&executor->not_empty);
+        mosaic_mutex_destroy(&executor->mutex);
         free(executor->queue); free(executor->workers); free(executor);
         return MOSAIC_ERROR_INTERNAL;
     }
@@ -127,9 +127,9 @@ mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosai
     return MOSAIC_OK;
 
 cnd_full_fail:
-    if (empty_ready) cnd_destroy(&executor->not_empty);
+    if (empty_ready) mosaic_cond_destroy(&executor->not_empty);
 cnd_empty_fail:
-    if (mutex_ready) mtx_destroy(&executor->mutex);
+    if (mutex_ready) mosaic_mutex_destroy(&executor->mutex);
 init_fail:
     free(executor->queue); free(executor->workers); free(executor);
     return MOSAIC_ERROR_INTERNAL;
@@ -156,53 +156,53 @@ mosaic_status mosaic_executor_encode_batch(mosaic_executor *executor, const mosa
     mosaic_batch_result *results = (mosaic_batch_result *)calloc(input_count, sizeof *results);
     if (!results) return MOSAIC_ERROR_OUT_OF_MEMORY;
     mosaic_batch_context batch = {0};
-    if (mtx_init(&batch.mutex, mtx_plain) != thrd_success) { free(results); return MOSAIC_ERROR_INTERNAL; }
-    if (cnd_init(&batch.done) != thrd_success) { mtx_destroy(&batch.mutex); free(results); return MOSAIC_ERROR_INTERNAL; }
+    if (!mosaic_mutex_init(&batch.mutex)) { free(results); return MOSAIC_ERROR_INTERNAL; }
+    if (!mosaic_cond_init(&batch.done)) { mosaic_mutex_destroy(&batch.mutex); free(results); return MOSAIC_ERROR_INTERNAL; }
     batch.remaining = 0u;
 
     for (size_t i = 0; i < input_count; ++i) {
-        if (mtx_lock(&batch.mutex) != thrd_success) goto submit_fail;
+        if (!mosaic_mutex_lock(&batch.mutex)) goto submit_fail;
         ++batch.remaining;
-        mtx_unlock(&batch.mutex);
-        if (mtx_lock(&executor->mutex) != thrd_success) { batch_complete(&batch); goto submit_fail; }
+        mosaic_mutex_unlock(&batch.mutex);
+        if (!mosaic_mutex_lock(&executor->mutex)) { batch_complete(&batch); goto submit_fail; }
         while (!executor->stopping && executor->queued == executor->config.queue_capacity) {
-            if (cnd_wait(&executor->not_full, &executor->mutex) != thrd_success) {
-                mtx_unlock(&executor->mutex);
+            if (!mosaic_cond_wait(&executor->not_full, &executor->mutex)) {
+                mosaic_mutex_unlock(&executor->mutex);
                 batch_complete(&batch);
                 goto submit_fail;
             }
         }
-        if (executor->stopping) { mtx_unlock(&executor->mutex); batch_complete(&batch); goto submit_fail; }
+        if (executor->stopping) { mosaic_mutex_unlock(&executor->mutex); batch_complete(&batch); goto submit_fail; }
         executor->queue[executor->tail] = (mosaic_executor_task){tokenizer, inputs[i].data, inputs[i].length, &results[i], &batch};
         executor->tail = (executor->tail + 1u) % executor->config.queue_capacity;
         ++executor->queued;
-        cnd_signal(&executor->not_empty);
-        mtx_unlock(&executor->mutex);
+        mosaic_cond_signal(&executor->not_empty);
+        mosaic_mutex_unlock(&executor->mutex);
     }
 
-    if (mtx_lock(&batch.mutex) != thrd_success) goto wait_fail;
+    if (!mosaic_mutex_lock(&batch.mutex)) goto wait_fail;
     while (batch.remaining) {
-        if (cnd_wait(&batch.done, &batch.mutex) != thrd_success) {
-            mtx_unlock(&batch.mutex);
+        if (!mosaic_cond_wait(&batch.done, &batch.mutex)) {
+            mosaic_mutex_unlock(&batch.mutex);
             goto wait_fail;
         }
     }
-    mtx_unlock(&batch.mutex);
-    cnd_destroy(&batch.done); mtx_destroy(&batch.mutex);
+    mosaic_mutex_unlock(&batch.mutex);
+    mosaic_cond_destroy(&batch.done); mosaic_mutex_destroy(&batch.mutex);
     atomic_fetch_add_explicit(&executor->batches, 1u, memory_order_relaxed);
     *out_results = results;
     return MOSAIC_OK;
 
 submit_fail:
     /* Wait for already-submitted items so their batch-context pointer cannot outlive this stack frame. */
-    if (mtx_lock(&batch.mutex) == thrd_success) {
+    if (mosaic_mutex_lock(&batch.mutex)) {
         while (batch.remaining) {
-            if (cnd_wait(&batch.done, &batch.mutex) != thrd_success) break;
+            if (!mosaic_cond_wait(&batch.done, &batch.mutex)) break;
         }
-        mtx_unlock(&batch.mutex);
+        mosaic_mutex_unlock(&batch.mutex);
     }
 wait_fail:
-    cnd_destroy(&batch.done); mtx_destroy(&batch.mutex);
+    mosaic_cond_destroy(&batch.done); mosaic_mutex_destroy(&batch.mutex);
     mosaic_batch_results_free(results, input_count);
     return MOSAIC_ERROR_INTERNAL;
 }
@@ -237,13 +237,13 @@ mosaic_status mosaic_executor_reset_metrics(mosaic_executor *executor) {
 
 void mosaic_executor_free(mosaic_executor *executor) {
     if (!executor) return;
-    if (mtx_lock(&executor->mutex) == thrd_success) {
+    if (mosaic_mutex_lock(&executor->mutex)) {
         executor->stopping = 1;
-        cnd_broadcast(&executor->not_empty);
-        cnd_broadcast(&executor->not_full);
-        mtx_unlock(&executor->mutex);
+        mosaic_cond_broadcast(&executor->not_empty);
+        mosaic_cond_broadcast(&executor->not_full);
+        mosaic_mutex_unlock(&executor->mutex);
     }
-    for (size_t i = 0; i < executor->config.worker_count; ++i) thrd_join(executor->workers[i], NULL);
-    cnd_destroy(&executor->not_full); cnd_destroy(&executor->not_empty); mtx_destroy(&executor->mutex);
+    for (size_t i = 0; i < executor->config.worker_count; ++i) mosaic_thread_join(executor->workers[i]);
+    mosaic_cond_destroy(&executor->not_full); mosaic_cond_destroy(&executor->not_empty); mosaic_mutex_destroy(&executor->mutex);
     free(executor->queue); free(executor->workers); free(executor);
 }

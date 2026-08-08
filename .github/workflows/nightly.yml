@@ -14,6 +14,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Windows Clang C11 toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=clang" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CXX=clang++" | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -30,7 +36,7 @@ jobs:
       - run: python tools/validate_manifest_identity.py
       - run: python tools/validate_m3_model.py
       - run: python tools/validate_unicode17.py
-      - run: cmake -S native -B build/cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMOSAIC_BUILD_TRUST=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ICU=ON
       - run: cmake --build build/cmake --config RelWithDebInfo
       - run: ctest --test-dir build/cmake -C RelWithDebInfo --output-on-failure
 

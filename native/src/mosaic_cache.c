@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+#include "mosaic_thread.h"
 
 #define MOSAIC_CACHE_MAX_ENTRIES 16777216ull
 
@@ -18,7 +18,7 @@ struct CacheEntry {
 };
 
 struct mosaic_cache {
-    mtx_t mutex;
+    mosaic_mutex_t mutex;
     CacheEntry **buckets;
     size_t bucket_count;
     size_t max_entries;
@@ -123,7 +123,7 @@ mosaic_status mosaic_cache_create(const mosaic_cache_config *config, mosaic_cach
         free(cache);
         return MOSAIC_ERROR_OUT_OF_MEMORY;
     }
-    if (mtx_init(&cache->mutex, mtx_plain) != thrd_success) {
+    if (!mosaic_mutex_init(&cache->mutex)) {
         free(cache->buckets);
         free(cache);
         return MOSAIC_ERROR_INTERNAL;
@@ -142,7 +142,7 @@ mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const
     uint8_t *copy = value_len ? (uint8_t *)malloc(value_len) : NULL;
     if (value_len && !copy) return MOSAIC_ERROR_OUT_OF_MEMORY;
     if (value_len) memcpy(copy, value, value_len);
-    if (mtx_lock(&cache->mutex) != thrd_success) {
+    if (!mosaic_mutex_lock(&cache->mutex)) {
         free(copy);
         return MOSAIC_ERROR_INTERNAL;
     }
@@ -159,7 +159,7 @@ mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const
     } else {
         entry = (CacheEntry *)calloc(1, sizeof *entry);
         if (!entry) {
-            mtx_unlock(&cache->mutex);
+            mosaic_mutex_unlock(&cache->mutex);
             free(copy);
             return MOSAIC_ERROR_OUT_OF_MEMORY;
         }
@@ -177,7 +177,7 @@ mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const
     while (cache->entries > cache->max_entries || cache->bytes > cache->max_bytes) {
         CacheEntry *victim = cache->lru_tail;
         if (!victim) {
-            mtx_unlock(&cache->mutex);
+            mosaic_mutex_unlock(&cache->mutex);
             return MOSAIC_ERROR_INTERNAL;
         }
         erase_entry(cache, victim, 1);
@@ -185,7 +185,7 @@ mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const
     if (cache->bytes > cache->stats.peak_bytes) cache->stats.peak_bytes = cache->bytes;
     cache->stats.entries = cache->entries;
     cache->stats.bytes = cache->bytes;
-    mtx_unlock(&cache->mutex);
+    mosaic_mutex_unlock(&cache->mutex);
     return MOSAIC_OK;
 }
 
@@ -193,16 +193,16 @@ mosaic_status mosaic_cache_get(mosaic_cache *cache, const uint8_t key[32], uint8
     if (!cache || !key || !out_value || !out_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
     *out_value = NULL;
     *out_len = 0;
-    if (mtx_lock(&cache->mutex) != thrd_success) return MOSAIC_ERROR_INTERNAL;
+    if (!mosaic_mutex_lock(&cache->mutex)) return MOSAIC_ERROR_INTERNAL;
     CacheEntry *entry = find_entry(cache, key, NULL);
     if (!entry) {
         cache->stats.misses++;
-        mtx_unlock(&cache->mutex);
+        mosaic_mutex_unlock(&cache->mutex);
         return MOSAIC_ERROR_NOT_FOUND;
     }
     uint8_t *copy = entry->value_len ? (uint8_t *)malloc(entry->value_len) : NULL;
     if (entry->value_len && !copy) {
-        mtx_unlock(&cache->mutex);
+        mosaic_mutex_unlock(&cache->mutex);
         return MOSAIC_ERROR_OUT_OF_MEMORY;
     }
     if (entry->value_len) memcpy(copy, entry->value, entry->value_len);
@@ -211,28 +211,28 @@ mosaic_status mosaic_cache_get(mosaic_cache *cache, const uint8_t key[32], uint8
     cache->stats.hits++;
     *out_value = copy;
     *out_len = entry->value_len;
-    mtx_unlock(&cache->mutex);
+    mosaic_mutex_unlock(&cache->mutex);
     return MOSAIC_OK;
 }
 
 mosaic_status mosaic_cache_remove(mosaic_cache *cache, const uint8_t key[32]) {
     if (!cache || !key) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (mtx_lock(&cache->mutex) != thrd_success) return MOSAIC_ERROR_INTERNAL;
+    if (!mosaic_mutex_lock(&cache->mutex)) return MOSAIC_ERROR_INTERNAL;
     CacheEntry *entry = find_entry(cache, key, NULL);
     if (!entry) {
-        mtx_unlock(&cache->mutex);
+        mosaic_mutex_unlock(&cache->mutex);
         return MOSAIC_ERROR_NOT_FOUND;
     }
     erase_entry(cache, entry, 0);
     cache->stats.entries = cache->entries;
     cache->stats.bytes = cache->bytes;
-    mtx_unlock(&cache->mutex);
+    mosaic_mutex_unlock(&cache->mutex);
     return MOSAIC_OK;
 }
 
 mosaic_status mosaic_cache_clear(mosaic_cache *cache) {
     if (!cache) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (mtx_lock(&cache->mutex) != thrd_success) return MOSAIC_ERROR_INTERNAL;
+    if (!mosaic_mutex_lock(&cache->mutex)) return MOSAIC_ERROR_INTERNAL;
     uint64_t cleared = (uint64_t)cache->entries;
     memset(cache->buckets, 0, cache->bucket_count * sizeof *cache->buckets);
     CacheEntry *entry = cache->lru_head;
@@ -250,24 +250,24 @@ mosaic_status mosaic_cache_clear(mosaic_cache *cache) {
     cache->stats.cleared_entries += cleared;
     cache->stats.entries = 0;
     cache->stats.bytes = 0;
-    mtx_unlock(&cache->mutex);
+    mosaic_mutex_unlock(&cache->mutex);
     return MOSAIC_OK;
 }
 
 mosaic_status mosaic_cache_get_stats(mosaic_cache *cache, mosaic_cache_stats *out_stats) {
     if (!cache || !out_stats) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (mtx_lock(&cache->mutex) != thrd_success) return MOSAIC_ERROR_INTERNAL;
+    if (!mosaic_mutex_lock(&cache->mutex)) return MOSAIC_ERROR_INTERNAL;
     cache->stats.entries = cache->entries;
     cache->stats.bytes = cache->bytes;
     *out_stats = cache->stats;
-    mtx_unlock(&cache->mutex);
+    mosaic_mutex_unlock(&cache->mutex);
     return MOSAIC_OK;
 }
 
 void mosaic_cache_free(mosaic_cache *cache) {
     if (!cache) return;
     (void)mosaic_cache_clear(cache);
-    mtx_destroy(&cache->mutex);
+    mosaic_mutex_destroy(&cache->mutex);
     free(cache->buckets);
     free(cache);
 }
