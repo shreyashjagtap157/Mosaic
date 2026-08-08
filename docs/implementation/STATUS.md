@@ -2,35 +2,64 @@
 
 Date: 2026-08-08
 
-## Current release candidate
+## Stable enterprise release
 
-**0.22.0 — enterprise cold TokenDocument persistence.**
+**1.0.0 — universal tokenization and token-native processing platform.**
 
-Completed through this point:
+The qualified production implementation is the native C runtime. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
 
-- exact arbitrary-byte tokenizer and deterministic integer segmentation;
-- Unicode 17 grapheme/security plus mapped normalization;
-- deterministic model/language/detector/lexer packs and authoring;
-- BPE/tiktoken compatibility;
-- bounded streaming, incremental and checkpoint-resynchronized editing;
-- immutable TokenDocument with model, grapheme, security, normalization, lexical and semantic projections;
-- sub-byte semantic views;
-- KiB/MiB block planning and packed model projection;
-- bounded concurrent in-memory cache and authenticated external-cache record protocol;
-- immutable runtime policy, deployment identity and lock-free metrics;
-- optional Ed25519 pack trust and content-addressed SQLite registry/control plane;
-- canonical cold TokenDocument serialization with bounded hostile-input validation.
+## Implemented platform surface
 
-## Qualification
+- exact arbitrary-byte encode/decode and source spans with mandatory byte fallback;
+- deterministic checked integer Viterbi and BPE/tiktoken compatibility;
+- generated Unicode grapheme/security/normalization views with exact source mapping;
+- external language, detector, security, normalization and lexer packs;
+- deterministic authoring/training baseline and content-addressed pack registry/lockfiles;
+- exact online streaming, transactional incrementality and checkpoint suffix resynchronization;
+- immutable TokenDocument/Core IR with model, grapheme, security, normalization, lexical and semantic projections;
+- identifier/number/string semantic enrichment and generic sub-byte views;
+- KiB token-aligned blocks, MiB macroblocks and compact authenticated model projection;
+- canonical authenticated cold TokenDocument serialization with resource-bounded hostile-input validation;
+- bounded concurrent LRU cache and authenticated external-cache backend protocol;
+- immutable runtime resource policies, deployment identity, lock-free metrics and privacy-preserving observability;
+- bounded reusable parallel executor with deterministic result order and backpressure;
+- optional Ed25519 publisher trust and revocation;
+- Python binding over the same native ABI;
+- cross-platform root CMake build topology and Windows/POSIX threading abstraction;
+- deterministic SBOM/provenance/checksum release artifacts;
+- replayable reliability/chaos campaign including registry corruption/repair;
+- frozen 1.x C/trust ABI and binary-format contracts.
 
-The native C implementation is continuously qualified with GCC and Clang, ASan/UBSan, malformed/adversarial corpora, independent Python oracles, static analysis, clean-extraction package consumers, and deterministic fixture regeneration. The intended Rust implementation remains blocked in this environment because no Rust toolchain is installed and outbound network access is unavailable. This does not block the qualified native release.
+## Local qualification completed
 
-## Next enterprise layers
+- strict GCC builds and full ASan/UBSan inherited native suite;
+- independent Clang CMake/CTest suite;
+- Clang static analysis of core/cache/executor/trust modules;
+- arbitrary-byte, streaming/full, incremental/full, resync, reference/optimized and Unicode differential tests;
+- hostile/malformed pack, TokenDocument, cache-record and trust corpora;
+- deterministic 250,000-iteration reliability soak repeated with identical replay digest;
+- deterministic release archives and Python wheels;
+- clean-extraction external C consumer and control-plane package tests;
+- ABI/export and stable-format contract checks;
+- clean Git provenance and SPDX/in-toto release metadata.
 
-1. reusable deterministic parallel batch executor;
-2. structured observability/error-detail hooks;
-3. thin supported language bindings;
-4. SIMD/performance hardening under reference differential;
-5. long-duration reliability/chaos qualification;
-6. cross-platform release matrix and supply-chain metadata;
-7. 1.0 RC ABI/schema/compatibility freeze.
+## External qualification gates
+
+The current sandbox cannot execute these gates and does not fabricate them:
+
+- Windows and macOS native CI execution;
+- stable Rust workspace build/clippy/tests;
+- Miri and cargo-fuzz jobs;
+- ThreadSanitizer or platform-specific race detectors where supported;
+- non-x86-64/ARM64 hardware qualification beyond available CI runners.
+
+These gates remain declared in CI and should be executed when the repository is run on GitHub/your future Windows environment. A failure is a 1.0.x defect to fix without changing frozen canonical semantics unless a major-version process is explicitly invoked.
+
+## Post-1.0 research, not 1.0 blockers
+
+- native adaptive byte-patch LLM architecture;
+- GPU tokenizer/offline corpus acceleration;
+- span-level learned language identification;
+- very large community language/profile catalogs;
+- optional scanner VM if real compiler profiles prove declarative lexing insufficient;
+- additional managed-language bindings and distributed registry adapters.

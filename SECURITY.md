@@ -2,7 +2,7 @@
 
 ## Supported releases
 
-Security fixes are developed against the current stable major line. Before 1.0, only the newest 0.x release is supported for security fixes because formats and APIs remain pre-1.0.
+Security fixes are developed against the current stable 1.x line under the compatibility policy. Critical security fixes may intentionally reject a previously accepted malicious/noncanonical artifact only through the documented security-exception process. Pre-1.0 releases are development history and are not the recommended security-maintenance line after 1.0.
 
 ## Reporting vulnerabilities
 

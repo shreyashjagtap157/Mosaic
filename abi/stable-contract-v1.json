@@ -2,8 +2,8 @@
   "headers": {
     "mosaic.h": {
       "constants": [
-        "#define MOSAIC_C_API_VERSION_MAJOR 0",
-        "#define MOSAIC_C_API_VERSION_MINOR 21",
+        "#define MOSAIC_C_API_VERSION_MAJOR 1",
+        "#define MOSAIC_C_API_VERSION_MINOR 0",
         "#define MOSAIC_C_API_VERSION_PATCH 0"
       ],
       "declarations": [
@@ -224,8 +224,8 @@
     },
     "mosaic_trust.h": {
       "constants": [
-        "#define MOSAIC_TRUST_API_VERSION_MAJOR 0",
-        "#define MOSAIC_TRUST_API_VERSION_MINOR 1",
+        "#define MOSAIC_TRUST_API_VERSION_MAJOR 1",
+        "#define MOSAIC_TRUST_API_VERSION_MINOR 0",
         "#define MOSAIC_TRUST_API_VERSION_PATCH 0",
         "#define MOSAIC_TRUST_ED25519_PUBLIC_KEY_BYTES 32u",
         "#define MOSAIC_TRUST_ED25519_SIGNATURE_BYTES 64u",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0 — 2026-08-08
+
+First stable enterprise universal-platform release.
+
+- freeze native C ABI 1.0.0 and optional trust ABI 1.0.0;
+- retain canonical tokenizer semantics version 2 and all stable v1 binary formats;
+- activate 1.x compatibility/deprecation and security-exception policies;
+- publish enterprise threat model and complete implementation/external-gate status;
+- preserve the 0.29 candidate function/type/export baseline as the 1.x additive ABI contract;
+- require deterministic reliability, supply-chain, package, ABI and format gates for release promotion.
+
 ## 0.29.0 — 2026-08-08
 
 Enterprise 1.0 release-candidate ABI, format, compatibility, and threat-model freeze.

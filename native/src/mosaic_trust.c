@@ -68,7 +68,7 @@ static mosaic_status parse_signature(const uint8_t *record, size_t len, mosaic_p
     return MOSAIC_OK;
 }
 
-const char *mosaic_trust_version(void) { return "0.20.0"; }
+const char *mosaic_trust_version(void) { return "1.0.0"; }
 
 void mosaic_trust_store_config_default(mosaic_trust_store_config *out_config) {
     if (!out_config) return;
