@@ -38,6 +38,9 @@ test: fixtures
 	$(PYTHON) tools/validate_tiktoken_compat.py
 	$(PYTHON) tools/validate_security17.py
 	$(PYTHON) tools/validate_packed_model.py
+	./build/mosaic-token-document-serialization-smoke fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack fixtures/packs/security17-v1.mpack fixtures/packs/normalization16-v1.mpack fixtures/packs/lexer/c-v1.mpack /tmp/mosaic-token-ir-valid.bin
+	$(PYTHON) tools/validate_token_ir_serialization.py build/libmosaic.so /tmp/mosaic-token-ir-valid.bin
+	rm -f /tmp/mosaic-token-ir-valid.bin
 	PYTHONPATH=tools $(PYTHON) tools/validate_registry.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py

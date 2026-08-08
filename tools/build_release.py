@@ -66,6 +66,8 @@ def main()->int:
     if trust_doc.exists(): shutil.copy2(trust_doc,stage/'docs/TRUST.md')
     registry_doc=ROOT/'docs/implementation/REGISTRY_v1.md'
     if registry_doc.exists(): shutil.copy2(registry_doc,stage/'docs/REGISTRY.md')
+    token_ir_doc=ROOT/'docs/implementation/TOKEN_DOCUMENT_SERIALIZATION_v1.md'
+    if token_ir_doc.exists(): shutil.copy2(token_ir_doc,stage/'docs/TOKEN_DOCUMENT_SERIALIZATION.md')
     (stage/'bin/mosaic-author').chmod(0o755);(stage/'bin/mosaic-registry').chmod(0o755)
     release_notes=ROOT/f'docs/release/RELEASE_NOTES_{VERSION}.md'
     if release_notes.exists():shutil.copy2(release_notes,stage/'docs/RELEASE_NOTES.md')

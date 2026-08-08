@@ -181,6 +181,8 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 
 0.21 ships `mosaic-registry`, a content-addressed SQLite/WAL control-plane tool. It atomically installs exact pack objects, cryptographically derives verified trust state, resolves numeric SemVer requirements into exact hash-pinned canonical lockfiles, audits corruption, and garbage-collects only unreferenced objects. Mutable `latest` is never a canonical execution identity. See `docs/implementation/REGISTRY_v1.md`.
 
+0.22 adds a canonical cold TokenDocument format for durable caches, IPC, and reproducible preprocessing artifacts. The record is endian-defined rather than native-struct serialization, preserves only requested public projections (plus hidden lexical dependencies required by semantic components), binds source/tokenizer identities, rejects noncanonical or re-authenticated malformed records, and offers caller-configurable deserialization ceilings. See `docs/implementation/TOKEN_DOCUMENT_SERIALIZATION_v1.md`.
+
 ## Pack trust
 
 0.20 ships optional `libmosaic_trust` static/shared libraries. Trust verification authenticates exact SHA-256 pack identities with Ed25519 publisher keys and explicit revocation, after ordinary structural pack validation. The core tokenizer remains free of OpenSSL. See `docs/implementation/TRUST_v1.md`.

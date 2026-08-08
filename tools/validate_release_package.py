@@ -174,6 +174,21 @@ int main(int argc, char **argv) {
     mosaic_lex_token *ltokens = 0; size_t ltn = 0;
     if (mosaic_token_document_lexical_tokens(tdoc, &ltokens, &ltn) != MOSAIC_OK || !ltn) return 32;
     mosaic_free(ltokens);
+    unsigned char *cold = 0; size_t cold_n = 0;
+    if (mosaic_token_document_serialize(tdoc, &cold, &cold_n) != MOSAIC_OK || cold_n < 544) return 53;
+    mosaic_token_document *cold_doc = 0;
+    if (mosaic_token_document_deserialize(cold, cold_n, &cold_doc) != MOSAIC_OK) return 54;
+    unsigned char *cold_source = 0; size_t cold_source_n = 0;
+    if (mosaic_token_document_copy_source(cold_doc, &cold_source, &cold_source_n) != MOSAIC_OK ||
+        cold_source_n != 9 || memcmp(cold_source, in, 9)) return 55;
+    mosaic_free(cold_source);
+    mosaic_token_ir_limits cold_limits = {0}; mosaic_token_ir_limits_default(&cold_limits);
+    cold_limits.max_record_bytes = cold_n - 1;
+    mosaic_token_document *limited = 0;
+    if (mosaic_token_document_deserialize_with_limits(cold, cold_n, &cold_limits, &limited) != MOSAIC_ERROR_RESOURCE_LIMIT || limited) return 56;
+    unsigned char *cold2 = 0; size_t cold2_n = 0;
+    if (mosaic_token_document_serialize(cold_doc, &cold2, &cold2_n) != MOSAIC_OK || cold2_n != cold_n || memcmp(cold2, cold, cold_n)) return 57;
+    mosaic_free(cold2); mosaic_token_document_free(cold_doc); mosaic_free(cold);
     mosaic_token_document_free(tdoc);
     tdoc = 0;
     if (mosaic_tokenizer_token_document_create(t, in, 9, MOSAIC_TOKEN_DOCUMENT_SEMANTIC, &tdoc) != MOSAIC_OK) return 33;

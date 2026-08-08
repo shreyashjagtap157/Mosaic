@@ -1748,7 +1748,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.21.0"; }
+const char *mosaic_version_string(void) { return "0.22.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -3471,7 +3471,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY | MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3636,6 +3636,165 @@ mosaic_status mosaic_token_document_get_info(const mosaic_token_document *docume
     memcpy(out_info->source_sha256, document->source_sha256, 32);
     memcpy(out_info->tokenizer_fingerprint_sha256, document->tokenizer_fingerprint, 32);
     out_info->detection = document->detection; return MOSAIC_OK;
+}
+
+#define MOSAIC_TOKEN_IR_MAGIC "MSTIRD01"
+#define MOSAIC_TOKEN_IR_VERSION 1u
+#define MOSAIC_TOKEN_IR_HEADER 256u
+#define MOSAIC_TOKEN_IR_SECTIONS 9u
+#define MOSAIC_TOKEN_IR_DIR_ENTRY 32u
+#define MOSAIC_TOKEN_IR_DATA_START (MOSAIC_TOKEN_IR_HEADER + MOSAIC_TOKEN_IR_SECTIONS * MOSAIC_TOKEN_IR_DIR_ENTRY)
+#define MOSAIC_TOKEN_IR_HASH_OFFSET 112u
+
+typedef struct {
+    uint32_t kind;
+    uint64_t offset;
+    uint64_t length;
+    uint64_t count;
+} TokenIRSection;
+
+static int token_ir_align8(size_t value, size_t *out) {
+    if (value > SIZE_MAX - 7u) return 0;
+    *out = (value + 7u) & ~(size_t)7u;
+    return 1;
+}
+
+static int token_ir_add_section(TokenIRSection *section, uint32_t kind, size_t length, size_t count, size_t *cursor) {
+    section->kind = kind; section->count = (uint64_t)count; section->length = (uint64_t)length; section->offset = 0u;
+    if (!length) { if (count) return 0; return 1; }
+    size_t aligned;
+    if (!token_ir_align8(*cursor, &aligned) || length > SIZE_MAX - aligned) return 0;
+    section->offset = (uint64_t)aligned; *cursor = aligned + length; return 1;
+}
+
+static void token_ir_write_section(uint8_t *out, size_t index, const TokenIRSection *section) {
+    uint8_t *p = out + MOSAIC_TOKEN_IR_HEADER + index * MOSAIC_TOKEN_IR_DIR_ENTRY;
+    wr32(p, section->kind); wr32(p + 4u, 0u); wr64(p + 8u, section->offset);
+    wr64(p + 16u, section->length); wr64(p + 24u, section->count);
+}
+
+static int token_ir_hash(const uint8_t *bytes, size_t len, uint8_t out[32]) {
+    return mosaic_internal_sha256_zero_range(bytes, len, MOSAIC_TOKEN_IR_HASH_OFFSET, 32u, out);
+}
+
+mosaic_status mosaic_token_document_serialize(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len) {
+    if (!document || !out_bytes || !out_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_bytes = NULL; *out_len = 0;
+    const uint32_t supported = MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES |
+        MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION | MOSAIC_TOKEN_DOCUMENT_LEXICAL |
+        MOSAIC_TOKEN_DOCUMENT_SEMANTIC;
+    if (document->flags & ~supported) return MOSAIC_ERROR_INTERNAL;
+    if (document->source_len > UINT64_MAX) return MOSAIC_ERROR_OVERFLOW;
+
+    TokenIRSection sec[MOSAIC_TOKEN_IR_SECTIONS] = {0};
+    size_t cursor = MOSAIC_TOKEN_IR_DATA_START;
+    size_t model_bytes=0,grapheme_bytes=0,security_bytes=0,norm_unit_bytes=0,norm_span_bytes=0,lex_bytes=0,semantic_bytes=0;
+    if (document->model_token_count > SIZE_MAX / 24u || document->grapheme_count > SIZE_MAX / 16u ||
+        document->security_finding_count > SIZE_MAX / 24u || document->normalized.unit_count > SIZE_MAX / 24u ||
+        document->normalized.source_span_count > SIZE_MAX / 16u || document->lexical_token_count > SIZE_MAX / 24u ||
+        document->semantic_component_count > SIZE_MAX / 32u) return MOSAIC_ERROR_OVERFLOW;
+    model_bytes=document->model_token_count*24u;grapheme_bytes=document->grapheme_count*16u;
+    security_bytes=document->security_finding_count*24u;norm_unit_bytes=document->normalized.unit_count*24u;
+    norm_span_bytes=document->normalized.source_span_count*16u;lex_bytes=document->lexical_token_count*24u;
+    semantic_bytes=document->semantic_component_count*32u;
+    if (!token_ir_add_section(&sec[0],1u,document->source_len,document->source_len,&cursor) ||
+        !token_ir_add_section(&sec[1],2u,(document->flags&MOSAIC_TOKEN_DOCUMENT_MODEL)?model_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_MODEL)?document->model_token_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[2],3u,(document->flags&MOSAIC_TOKEN_DOCUMENT_GRAPHEMES)?grapheme_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_GRAPHEMES)?document->grapheme_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[3],4u,(document->flags&MOSAIC_TOKEN_DOCUMENT_SECURITY)?security_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_SECURITY)?document->security_finding_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[4],5u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?document->normalized.byte_length:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?document->normalized.byte_length:0u,&cursor) ||
+        !token_ir_add_section(&sec[5],6u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?norm_unit_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?document->normalized.unit_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[6],7u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?norm_span_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)?document->normalized.source_span_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[7],8u,(document->flags&(MOSAIC_TOKEN_DOCUMENT_LEXICAL|MOSAIC_TOKEN_DOCUMENT_SEMANTIC))?lex_bytes:0u,(document->flags&(MOSAIC_TOKEN_DOCUMENT_LEXICAL|MOSAIC_TOKEN_DOCUMENT_SEMANTIC))?document->lexical_token_count:0u,&cursor) ||
+        !token_ir_add_section(&sec[8],9u,(document->flags&MOSAIC_TOKEN_DOCUMENT_SEMANTIC)?semantic_bytes:0u,(document->flags&MOSAIC_TOKEN_DOCUMENT_SEMANTIC)?document->semantic_component_count:0u,&cursor)) return MOSAIC_ERROR_OVERFLOW;
+
+    uint8_t *out=(uint8_t*)calloc(cursor?cursor:1u,1u); if(!out)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    memcpy(out,MOSAIC_TOKEN_IR_MAGIC,8u);wr32(out+8u,MOSAIC_TOKEN_IR_VERSION);wr32(out+12u,MOSAIC_TOKEN_IR_HEADER);
+    wr32(out+16u,document->flags);wr32(out+20u,(uint32_t)document->normalization_mode);wr64(out+24u,(uint64_t)cursor);
+    wr64(out+32u,(uint64_t)document->source_len);wr32(out+40u,mosaic_tokenizer_semantics_version());wr32(out+44u,MOSAIC_TOKEN_IR_SECTIONS);
+    memcpy(out+48u,document->source_sha256,32u);memcpy(out+80u,document->tokenizer_fingerprint,32u);
+    wr32(out+144u,document->detection.matched);wr32(out+148u,document->detection.available);wr64(out+152u,(uint64_t)document->detection.score);
+    wr64(out+160u,(uint64_t)document->detection.margin);memcpy(out+168u,document->detection.language,64u);
+    for(size_t i=0;i<MOSAIC_TOKEN_IR_SECTIONS;++i)token_ir_write_section(out,i,&sec[i]);
+    if(sec[0].length)memcpy(out+(size_t)sec[0].offset,document->source,document->source_len);
+    if(sec[1].length){uint8_t*p=out+(size_t)sec[1].offset;size_t start=0;for(size_t i=0;i<document->model_token_count;++i){ResyncToken t=document->model_tokens[i];wr32(p, t.id);wr32(p+4u,0u);wr64(p+8u,start);wr64(p+16u,t.length);start+=t.length;p+=24u;}}
+    if(sec[2].length){uint8_t*p=out+(size_t)sec[2].offset;for(size_t i=0;i<document->grapheme_count;++i){wr64(p,document->graphemes[i].start);wr64(p+8u,document->graphemes[i].length);p+=16u;}}
+    if(sec[3].length){uint8_t*p=out+(size_t)sec[3].offset;for(size_t i=0;i<document->security_finding_count;++i){mosaic_security_finding f=document->security_findings[i];wr32(p,f.kind);wr16(p+4u,f.script_id);wr16(p+6u,0u);wr64(p+8u,f.start);wr64(p+16u,f.length);p+=24u;}}
+    if(sec[4].length)memcpy(out+(size_t)sec[4].offset,document->normalized.bytes,document->normalized.byte_length);
+    if(sec[5].length){uint8_t*p=out+(size_t)sec[5].offset;for(size_t i=0;i<document->normalized.unit_count;++i){mosaic_normalized_unit u=document->normalized.units[i];wr64(p,u.output_start);wr64(p+8u,u.output_length);wr32(p+16u,u.source_span_index);wr32(p+20u,u.source_span_count);p+=24u;}}
+    if(sec[6].length){uint8_t*p=out+(size_t)sec[6].offset;for(size_t i=0;i<document->normalized.source_span_count;++i){wr64(p,document->normalized.source_spans[i].start);wr64(p+8u,document->normalized.source_spans[i].length);p+=16u;}}
+    if(sec[7].length){uint8_t*p=out+(size_t)sec[7].offset;for(size_t i=0;i<document->lexical_token_count;++i){mosaic_lex_token t=document->lexical_tokens[i];wr32(p,t.kind);wr32(p+4u,t.flags);wr64(p+8u,t.start);wr64(p+16u,t.length);p+=24u;}}
+    if(sec[8].length){uint8_t*p=out+(size_t)sec[8].offset;for(size_t i=0;i<document->semantic_component_count;++i){mosaic_semantic_component c=document->semantic_components[i];wr32(p,c.kind);wr32(p+4u,c.flags);wr64(p+8u,c.lexical_index);wr64(p+16u,c.start);wr64(p+24u,c.length);p+=32u;}}
+    uint8_t digest[32];if(!token_ir_hash(out,cursor,digest)){free(out);return MOSAIC_ERROR_INTERNAL;}memcpy(out+MOSAIC_TOKEN_IR_HASH_OFFSET,digest,32u);
+    *out_bytes=out;*out_len=cursor;return MOSAIC_OK;
+}
+
+static int token_ir_range_ok(uint64_t start,uint64_t length,size_t total){return start<=total&&length<=total-(size_t)start;}
+
+void mosaic_token_ir_limits_default(mosaic_token_ir_limits *out_limits) {
+    if (!out_limits) return;
+    *out_limits = (mosaic_token_ir_limits){sizeof *out_limits, 0u, 1024ull * 1024ull * 1024ull,
+                                           1024ull * 1024ull * 1024ull, 1000000000ull};
+}
+
+static mosaic_status token_document_deserialize_internal(const uint8_t *bytes, size_t len,
+                                                         const mosaic_token_ir_limits *limits,
+                                                         mosaic_token_document **out_document) {
+    if ((!bytes && len) || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_document = NULL;
+    if (!limits || limits->struct_size < sizeof *limits || limits->flags || !limits->max_record_bytes ||
+        !limits->max_source_bytes || !limits->max_projection_items) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if ((uint64_t)len > limits->max_record_bytes) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if(len<MOSAIC_TOKEN_IR_DATA_START||memcmp(bytes,MOSAIC_TOKEN_IR_MAGIC,8u)||rd32(bytes+8u)!=MOSAIC_TOKEN_IR_VERSION||
+       rd32(bytes+12u)!=MOSAIC_TOKEN_IR_HEADER||rd64(bytes+24u)!=len||rd32(bytes+40u)!=mosaic_tokenizer_semantics_version()||rd32(bytes+44u)!=MOSAIC_TOKEN_IR_SECTIONS||
+       !all_zero(bytes+232u,24u)) return MOSAIC_ERROR_INTEGRITY;
+    uint32_t flags=rd32(bytes+16u), supported=MOSAIC_TOKEN_DOCUMENT_MODEL|MOSAIC_TOKEN_DOCUMENT_GRAPHEMES|MOSAIC_TOKEN_DOCUMENT_SECURITY|MOSAIC_TOKEN_DOCUMENT_NORMALIZATION|MOSAIC_TOKEN_DOCUMENT_LEXICAL|MOSAIC_TOKEN_DOCUMENT_SEMANTIC;
+    mosaic_normalization_mode mode=(mosaic_normalization_mode)rd32(bytes+20u);if(flags&~supported||!normalization_mode_valid(mode))return MOSAIC_ERROR_INTEGRITY;
+    uint8_t digest[32];
+    if (!token_ir_hash(bytes, len, digest) || memcmp(digest, bytes + MOSAIC_TOKEN_IR_HASH_OFFSET, 32u) != 0) return MOSAIC_ERROR_INTEGRITY;
+    uint64_t source_len64=rd64(bytes+32u);
+    if (source_len64 > limits->max_source_bytes) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (source_len64 > SIZE_MAX) return MOSAIC_ERROR_OVERFLOW;
+    size_t source_len = (size_t)source_len64;
+    if(!memchr(bytes+168u,0,64u))return MOSAIC_ERROR_INTEGRITY;
+    if (rd32(bytes + 144u) > 1u || rd32(bytes + 148u) > 1u ||
+        (rd32(bytes + 148u) && !rd32(bytes + 144u))) return MOSAIC_ERROR_INTEGRITY;
+    TokenIRSection sec[MOSAIC_TOKEN_IR_SECTIONS];size_t expected=MOSAIC_TOKEN_IR_DATA_START;
+    static const size_t widths[MOSAIC_TOKEN_IR_SECTIONS]={1u,24u,16u,24u,1u,24u,16u,24u,32u};
+    for(size_t i=0;i<MOSAIC_TOKEN_IR_SECTIONS;++i){const uint8_t*p=bytes+MOSAIC_TOKEN_IR_HEADER+i*MOSAIC_TOKEN_IR_DIR_ENTRY;sec[i].kind=rd32(p);uint32_t sf=rd32(p+4u);sec[i].offset=rd64(p+8u);sec[i].length=rd64(p+16u);sec[i].count=rd64(p+24u);if(sec[i].kind!=i+1u||sf)return MOSAIC_ERROR_INTEGRITY;if(!sec[i].length){if(sec[i].offset||sec[i].count)return MOSAIC_ERROR_INTEGRITY;continue;}if(sec[i].count>SIZE_MAX||sec[i].length>SIZE_MAX)return MOSAIC_ERROR_OVERFLOW;
+        if (i != 0u && i != 4u && sec[i].count > limits->max_projection_items) return MOSAIC_ERROR_RESOURCE_LIMIT;
+        size_t a;if(!token_ir_align8(expected,&a)||sec[i].offset!=a||!token_ir_range_ok(sec[i].offset,sec[i].length,len))return MOSAIC_ERROR_INTEGRITY;for(size_t z=expected;z<a;++z)if(bytes[z])return MOSAIC_ERROR_INTEGRITY;expected=a+(size_t)sec[i].length;if(widths[i]>1u){if(sec[i].count>UINT64_MAX/widths[i]||sec[i].length!=sec[i].count*widths[i])return MOSAIC_ERROR_INTEGRITY;}else if(sec[i].length!=sec[i].count)return MOSAIC_ERROR_INTEGRITY;}
+    if(expected!=len||sec[0].length!=source_len64)return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&MOSAIC_TOKEN_DOCUMENT_MODEL)&&sec[1].length)return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&MOSAIC_TOKEN_DOCUMENT_GRAPHEMES)&&sec[2].length)return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&MOSAIC_TOKEN_DOCUMENT_SECURITY)&&sec[3].length)return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)&&(sec[4].length||sec[5].length||sec[6].length))return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&(MOSAIC_TOKEN_DOCUMENT_LEXICAL|MOSAIC_TOKEN_DOCUMENT_SEMANTIC))&&sec[7].length)return MOSAIC_ERROR_INTEGRITY;
+    if(!(flags&MOSAIC_TOKEN_DOCUMENT_SEMANTIC)&&sec[8].length)return MOSAIC_ERROR_INTEGRITY;
+    mosaic_token_document *doc=(mosaic_token_document*)calloc(1,sizeof*doc);if(!doc)return MOSAIC_ERROR_OUT_OF_MEMORY;doc->flags=flags;doc->normalization_mode=mode;doc->source_len=source_len;
+    memcpy(doc->source_sha256,bytes+48u,32u);memcpy(doc->tokenizer_fingerprint,bytes+80u,32u);doc->detection.matched=rd32(bytes+144u);doc->detection.available=rd32(bytes+148u);doc->detection.score=(int64_t)rd64(bytes+152u);doc->detection.margin=(int64_t)rd64(bytes+160u);memcpy(doc->detection.language,bytes+168u,64u);
+    if(source_len){doc->source=(uint8_t*)malloc(source_len);if(!doc->source)goto oom;memcpy(doc->source,bytes+(size_t)sec[0].offset,source_len);}uint8_t source_hash[32];if(!sha256_bytes(doc->source,source_len,source_hash)||memcmp(source_hash,doc->source_sha256,32u))goto integrity;
+    if(sec[1].count){if(sec[1].count>SIZE_MAX/sizeof*doc->model_tokens)goto overflow;doc->model_token_count=(size_t)sec[1].count;doc->model_tokens=(ResyncToken*)malloc(doc->model_token_count*sizeof*doc->model_tokens);if(!doc->model_tokens)goto oom;const uint8_t*p=bytes+(size_t)sec[1].offset;size_t cursor=0;for(size_t i=0;i<doc->model_token_count;++i,p+=24u){uint32_t id=rd32(p);if(rd32(p+4u))goto integrity;uint64_t st=rd64(p+8u),ln=rd64(p+16u);if(st!=cursor||!ln||ln>UINT16_MAX||ln>source_len-cursor)goto integrity;doc->model_tokens[i]=(ResyncToken){id,(uint16_t)ln,0u};cursor+=(size_t)ln;}if(cursor!=source_len)goto integrity;}
+    if(sec[2].count){if(sec[2].count>SIZE_MAX/sizeof*doc->graphemes)goto overflow;doc->grapheme_count=(size_t)sec[2].count;doc->graphemes=(mosaic_range*)malloc(doc->grapheme_count*sizeof*doc->graphemes);if(!doc->graphemes)goto oom;const uint8_t*p=bytes+(size_t)sec[2].offset;size_t cursor=0;for(size_t i=0;i<doc->grapheme_count;++i,p+=16u){uint64_t st=rd64(p),ln=rd64(p+8u);if(st!=cursor||!ln||!token_ir_range_ok(st,ln,source_len))goto integrity;doc->graphemes[i]=(mosaic_range){st,ln};cursor+=(size_t)ln;}if(cursor!=source_len)goto integrity;}
+    if(sec[3].count){if(sec[3].count>SIZE_MAX/sizeof*doc->security_findings)goto overflow;doc->security_finding_count=(size_t)sec[3].count;doc->security_findings=(mosaic_security_finding*)malloc(doc->security_finding_count*sizeof*doc->security_findings);if(!doc->security_findings)goto oom;const uint8_t*p=bytes+(size_t)sec[3].offset;for(size_t i=0;i<doc->security_finding_count;++i,p+=24u){uint32_t kind=rd32(p);uint16_t script=rd16(p+4u);if(rd16(p+6u) || kind < MOSAIC_SECURITY_BIDI_CONTROL || kind > MOSAIC_SECURITY_MIXED_SCRIPT)goto integrity;uint64_t st=rd64(p+8u),ln=rd64(p+16u);if(!ln||!token_ir_range_ok(st,ln,source_len))goto integrity;doc->security_findings[i]=(mosaic_security_finding){kind,script,0u,st,ln};}}
+    if(flags&MOSAIC_TOKEN_DOCUMENT_NORMALIZATION){doc->normalized.byte_length=(size_t)sec[4].count;if(doc->normalized.byte_length){doc->normalized.bytes=(uint8_t*)malloc(doc->normalized.byte_length);if(!doc->normalized.bytes)goto oom;memcpy(doc->normalized.bytes,bytes+(size_t)sec[4].offset,doc->normalized.byte_length);}if(sec[6].count){if(sec[6].count>SIZE_MAX/sizeof*doc->normalized.source_spans)goto overflow;doc->normalized.source_span_count=(size_t)sec[6].count;doc->normalized.source_spans=(mosaic_range*)malloc(doc->normalized.source_span_count*sizeof*doc->normalized.source_spans);if(!doc->normalized.source_spans)goto oom;const uint8_t*p=bytes+(size_t)sec[6].offset;for(size_t i=0;i<doc->normalized.source_span_count;++i,p+=16u){uint64_t st=rd64(p),ln=rd64(p+8u);if(!token_ir_range_ok(st,ln,source_len))goto integrity;doc->normalized.source_spans[i]=(mosaic_range){st,ln};}}if(sec[5].count){if(sec[5].count>SIZE_MAX/sizeof*doc->normalized.units)goto overflow;doc->normalized.unit_count=(size_t)sec[5].count;doc->normalized.units=(mosaic_normalized_unit*)malloc(doc->normalized.unit_count*sizeof*doc->normalized.units);if(!doc->normalized.units)goto oom;const uint8_t*p=bytes+(size_t)sec[5].offset;for(size_t i=0;i<doc->normalized.unit_count;++i,p+=24u){uint64_t os=rd64(p),ol=rd64(p+8u);uint32_t si=rd32(p+16u),sc=rd32(p+20u);if(!token_ir_range_ok(os,ol,doc->normalized.byte_length)||si>doc->normalized.source_span_count||sc>doc->normalized.source_span_count-si)goto integrity;doc->normalized.units[i]=(mosaic_normalized_unit){os,ol,si,sc};}}}
+    if(sec[7].count){if(sec[7].count>SIZE_MAX/sizeof*doc->lexical_tokens)goto overflow;doc->lexical_token_count=(size_t)sec[7].count;doc->lexical_tokens=(mosaic_lex_token*)malloc(doc->lexical_token_count*sizeof*doc->lexical_tokens);if(!doc->lexical_tokens)goto oom;const uint8_t*p=bytes+(size_t)sec[7].offset;size_t cursor=0;for(size_t i=0;i<doc->lexical_token_count;++i,p+=24u){uint32_t kind=rd32(p),lf=rd32(p+4u);uint64_t st=rd64(p+8u),ln=rd64(p+16u);if(kind < MOSAIC_LEX_WHITESPACE || kind > MOSAIC_LEX_ERROR || st!=cursor||!ln||!token_ir_range_ok(st,ln,source_len))goto integrity;doc->lexical_tokens[i]=(mosaic_lex_token){kind,lf,st,ln};cursor+=(size_t)ln;}if(cursor!=source_len)goto integrity;}
+    if(sec[8].count){if(sec[8].count>SIZE_MAX/sizeof*doc->semantic_components)goto overflow;doc->semantic_component_count=(size_t)sec[8].count;doc->semantic_components=(mosaic_semantic_component*)malloc(doc->semantic_component_count*sizeof*doc->semantic_components);if(!doc->semantic_components)goto oom;const uint8_t*p=bytes+(size_t)sec[8].offset;for(size_t i=0;i<doc->semantic_component_count;++i,p+=32u){uint32_t kind=rd32(p),sf=rd32(p+4u);uint64_t li=rd64(p+8u),st=rd64(p+16u),ln=rd64(p+24u);if(kind < MOSAIC_SEM_IDENTIFIER_PART || kind > MOSAIC_SEM_STRING_CONTENT || li>=doc->lexical_token_count||!ln||!token_ir_range_ok(st,ln,source_len))goto integrity;mosaic_lex_token lt=doc->lexical_tokens[(size_t)li];if(st<lt.start || ln>lt.length || st-lt.start>lt.length-ln)goto integrity;doc->semantic_components[i]=(mosaic_semantic_component){kind,sf,li,st,ln};}}
+    *out_document=doc;return MOSAIC_OK;
+oom:mosaic_token_document_free(doc);return MOSAIC_ERROR_OUT_OF_MEMORY;
+overflow:mosaic_token_document_free(doc);return MOSAIC_ERROR_OVERFLOW;
+integrity:mosaic_token_document_free(doc);return MOSAIC_ERROR_INTEGRITY;
+}
+
+mosaic_status mosaic_token_document_deserialize_with_limits(const uint8_t *bytes, size_t len,
+                                                             const mosaic_token_ir_limits *limits,
+                                                             mosaic_token_document **out_document) {
+    return token_document_deserialize_internal(bytes, len, limits, out_document);
+}
+
+mosaic_status mosaic_token_document_deserialize(const uint8_t *bytes, size_t len, mosaic_token_document **out_document) {
+    mosaic_token_ir_limits limits;
+    mosaic_token_ir_limits_default(&limits);
+    return token_document_deserialize_internal(bytes, len, &limits, out_document);
 }
 
 mosaic_status mosaic_token_document_copy_source(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len) {

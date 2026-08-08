@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.21.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.22.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -158,6 +158,15 @@ if(BUILD_TESTING)
   add_test(NAME token-document-rich COMMAND mosaic-token-document-rich-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
     ${MOSAIC_NORMALIZATION_PACK})
+
+  add_executable(mosaic-token-document-serialization-smoke ${MOSAIC_TEST_DIR}/token_document_serialization_smoke.c)
+  target_include_directories(mosaic-token-document-serialization-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-token-document-serialization-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-token-document-serialization-smoke)
+  add_test(NAME token-document-serialization COMMAND mosaic-token-document-serialization-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
+    ${MOSAIC_NORMALIZATION_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack)
 
   add_executable(mosaic-lexer-smoke ${MOSAIC_TEST_DIR}/lexer_smoke.c)
   target_include_directories(mosaic-lexer-smoke PRIVATE ${MOSAIC_INCLUDE})

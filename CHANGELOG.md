@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.22.0 — 2026-08-08
+
+Enterprise cold TokenDocument serialization release.
+
+- endian-defined columnar `MSTIRD01` TokenDocument record;
+- whole-record and source-identity SHA-256 validation;
+- exact preservation of requested model/Unicode/security/normalization/lexical/semantic projections;
+- semantic-only internal lexical dependency without public projection leakage;
+- bounded record/source/projection-item deserialization policy;
+- authenticated malformed-record and cross-compiler qualification.
+
 ## 0.21.0 — 2026-08-08
 
 Enterprise content-addressed pack registry release.

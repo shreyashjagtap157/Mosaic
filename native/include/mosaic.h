@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 18
+#define MOSAIC_C_API_VERSION_MINOR 19
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -89,7 +89,8 @@ enum {
     MOSAIC_CAP_PACKED_MODEL = 1ull << 16,
     MOSAIC_CAP_CONTENT_CACHE = 1ull << 17,
     MOSAIC_CAP_CACHE_BACKEND = 1ull << 18,
-    MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19
+    MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19,
+    MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20
 };
 
 typedef struct mosaic_range {
@@ -258,6 +259,14 @@ typedef struct mosaic_runtime_limits {
     uint64_t max_output_tokens;
     uint64_t max_token_document_bytes;
 } mosaic_runtime_limits;
+
+typedef struct mosaic_token_ir_limits {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t max_record_bytes;
+    uint64_t max_source_bytes;
+    uint64_t max_projection_items;
+} mosaic_token_ir_limits;
 
 typedef struct mosaic_runtime_metrics {
     uint64_t encode_calls;
@@ -480,6 +489,12 @@ mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokeni
                                                                const mosaic_token_document_options *options,
                                                                mosaic_token_document **out_document);
 mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info);
+mosaic_status mosaic_token_document_serialize(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
+void mosaic_token_ir_limits_default(mosaic_token_ir_limits *out_limits);
+mosaic_status mosaic_token_document_deserialize_with_limits(const uint8_t *bytes, size_t len,
+                                                             const mosaic_token_ir_limits *limits,
+                                                             mosaic_token_document **out_document);
+mosaic_status mosaic_token_document_deserialize(const uint8_t *bytes, size_t len, mosaic_token_document **out_document);
 mosaic_status mosaic_token_document_copy_source(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
 mosaic_status mosaic_token_document_model_tokens(const mosaic_token_document *document,
                                                   mosaic_document_token **out_tokens, size_t *out_count);
