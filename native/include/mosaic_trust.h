@@ -5,6 +5,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(MOSAIC_TRUST_BUILD_SHARED)
+#    define MOSAIC_TRUST_API __declspec(dllexport)
+#  elif defined(MOSAIC_TRUST_USE_SHARED)
+#    define MOSAIC_TRUST_API __declspec(dllimport)
+#  else
+#    define MOSAIC_TRUST_API
+#  endif
+#elif defined(__GNUC__) || defined(__clang__)
+#  define MOSAIC_TRUST_API __attribute__((visibility("default")))
+#else
+#  define MOSAIC_TRUST_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,20 +48,20 @@ typedef struct mosaic_pack_signature_info {
     uint8_t reserved[7];
 } mosaic_pack_signature_info;
 
-const char *mosaic_trust_version(void);
-void mosaic_trust_store_config_default(mosaic_trust_store_config *out_config);
-mosaic_status mosaic_trust_store_create(const mosaic_trust_store_config *config, mosaic_trust_store **out_store);
-void mosaic_trust_store_free(mosaic_trust_store *store);
-mosaic_status mosaic_trust_key_id_ed25519(const uint8_t public_key[MOSAIC_TRUST_ED25519_PUBLIC_KEY_BYTES],
+MOSAIC_TRUST_API const char *mosaic_trust_version(void);
+MOSAIC_TRUST_API void mosaic_trust_store_config_default(mosaic_trust_store_config *out_config);
+MOSAIC_TRUST_API mosaic_status mosaic_trust_store_create(const mosaic_trust_store_config *config, mosaic_trust_store **out_store);
+MOSAIC_TRUST_API void mosaic_trust_store_free(mosaic_trust_store *store);
+MOSAIC_TRUST_API mosaic_status mosaic_trust_key_id_ed25519(const uint8_t public_key[MOSAIC_TRUST_ED25519_PUBLIC_KEY_BYTES],
                                            uint8_t out_key_id[MOSAIC_TRUST_KEY_ID_BYTES]);
-mosaic_status mosaic_trust_store_add_ed25519(mosaic_trust_store *store,
+MOSAIC_TRUST_API mosaic_status mosaic_trust_store_add_ed25519(mosaic_trust_store *store,
                                               const uint8_t public_key[MOSAIC_TRUST_ED25519_PUBLIC_KEY_BYTES],
                                               uint8_t out_key_id[MOSAIC_TRUST_KEY_ID_BYTES]);
-mosaic_status mosaic_trust_store_revoke(mosaic_trust_store *store,
+MOSAIC_TRUST_API mosaic_status mosaic_trust_store_revoke(mosaic_trust_store *store,
                                          const uint8_t key_id[MOSAIC_TRUST_KEY_ID_BYTES]);
-mosaic_status mosaic_trust_signature_inspect(const uint8_t *record, size_t record_len,
+MOSAIC_TRUST_API mosaic_status mosaic_trust_signature_inspect(const uint8_t *record, size_t record_len,
                                              mosaic_pack_signature_info *out_info);
-mosaic_status mosaic_trust_verify_pack(const mosaic_trust_store *store,
+MOSAIC_TRUST_API mosaic_status mosaic_trust_verify_pack(const mosaic_trust_store *store,
                                        const uint8_t *pack, size_t pack_len,
                                        const uint8_t *signature_record, size_t signature_record_len,
                                        mosaic_pack_signature_info *out_info);

@@ -31,6 +31,8 @@ jobs:
       - run: python tools/validate_m2_fixture.py
       - run: python tools/validate_path_order.py
       - run: python tools/validate_manifest_identity.py
+      - run: python tools/abi_contract.py
+      - run: python tools/validate_format_contract.py
       - run: python tools/validate_m3_model.py
       - run: python tools/validate_unicode17.py
       - run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DMOSAIC_BUILD_TRUST=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ICU=ON

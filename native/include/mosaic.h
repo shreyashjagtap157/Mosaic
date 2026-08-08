@@ -4,6 +4,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(MOSAIC_BUILD_SHARED)
+#    define MOSAIC_API __declspec(dllexport)
+#  elif defined(MOSAIC_USE_SHARED)
+#    define MOSAIC_API __declspec(dllimport)
+#  else
+#    define MOSAIC_API
+#  endif
+#elif defined(__GNUC__) || defined(__clang__)
+#  define MOSAIC_API __attribute__((visibility("default")))
+#else
+#  define MOSAIC_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -454,354 +468,354 @@ typedef struct mosaic_token_document_info {
 } mosaic_token_document_info;
 
 /* Returned buffers are owned by Mosaic and released with mosaic_free(). */
-void mosaic_free(void *pointer);
-const char *mosaic_version_string(void);
+MOSAIC_API void mosaic_free(void *pointer);
+MOSAIC_API const char *mosaic_version_string(void);
 /* Canonical tokenization-semantics version. This changes only when identical packs/input may
  * have different canonical interpretation under the runtime. It is intentionally independent
  * from the release and C ABI versions. */
-uint32_t mosaic_tokenizer_semantics_version(void);
-const char *mosaic_status_string(mosaic_status status);
+MOSAIC_API uint32_t mosaic_tokenizer_semantics_version(void);
+MOSAIC_API const char *mosaic_status_string(mosaic_status status);
 
 
 /* High-level integrated tokenizer. Both pack byte sequences are copied and validated. */
-mosaic_status mosaic_tokenizer_load_memory(const uint8_t *model_pack, size_t model_pack_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_load_memory(const uint8_t *model_pack, size_t model_pack_len,
                                            const uint8_t *unicode_pack, size_t unicode_pack_len,
                                            mosaic_tokenizer **out_tokenizer);
-mosaic_status mosaic_tokenizer_load_files(const char *model_path, const char *unicode_path,
+MOSAIC_API mosaic_status mosaic_tokenizer_load_files(const char *model_path, const char *unicode_path,
                                           mosaic_tokenizer **out_tokenizer);
 /* Optional external language-specialization packs are copied, validated, and owned by the tokenizer.
  * At most one pack for a given BCP47-style language tag may be loaded in v0.3. */
-mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *language_pack, size_t language_pack_len);
-mosaic_status mosaic_tokenizer_add_language_file(mosaic_tokenizer *tokenizer, const char *path);
-size_t mosaic_tokenizer_language_count(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, size_t index,
+MOSAIC_API mosaic_status mosaic_tokenizer_add_language_file(mosaic_tokenizer *tokenizer, const char *path);
+MOSAIC_API size_t mosaic_tokenizer_language_count(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, size_t index,
                                             char *buffer, size_t capacity, size_t *out_required);
 /* Optional document-level detector pack. A low-confidence or unavailable result falls back
  * to the base model and never affects exact representability. One detector may be attached in v0.3. */
-mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *detector_pack, size_t detector_pack_len);
-mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, const char *path);
+MOSAIC_API mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, const char *path);
 /* Optional Unicode-17 security/script evidence pack. Findings are evidence, never source rewriting. */
-mosaic_status mosaic_tokenizer_set_security_memory(mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_security_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *security_pack, size_t security_pack_len);
-mosaic_status mosaic_tokenizer_set_security_file(mosaic_tokenizer *tokenizer, const char *path);
-int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_security_file(mosaic_tokenizer *tokenizer, const char *path);
+MOSAIC_API int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer,
                                               const uint8_t *input, size_t input_len,
                                               mosaic_security_finding **out_findings, size_t *out_count);
-mosaic_status mosaic_tokenizer_security_visit(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_security_visit(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_security_visitor visitor, void *context, size_t *out_count);
 /* Optional mapped-normalization pack. The pack version is independent of segmentation/security packs. */
-mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,
                                                         const uint8_t *normalization_pack, size_t normalization_pack_len);
-mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenizer, const char *path);
-int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer *tokenizer, mosaic_normalization_mode mode,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenizer, const char *path);
+MOSAIC_API int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer *tokenizer, mosaic_normalization_mode mode,
                                          const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view);
 /* Optional declarative lexer profile. One exact profile may be attached to a tokenizer snapshot. */
-mosaic_status mosaic_tokenizer_set_lexer_memory(mosaic_tokenizer *tokenizer, const uint8_t *lexer_pack, size_t lexer_pack_len);
-mosaic_status mosaic_tokenizer_set_lexer_file(mosaic_tokenizer *tokenizer, const char *path);
-int mosaic_tokenizer_lexer_loaded(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_set_lexer_memory(mosaic_tokenizer *tokenizer, const uint8_t *lexer_pack, size_t lexer_pack_len);
+MOSAIC_API mosaic_status mosaic_tokenizer_set_lexer_file(mosaic_tokenizer *tokenizer, const char *path);
+MOSAIC_API int mosaic_tokenizer_lexer_loaded(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                    mosaic_lex_token **out_tokens, size_t *out_count);
-int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
+MOSAIC_API int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_detection *out_detection);
-mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
                                            const uint8_t *input, size_t input_len,
                                            uint32_t **out_ids, size_t *out_count,
                                            mosaic_detection *out_detection);
-mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer,
                                                   const uint8_t *input, size_t input_len,
                                                   mosaic_token **out_tokens, size_t *out_count,
                                                   mosaic_detection *out_detection);
-void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
+MOSAIC_API void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
 
 /* Optional privacy-preserving synchronous observer. Configure before sealing. The callback may be
  * invoked concurrently and MUST be thread-safe; events never contain source bytes or token surfaces. */
-mosaic_status mosaic_tokenizer_set_observer(mosaic_tokenizer *tokenizer, const mosaic_observer_config *config);
-mosaic_status mosaic_tokenizer_get_observer(const mosaic_tokenizer *tokenizer, mosaic_observer_config *out_config);
+MOSAIC_API mosaic_status mosaic_tokenizer_set_observer(mosaic_tokenizer *tokenizer, const mosaic_observer_config *config);
+MOSAIC_API mosaic_status mosaic_tokenizer_get_observer(const mosaic_tokenizer *tokenizer, mosaic_observer_config *out_config);
 
 /* Runtime policy and immutable publication. Configure before sealing, then share read-only across threads. */
-void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits);
-mosaic_status mosaic_tokenizer_set_runtime_limits(mosaic_tokenizer *tokenizer, const mosaic_runtime_limits *limits);
-mosaic_status mosaic_tokenizer_get_runtime_limits(const mosaic_tokenizer *tokenizer, mosaic_runtime_limits *out_limits);
-mosaic_status mosaic_tokenizer_seal(mosaic_tokenizer *tokenizer);
-int mosaic_tokenizer_is_sealed(const mosaic_tokenizer *tokenizer);
-mosaic_status mosaic_tokenizer_get_metrics(const mosaic_tokenizer *tokenizer, mosaic_runtime_metrics *out_metrics);
-mosaic_status mosaic_tokenizer_runtime_identity(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
-mosaic_status mosaic_tokenizer_reset_metrics(mosaic_tokenizer *tokenizer);
+MOSAIC_API void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits);
+MOSAIC_API mosaic_status mosaic_tokenizer_set_runtime_limits(mosaic_tokenizer *tokenizer, const mosaic_runtime_limits *limits);
+MOSAIC_API mosaic_status mosaic_tokenizer_get_runtime_limits(const mosaic_tokenizer *tokenizer, mosaic_runtime_limits *out_limits);
+MOSAIC_API mosaic_status mosaic_tokenizer_seal(mosaic_tokenizer *tokenizer);
+MOSAIC_API int mosaic_tokenizer_is_sealed(const mosaic_tokenizer *tokenizer);
+MOSAIC_API mosaic_status mosaic_tokenizer_get_metrics(const mosaic_tokenizer *tokenizer, mosaic_runtime_metrics *out_metrics);
+MOSAIC_API mosaic_status mosaic_tokenizer_runtime_identity(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
+MOSAIC_API mosaic_status mosaic_tokenizer_reset_metrics(mosaic_tokenizer *tokenizer);
 
-mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
-mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenizer, mosaic_tokenizer_capabilities *out_capabilities);
-mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
+MOSAIC_API mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenizer, mosaic_tokenizer_capabilities *out_capabilities);
+MOSAIC_API mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                       uint32_t **out_ids, size_t *out_count);
-mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                              mosaic_token **out_tokens, size_t *out_count);
-mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const uint32_t *ids, size_t count,
+MOSAIC_API mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const uint32_t *ids, size_t count,
                                       uint8_t **out_bytes, size_t *out_len);
-mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_range **out_ranges, size_t *out_count);
-mosaic_status mosaic_tokenizer_stream_create(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
+MOSAIC_API mosaic_status mosaic_tokenizer_stream_create(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
 /* Auto-routing stream snapshots model/Unicode/language/detector configuration at creation. */
-mosaic_status mosaic_tokenizer_stream_create_auto(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
-mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_stream_create_auto(const mosaic_tokenizer *tokenizer, mosaic_stream **out_stream);
+MOSAIC_API mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                mosaic_document **out_document);
 /* Auto-routing document re-detects from the current exact bytes after each edit. */
-mosaic_status mosaic_tokenizer_document_create_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_tokenizer_document_create_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                     mosaic_document **out_document);
 
 
 /* Immutable Token IR snapshot. Source bytes are authoritative; projections use byte coordinates. */
-mosaic_status mosaic_tokenizer_token_document_create(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_token_document_create(const mosaic_tokenizer *tokenizer,
                                                        const uint8_t *input, size_t input_len, uint32_t flags,
                                                        mosaic_token_document **out_document);
-mosaic_status mosaic_tokenizer_token_document_create_auto(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_token_document_create_auto(const mosaic_tokenizer *tokenizer,
                                                             const uint8_t *input, size_t input_len, uint32_t flags,
                                                             mosaic_token_document **out_document);
-mosaic_status mosaic_tokenizer_token_document_create_ex(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_token_document_create_ex(const mosaic_tokenizer *tokenizer,
                                                           const uint8_t *input, size_t input_len,
                                                           const mosaic_token_document_options *options,
                                                           mosaic_token_document **out_document);
-mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokenizer *tokenizer,
                                                                const uint8_t *input, size_t input_len,
                                                                const mosaic_token_document_options *options,
                                                                mosaic_token_document **out_document);
-mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info);
-mosaic_status mosaic_token_document_serialize(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
-void mosaic_token_ir_limits_default(mosaic_token_ir_limits *out_limits);
-mosaic_status mosaic_token_document_deserialize_with_limits(const uint8_t *bytes, size_t len,
+MOSAIC_API mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info);
+MOSAIC_API mosaic_status mosaic_token_document_serialize(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
+MOSAIC_API void mosaic_token_ir_limits_default(mosaic_token_ir_limits *out_limits);
+MOSAIC_API mosaic_status mosaic_token_document_deserialize_with_limits(const uint8_t *bytes, size_t len,
                                                              const mosaic_token_ir_limits *limits,
                                                              mosaic_token_document **out_document);
-mosaic_status mosaic_token_document_deserialize(const uint8_t *bytes, size_t len, mosaic_token_document **out_document);
-mosaic_status mosaic_token_document_copy_source(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
-mosaic_status mosaic_token_document_model_tokens(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_deserialize(const uint8_t *bytes, size_t len, mosaic_token_document **out_document);
+MOSAIC_API mosaic_status mosaic_token_document_copy_source(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
+MOSAIC_API mosaic_status mosaic_token_document_model_tokens(const mosaic_token_document *document,
                                                   mosaic_document_token **out_tokens, size_t *out_count);
-mosaic_status mosaic_token_document_graphemes(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_graphemes(const mosaic_token_document *document,
                                                mosaic_range **out_ranges, size_t *out_count);
-mosaic_status mosaic_token_document_security_findings(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_security_findings(const mosaic_token_document *document,
                                                        mosaic_security_finding **out_findings, size_t *out_count);
-mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document *document,
                                                      mosaic_normalized_view *out_view);
-mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,
                                                     mosaic_lex_token **out_tokens, size_t *out_count);
-mosaic_status mosaic_token_document_semantic_components(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_semantic_components(const mosaic_token_document *document,
                                                                mosaic_semantic_component **out_components, size_t *out_count);
-mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_t source_len,
+MOSAIC_API mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_t source_len,
                                          mosaic_subbyte_span span, uint64_t *out_value);
 
 /* Reusable bounded parallel executor. The tokenizer must be sealed before submission.
  * Batch calls may execute concurrently on one executor; result order always matches input order.
  * The caller must not free the executor while a batch call is active. */
-void mosaic_executor_config_default(mosaic_executor_config *out_config);
-mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosaic_executor **out_executor);
-mosaic_status mosaic_executor_encode_batch(mosaic_executor *executor, const mosaic_tokenizer *tokenizer,
+MOSAIC_API void mosaic_executor_config_default(mosaic_executor_config *out_config);
+MOSAIC_API mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosaic_executor **out_executor);
+MOSAIC_API mosaic_status mosaic_executor_encode_batch(mosaic_executor *executor, const mosaic_tokenizer *tokenizer,
                                            const mosaic_batch_input *inputs, size_t input_count,
                                            mosaic_batch_result **out_results);
-void mosaic_batch_results_free(mosaic_batch_result *results, size_t count);
-mosaic_status mosaic_executor_get_metrics(const mosaic_executor *executor, mosaic_executor_metrics *out_metrics);
-mosaic_status mosaic_executor_reset_metrics(mosaic_executor *executor);
-void mosaic_executor_free(mosaic_executor *executor);
+MOSAIC_API void mosaic_batch_results_free(mosaic_batch_result *results, size_t count);
+MOSAIC_API mosaic_status mosaic_executor_get_metrics(const mosaic_executor *executor, mosaic_executor_metrics *out_metrics);
+MOSAIC_API mosaic_status mosaic_executor_reset_metrics(mosaic_executor *executor);
+MOSAIC_API void mosaic_executor_free(mosaic_executor *executor);
 
 /* Enterprise multiscale processing plan. Blocks are model-token aligned and never split a token.
  * Default policy: 16 KiB minimum, 64 KiB preferred, 256 KiB maximum, 4 MiB macroblocks. */
-void mosaic_block_policy_default(mosaic_block_policy *out_policy);
-mosaic_status mosaic_token_document_block_plan(const mosaic_token_document *document,
+MOSAIC_API void mosaic_block_policy_default(mosaic_block_policy *out_policy);
+MOSAIC_API mosaic_status mosaic_token_document_block_plan(const mosaic_token_document *document,
                                                 const mosaic_block_policy *policy,
                                                 mosaic_block_plan **out_plan);
-mosaic_status mosaic_block_plan_get_info(const mosaic_block_plan *plan, mosaic_block_plan_info *out_info);
-mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,
+MOSAIC_API mosaic_status mosaic_block_plan_get_info(const mosaic_block_plan *plan, mosaic_block_plan_info *out_info);
+MOSAIC_API mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,
                                        mosaic_processing_block **out_blocks, size_t *out_count);
-mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,
+MOSAIC_API mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,
                                             mosaic_macroblock **out_macroblocks, size_t *out_count);
-void mosaic_block_plan_free(mosaic_block_plan *plan);
+MOSAIC_API void mosaic_block_plan_free(mosaic_block_plan *plan);
 
 /* Projection-specific cache key derived from a processing-block content identity. */
-mosaic_status mosaic_processing_block_cache_key(const mosaic_processing_block *block,
+MOSAIC_API mosaic_status mosaic_processing_block_cache_key(const mosaic_processing_block *block,
                                                  uint32_t projection_namespace, uint32_t schema_version,
                                                  uint8_t out_sha256[32]);
 
 
 /* Authenticated immutable cache-record protocol for persistent/distributed backends. */
-mosaic_status mosaic_cache_record_encode(const uint8_t key[32], const uint8_t *value, size_t value_len,
+MOSAIC_API mosaic_status mosaic_cache_record_encode(const uint8_t key[32], const uint8_t *value, size_t value_len,
                                          uint8_t **out_record, size_t *out_record_len);
-mosaic_status mosaic_cache_record_inspect(const uint8_t *record, size_t record_len,
+MOSAIC_API mosaic_status mosaic_cache_record_inspect(const uint8_t *record, size_t record_len,
                                           mosaic_cache_record_info *out_info);
-mosaic_status mosaic_cache_record_decode(const uint8_t expected_key[32], const uint8_t *record, size_t record_len,
+MOSAIC_API mosaic_status mosaic_cache_record_decode(const uint8_t expected_key[32], const uint8_t *record, size_t record_len,
                                          uint8_t **out_value, size_t *out_value_len);
 /* Backend get is a two-call size/fill protocol. Records are verified before values are returned. */
-mosaic_status mosaic_cache_backend_get_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+MOSAIC_API mosaic_status mosaic_cache_backend_get_value(const mosaic_cache_backend *backend, const uint8_t key[32],
                                               size_t max_record_bytes, uint8_t **out_value, size_t *out_value_len);
-mosaic_status mosaic_cache_backend_put_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+MOSAIC_API mosaic_status mosaic_cache_backend_put_value(const mosaic_cache_backend *backend, const uint8_t key[32],
                                               const uint8_t *value, size_t value_len, size_t max_record_bytes);
-mosaic_status mosaic_cache_backend_remove_value(const mosaic_cache_backend *backend, const uint8_t key[32]);
+MOSAIC_API mosaic_status mosaic_cache_backend_remove_value(const mosaic_cache_backend *backend, const uint8_t key[32]);
 
 /* Thread-safe bounded in-memory content cache. Keys are exact 32-byte content identities.
  * Values are copied on put/get, so caller lifetimes never cross the cache boundary. */
-void mosaic_cache_config_default(mosaic_cache_config *out_config);
-mosaic_status mosaic_cache_create(const mosaic_cache_config *config, mosaic_cache **out_cache);
-mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const uint8_t *value, size_t value_len);
-mosaic_status mosaic_cache_get(mosaic_cache *cache, const uint8_t key[32], uint8_t **out_value, size_t *out_len);
-mosaic_status mosaic_cache_remove(mosaic_cache *cache, const uint8_t key[32]);
-mosaic_status mosaic_cache_clear(mosaic_cache *cache);
-mosaic_status mosaic_cache_get_stats(mosaic_cache *cache, mosaic_cache_stats *out_stats);
-void mosaic_cache_free(mosaic_cache *cache);
+MOSAIC_API void mosaic_cache_config_default(mosaic_cache_config *out_config);
+MOSAIC_API mosaic_status mosaic_cache_create(const mosaic_cache_config *config, mosaic_cache **out_cache);
+MOSAIC_API mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const uint8_t *value, size_t value_len);
+MOSAIC_API mosaic_status mosaic_cache_get(mosaic_cache *cache, const uint8_t key[32], uint8_t **out_value, size_t *out_len);
+MOSAIC_API mosaic_status mosaic_cache_remove(mosaic_cache *cache, const uint8_t key[32]);
+MOSAIC_API mosaic_status mosaic_cache_clear(mosaic_cache *cache);
+MOSAIC_API mosaic_status mosaic_cache_get_stats(mosaic_cache *cache, mosaic_cache_stats *out_stats);
+MOSAIC_API void mosaic_cache_free(mosaic_cache *cache);
 
 
 /* Canonical compact model-projection serialization. IDs are fixed-bit packed and token lengths
  * are ULEB128 encoded; a SHA-256 payload checksum makes corruption fail closed. */
-mosaic_status mosaic_token_document_pack_model(const mosaic_token_document *document,
+MOSAIC_API mosaic_status mosaic_token_document_pack_model(const mosaic_token_document *document,
                                                 uint8_t **out_bytes, size_t *out_len);
-mosaic_status mosaic_packed_model_inspect(const uint8_t *bytes, size_t len,
+MOSAIC_API mosaic_status mosaic_packed_model_inspect(const uint8_t *bytes, size_t len,
                                           mosaic_packed_model_info *out_info);
-mosaic_status mosaic_packed_model_decode(const uint8_t *bytes, size_t len,
+MOSAIC_API mosaic_status mosaic_packed_model_decode(const uint8_t *bytes, size_t len,
                                          mosaic_document_token **out_tokens, size_t *out_count);
 
-void mosaic_token_document_free(mosaic_token_document *document);
+MOSAIC_API void mosaic_token_document_free(mosaic_token_document *document);
 
 /* Pack bytes are copied; caller may release its input immediately. */
-mosaic_status mosaic_model_load_memory(const uint8_t *pack, size_t pack_len, mosaic_model **out_model);
-mosaic_status mosaic_model_load_file(const char *path, mosaic_model **out_model);
-void mosaic_model_free(mosaic_model *model);
+MOSAIC_API mosaic_status mosaic_model_load_memory(const uint8_t *pack, size_t pack_len, mosaic_model **out_model);
+MOSAIC_API mosaic_status mosaic_model_load_file(const char *path, mosaic_model **out_model);
+MOSAIC_API void mosaic_model_free(mosaic_model *model);
 
 /* Exact arbitrary-byte tokenization. */
-mosaic_status mosaic_encode(const mosaic_model *model, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_encode(const mosaic_model *model, const uint8_t *input, size_t input_len,
                             uint32_t **out_ids, size_t *out_count);
-mosaic_status mosaic_encode_tokens(const mosaic_model *model, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_encode_tokens(const mosaic_model *model, const uint8_t *input, size_t input_len,
                                    mosaic_token **out_tokens, size_t *out_count);
-mosaic_status mosaic_decode(const mosaic_model *model, const uint32_t *ids, size_t count,
+MOSAIC_API mosaic_status mosaic_decode(const mosaic_model *model, const uint32_t *ids, size_t count,
                             uint8_t **out_bytes, size_t *out_len);
 
 /* Streaming v0.1 is semantically exact and buffers until EOF. The stream owns
  * an internal copy of the model, so the source model may be released after creation. */
-mosaic_status mosaic_stream_create(const mosaic_model *model, mosaic_stream **out_stream);
-mosaic_status mosaic_stream_push(mosaic_stream *stream, const uint8_t *bytes, size_t len);
-mosaic_status mosaic_stream_finish(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count);
+MOSAIC_API mosaic_status mosaic_stream_create(const mosaic_model *model, mosaic_stream **out_stream);
+MOSAIC_API mosaic_status mosaic_stream_push(mosaic_stream *stream, const uint8_t *bytes, size_t len);
+MOSAIC_API mosaic_status mosaic_stream_finish(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count);
 /* Valid for auto-routing streams; returns the document-level detection used at EOF. */
-mosaic_status mosaic_stream_finish_auto(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count,
+MOSAIC_API mosaic_status mosaic_stream_finish_auto(mosaic_stream *stream, uint32_t **out_ids, size_t *out_count,
                                         mosaic_detection *out_detection);
-mosaic_status mosaic_stream_reset(mosaic_stream *stream);
-void mosaic_stream_free(mosaic_stream *stream);
+MOSAIC_API mosaic_status mosaic_stream_reset(mosaic_stream *stream);
+MOSAIC_API void mosaic_stream_free(mosaic_stream *stream);
 
 /* Exact online Viterbi stream. Unlike mosaic_stream, this API commits token prefixes before EOF
  * and bounds unresolved source bytes by max_pending_bytes. Raw-BPE models are intentionally
  * unsupported because their merge semantics require a different online compatibility algorithm.
  * On MOSAIC_ERROR_RESOURCE_LIMIT, out_consumed reports how many input bytes were accepted and
  * out_ids may contain prefixes already proven canonical. */
-mosaic_status mosaic_online_stream_create(const mosaic_model *model, size_t max_pending_bytes,
+MOSAIC_API mosaic_status mosaic_online_stream_create(const mosaic_model *model, size_t max_pending_bytes,
                                           mosaic_online_stream **out_stream);
-mosaic_status mosaic_tokenizer_online_stream_create(const mosaic_tokenizer *tokenizer, size_t max_pending_bytes,
+MOSAIC_API mosaic_status mosaic_tokenizer_online_stream_create(const mosaic_tokenizer *tokenizer, size_t max_pending_bytes,
                                                      mosaic_online_stream **out_stream);
-mosaic_status mosaic_online_stream_push(mosaic_online_stream *stream, const uint8_t *bytes, size_t len,
+MOSAIC_API mosaic_status mosaic_online_stream_push(mosaic_online_stream *stream, const uint8_t *bytes, size_t len,
                                         size_t *out_consumed, uint32_t **out_ids, size_t *out_count);
-mosaic_status mosaic_online_stream_finish(mosaic_online_stream *stream, uint32_t **out_ids, size_t *out_count);
-size_t mosaic_online_stream_pending_bytes(const mosaic_online_stream *stream);
-void mosaic_online_stream_free(mosaic_online_stream *stream);
+MOSAIC_API mosaic_status mosaic_online_stream_finish(mosaic_online_stream *stream, uint32_t **out_ids, size_t *out_count);
+MOSAIC_API size_t mosaic_online_stream_pending_bytes(const mosaic_online_stream *stream);
+MOSAIC_API void mosaic_online_stream_free(mosaic_online_stream *stream);
 
 /* Editable-document v0.1 preserves exact semantics and currently retokenizes the
  * complete document after edits. Future incremental engines must be equivalent. */
-mosaic_status mosaic_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
                                      mosaic_document **out_document);
-mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t start, uint64_t delete_len,
+MOSAIC_API mosaic_status mosaic_document_apply_edit(mosaic_document *document, uint64_t start, uint64_t delete_len,
                                          const uint8_t *replacement, size_t replacement_len);
-mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count);
+MOSAIC_API mosaic_status mosaic_document_encode(const mosaic_document *document, uint32_t **out_ids, size_t *out_count);
 /* Valid for auto-routing documents; detection reflects the current edited bytes. */
-mosaic_status mosaic_document_encode_auto(const mosaic_document *document, uint32_t **out_ids, size_t *out_count,
+MOSAIC_API mosaic_status mosaic_document_encode_auto(const mosaic_document *document, uint32_t **out_ids, size_t *out_count,
                                           mosaic_detection *out_detection);
-mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len);
-void mosaic_document_free(mosaic_document *document);
+MOSAIC_API mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len);
+MOSAIC_API void mosaic_document_free(mosaic_document *document);
 
 /* Exact Viterbi incremental document. The implementation preserves an unchanged canonical prefix
  * and retokenizes only from a proven-safe token boundary preceding an edit. Raw-BPE models are
  * explicitly unsupported by this API. The operation is transactional: a failed edit leaves the
  * prior document and token cache unchanged. */
-mosaic_status mosaic_incremental_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_incremental_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
                                                  mosaic_incremental_document **out_document);
-mosaic_status mosaic_tokenizer_incremental_document_create(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_incremental_document_create(const mosaic_tokenizer *tokenizer,
                                                            const uint8_t *input, size_t input_len,
                                                            mosaic_incremental_document **out_document);
-mosaic_status mosaic_incremental_document_apply_edit(mosaic_incremental_document *document,
+MOSAIC_API mosaic_status mosaic_incremental_document_apply_edit(mosaic_incremental_document *document,
                                                       uint64_t start, uint64_t delete_len,
                                                       const uint8_t *replacement, size_t replacement_len);
-mosaic_status mosaic_incremental_document_encode(const mosaic_incremental_document *document,
+MOSAIC_API mosaic_status mosaic_incremental_document_encode(const mosaic_incremental_document *document,
                                                   uint32_t **out_ids, size_t *out_count);
-mosaic_status mosaic_incremental_document_copy_bytes(const mosaic_incremental_document *document,
+MOSAIC_API mosaic_status mosaic_incremental_document_copy_bytes(const mosaic_incremental_document *document,
                                                       uint8_t **out_bytes, size_t *out_len);
-size_t mosaic_incremental_document_last_reprocessed_bytes(const mosaic_incremental_document *document);
-size_t mosaic_incremental_document_last_reused_prefix_bytes(const mosaic_incremental_document *document);
-void mosaic_incremental_document_free(mosaic_incremental_document *document);
+MOSAIC_API size_t mosaic_incremental_document_last_reprocessed_bytes(const mosaic_incremental_document *document);
+MOSAIC_API size_t mosaic_incremental_document_last_reused_prefix_bytes(const mosaic_incremental_document *document);
+MOSAIC_API void mosaic_incremental_document_free(mosaic_incremental_document *document);
 
 /* Checkpoint-resynchronizing exact Viterbi document. Checkpoints snapshot the bounded online
  * survivor state. After an edit, matching a shifted old checkpoint proves future execution state
  * identity and permits exact suffix reuse without scanning to EOF. */
-mosaic_status mosaic_resync_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_resync_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
                                             size_t checkpoint_bytes, size_t max_pending_bytes,
                                             mosaic_resync_document **out_document);
-mosaic_status mosaic_tokenizer_resync_document_create(const mosaic_tokenizer *tokenizer,
+MOSAIC_API mosaic_status mosaic_tokenizer_resync_document_create(const mosaic_tokenizer *tokenizer,
                                                       const uint8_t *input, size_t input_len,
                                                       size_t checkpoint_bytes, size_t max_pending_bytes,
                                                       mosaic_resync_document **out_document);
-mosaic_status mosaic_resync_document_apply_edit(mosaic_resync_document *document,
+MOSAIC_API mosaic_status mosaic_resync_document_apply_edit(mosaic_resync_document *document,
                                                  uint64_t start, uint64_t delete_len,
                                                  const uint8_t *replacement, size_t replacement_len);
-mosaic_status mosaic_resync_document_encode(const mosaic_resync_document *document,
+MOSAIC_API mosaic_status mosaic_resync_document_encode(const mosaic_resync_document *document,
                                              uint32_t **out_ids, size_t *out_count);
-mosaic_status mosaic_resync_document_copy_bytes(const mosaic_resync_document *document,
+MOSAIC_API mosaic_status mosaic_resync_document_copy_bytes(const mosaic_resync_document *document,
                                                  uint8_t **out_bytes, size_t *out_len);
-size_t mosaic_resync_document_last_reprocessed_bytes(const mosaic_resync_document *document);
-size_t mosaic_resync_document_last_reused_prefix_bytes(const mosaic_resync_document *document);
-size_t mosaic_resync_document_last_reused_suffix_bytes(const mosaic_resync_document *document);
-int mosaic_resync_document_last_resynchronized(const mosaic_resync_document *document);
-void mosaic_resync_document_free(mosaic_resync_document *document);
+MOSAIC_API size_t mosaic_resync_document_last_reprocessed_bytes(const mosaic_resync_document *document);
+MOSAIC_API size_t mosaic_resync_document_last_reused_prefix_bytes(const mosaic_resync_document *document);
+MOSAIC_API size_t mosaic_resync_document_last_reused_suffix_bytes(const mosaic_resync_document *document);
+MOSAIC_API int mosaic_resync_document_last_resynchronized(const mosaic_resync_document *document);
+MOSAIC_API void mosaic_resync_document_free(mosaic_resync_document *document);
 
-mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector);
-mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector);
-void mosaic_detector_free(mosaic_detector *detector);
-mosaic_status mosaic_detector_detect(const mosaic_detector *detector, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector);
+MOSAIC_API mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector);
+MOSAIC_API void mosaic_detector_free(mosaic_detector *detector);
+MOSAIC_API mosaic_status mosaic_detector_detect(const mosaic_detector *detector, const uint8_t *input, size_t input_len,
                                      mosaic_detection *out_detection);
 
-mosaic_status mosaic_unicode_load_memory(const uint8_t *pack, size_t pack_len, mosaic_unicode **out_unicode);
-mosaic_status mosaic_unicode_load_file(const char *path, mosaic_unicode **out_unicode);
-void mosaic_unicode_free(mosaic_unicode *unicode_data);
+MOSAIC_API mosaic_status mosaic_unicode_load_memory(const uint8_t *pack, size_t pack_len, mosaic_unicode **out_unicode);
+MOSAIC_API mosaic_status mosaic_unicode_load_file(const char *path, mosaic_unicode **out_unicode);
+MOSAIC_API void mosaic_unicode_free(mosaic_unicode *unicode_data);
 
 /* Script/security pack APIs. The pack is independent of the Unicode segmentation pack. */
-mosaic_status mosaic_security_load_memory(const uint8_t *pack, size_t pack_len, mosaic_security **out_security);
-mosaic_status mosaic_security_load_file(const char *path, mosaic_security **out_security);
-void mosaic_security_free(mosaic_security *security);
-mosaic_status mosaic_security_script_ranges(const mosaic_security *security, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_security_load_memory(const uint8_t *pack, size_t pack_len, mosaic_security **out_security);
+MOSAIC_API mosaic_status mosaic_security_load_file(const char *path, mosaic_security **out_security);
+MOSAIC_API void mosaic_security_free(mosaic_security *security);
+MOSAIC_API mosaic_status mosaic_security_script_ranges(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                             mosaic_script_span **out_ranges, size_t *out_count);
-mosaic_status mosaic_security_script_name(const mosaic_security *security, uint16_t script_id,
+MOSAIC_API mosaic_status mosaic_security_script_name(const mosaic_security *security, uint16_t script_id,
                                           char *buffer, size_t capacity, size_t *out_required);
-mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                    mosaic_security_finding **out_findings, size_t *out_count);
-mosaic_status mosaic_security_visit(const mosaic_security *security, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_security_visit(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                     mosaic_security_visitor visitor, void *context, size_t *out_count);
 
 /* Declarative lexer profile packs. */
-mosaic_status mosaic_lexer_load_memory(const uint8_t *pack, size_t pack_len, mosaic_lexer **out_lexer);
-mosaic_status mosaic_lexer_load_file(const char *path, mosaic_lexer **out_lexer);
-void mosaic_lexer_free(mosaic_lexer *lexer);
-mosaic_status mosaic_lexer_profile_name(const mosaic_lexer *lexer, char *buffer, size_t capacity, size_t *out_required);
-mosaic_status mosaic_lex(const mosaic_lexer *lexer, const uint8_t *input, size_t input_len,
+MOSAIC_API mosaic_status mosaic_lexer_load_memory(const uint8_t *pack, size_t pack_len, mosaic_lexer **out_lexer);
+MOSAIC_API mosaic_status mosaic_lexer_load_file(const char *path, mosaic_lexer **out_lexer);
+MOSAIC_API void mosaic_lexer_free(mosaic_lexer *lexer);
+MOSAIC_API mosaic_status mosaic_lexer_profile_name(const mosaic_lexer *lexer, char *buffer, size_t capacity, size_t *out_required);
+MOSAIC_API mosaic_status mosaic_lex(const mosaic_lexer *lexer, const uint8_t *input, size_t input_len,
                          mosaic_lex_token **out_tokens, size_t *out_count);
 
 /* Version-pinned normalization shadow views. Source bytes are never modified. */
-mosaic_status mosaic_normalization_load_memory(const uint8_t *pack, size_t pack_len, mosaic_normalization **out_normalization);
-mosaic_status mosaic_normalization_load_file(const char *path, mosaic_normalization **out_normalization);
-void mosaic_normalization_free(mosaic_normalization *normalization);
-mosaic_status mosaic_normalization_unicode_version(const mosaic_normalization *normalization,
+MOSAIC_API mosaic_status mosaic_normalization_load_memory(const uint8_t *pack, size_t pack_len, mosaic_normalization **out_normalization);
+MOSAIC_API mosaic_status mosaic_normalization_load_file(const char *path, mosaic_normalization **out_normalization);
+MOSAIC_API void mosaic_normalization_free(mosaic_normalization *normalization);
+MOSAIC_API mosaic_status mosaic_normalization_unicode_version(const mosaic_normalization *normalization,
                                                     uint16_t *major, uint16_t *minor, uint16_t *micro);
-mosaic_status mosaic_normalize(const mosaic_normalization *normalization, mosaic_normalization_mode mode,
+MOSAIC_API mosaic_status mosaic_normalize(const mosaic_normalization *normalization, mosaic_normalization_mode mode,
                                const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view);
-void mosaic_normalized_view_free(mosaic_normalized_view *view);
+MOSAIC_API void mosaic_normalized_view_free(mosaic_normalized_view *view);
 
 /* Invalid UTF-8 bytes are returned as one-byte opaque grapheme ranges. */
-mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data,
+MOSAIC_API mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data,
                                      const uint8_t *input, size_t input_len,
                                      mosaic_range **out_ranges, size_t *out_count);
 

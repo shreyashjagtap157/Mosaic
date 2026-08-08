@@ -3,7 +3,7 @@ CXX ?= c++
 AR ?= ar
 CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Wpedantic -Werror
 CXXFLAGS ?= -O2 -std=c++17 -Wall -Wextra -Wpedantic -Werror
-PICFLAGS ?= -fPIC
+PICFLAGS ?= -fPIC -fvisibility=hidden
 SAN_FLAGS ?= -O1 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-omit-frame-pointer
 
 ROOT := ..
