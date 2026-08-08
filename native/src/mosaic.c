@@ -1027,6 +1027,134 @@ static int decode_units(Slice input,ScalarUnit **out,size_t *count_out){
     while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);units[count++]=unit;i=unit.end;}
     *out=units;*count_out=count;return 1;
 }
+
+typedef struct {
+    const uint8_t *section;
+    size_t section_len;
+    uint16_t unicode_major, unicode_minor, unicode_micro;
+    uint32_t ccc_count, canonical_count, compatibility_count, casefold_count, composition_count, sequence_count;
+    uint32_t ccc_offset, canonical_offset, compatibility_offset, casefold_offset, composition_offset, sequence_offset;
+} NormalizationView;
+
+typedef struct { uint32_t start,end; uint8_t ccc; } NormCccRange;
+typedef struct { uint32_t cp, seq_offset; uint16_t seq_len; } NormMapEntry;
+typedef struct { uint32_t first, second, composed; } NormComposition;
+
+static int norm_ccc_range_at(const NormalizationView *v,uint32_t index,NormCccRange *out){
+    if(index>=v->ccc_count)return 0;
+    const uint8_t*p=v->section+v->ccc_offset+(size_t)index*12u;
+    out->start=rd32(p);out->end=rd32(p+4);out->ccc=p[8];return p[9]==0&&p[10]==0&&p[11]==0;
+}
+static int norm_map_at(const NormalizationView*v,uint32_t offset,uint32_t count,uint32_t index,NormMapEntry*out){
+    if(index>=count)return 0;
+    const uint8_t*p=v->section+offset+(size_t)index*12u;
+    out->cp=rd32(p);out->seq_offset=rd32(p+4);out->seq_len=rd16(p+8);return rd16(p+10)==0;
+}
+static int norm_comp_at(const NormalizationView*v,uint32_t index,NormComposition*out){
+    if(index>=v->composition_count)return 0;
+    const uint8_t*p=v->section+v->composition_offset+(size_t)index*12u;
+    out->first=rd32(p);out->second=rd32(p+4);out->composed=rd32(p+8);return 1;
+}
+static int norm_scalar(uint32_t cp){return cp<=0x10ffffu&&!(cp>=0xd800u&&cp<=0xdfffu);}
+static int parse_normalization_section(Slice s,NormalizationView*v){
+    if(s.len<80||memcmp(s.bytes,"MSNM",4)!=0||rd16(s.bytes+4)!=1||rd16(s.bytes+6)!=80)return fail("invalid normalization header");
+    uint16_t umaj=rd16(s.bytes+8),umin=rd16(s.bytes+10),umic=rd16(s.bytes+12);if(umaj!=16||umin!=0||umic!=0||rd16(s.bytes+14)!=0)return fail("unsupported normalization Unicode version");
+    uint32_t cc=rd32(s.bytes+16),ca=rd32(s.bytes+20),co=rd32(s.bytes+24),cf=rd32(s.bytes+28),pc=rd32(s.bytes+32),sq=rd32(s.bytes+36);
+    uint32_t cco=rd32(s.bytes+40),cao=rd32(s.bytes+44),coo=rd32(s.bytes+48),cfo=rd32(s.bytes+52),pco=rd32(s.bytes+56),sqo=rd32(s.bytes+60);
+    if(!all_zero(s.bytes+64,16)||cc>10000u||ca>100000u||co>100000u||cf>100000u||pc>100000u||sq>1000000u||cco!=80)return fail("normalization limits/header");
+    uint64_t cce=(uint64_t)cco+(uint64_t)cc*12u,cae=(uint64_t)cao+(uint64_t)ca*12u,coe=(uint64_t)coo+(uint64_t)co*12u,cfe=(uint64_t)cfo+(uint64_t)cf*12u,pce=(uint64_t)pco+(uint64_t)pc*12u,sqe=(uint64_t)sqo+(uint64_t)sq*4u;
+    if(!(cce<=cao&&cae<=coo&&coe<=cfo&&cfe<=pco&&pce<=sqo&&sqe==s.len))return fail("normalization section layout");
+    if(!all_zero(s.bytes+(size_t)cce,(size_t)cao-(size_t)cce)||!all_zero(s.bytes+(size_t)cae,(size_t)coo-(size_t)cae)||!all_zero(s.bytes+(size_t)coe,(size_t)cfo-(size_t)coe)||!all_zero(s.bytes+(size_t)cfe,(size_t)pco-(size_t)cfe)||!all_zero(s.bytes+(size_t)pce,(size_t)sqo-(size_t)pce))return fail("normalization padding nonzero");
+    *v=(NormalizationView){s.bytes,s.len,umaj,umin,umic,cc,ca,co,cf,pc,sq,cco,cao,coo,cfo,pco,sqo};
+    uint32_t prev=0;for(uint32_t i=0;i<cc;++i){NormCccRange r;if(!norm_ccc_range_at(v,i,&r)||r.start>=r.end||r.end>0x110000u||(i&&r.start<prev)||!r.ccc)return fail("invalid CCC range");prev=r.end;}
+    const uint32_t offs[3]={cao,coo,cfo},counts[3]={ca,co,cf};
+    for(int t=0;t<3;++t){uint32_t last=0;for(uint32_t i=0;i<counts[t];++i){NormMapEntry e;if(!norm_map_at(v,offs[t],counts[t],i,&e)||!norm_scalar(e.cp)||(i&&e.cp<=last)||(uint64_t)e.seq_offset+e.seq_len>sq)return fail("invalid normalization mapping");for(uint32_t j=0;j<e.seq_len;++j)if(!norm_scalar(rd32(v->section+sqo+((size_t)e.seq_offset+j)*4u)))return fail("invalid normalization sequence scalar");last=e.cp;}}
+    uint32_t pf=0,ps=0;for(uint32_t i=0;i<pc;++i){NormComposition c;if(!norm_comp_at(v,i,&c)||!norm_scalar(c.first)||!norm_scalar(c.second)||!norm_scalar(c.composed)||(i&&(c.first<pf||(c.first==pf&&c.second<=ps))))return fail("invalid composition pair");pf=c.first;ps=c.second;}
+    return 1;
+}
+static int load_normalization_pack(const uint8_t*data,size_t len,NormalizationView*v){
+    Section*sections=NULL;uint32_t count=0,mi=0,li=0;if(!parse_outer(data,len,&sections,&count,&mi,&li))return 0;int n=0;Section ns={0};for(uint32_t i=0;i<count;++i)if(sections[i].kind==8){++n;ns=sections[i];}
+    if(n!=1){free(sections);return fail("expected exactly one normalization section");}
+    int ok=validate_manifest_lock(sec_slice(data,&sections[mi]),sec_slice(data,&sections[li]))&&parse_normalization_section(sec_slice(data,&ns),v);free(sections);return ok;
+}
+static uint8_t norm_ccc_lookup(const NormalizationView*v,uint32_t cp){
+    uint32_t lo=0,hi=v->ccc_count;while(lo<hi){uint32_t mid=lo+(hi-lo)/2;NormCccRange r;if(!norm_ccc_range_at(v,mid,&r))return 0;if(cp<r.start)hi=mid;else if(cp>=r.end)lo=mid+1;else return r.ccc;}return 0;
+}
+static int norm_map_lookup(const NormalizationView*v,uint32_t offset,uint32_t count,uint32_t cp,NormMapEntry*out){
+    uint32_t lo=0,hi=count;while(lo<hi){uint32_t mid=lo+(hi-lo)/2;NormMapEntry e;if(!norm_map_at(v,offset,count,mid,&e))return 0;if(cp<e.cp)hi=mid;else if(cp>e.cp)lo=mid+1;else{*out=e;return 1;}}return 0;
+}
+static uint32_t norm_seq_cp(const NormalizationView*v,const NormMapEntry*e,uint32_t index){return rd32(v->section+v->sequence_offset+((size_t)e->seq_offset+index)*4u);}
+static uint32_t norm_comp_lookup(const NormalizationView*v,uint32_t a,uint32_t b){
+    const uint32_t LBase=0x1100,VBase=0x1161,TBase=0x11a7,SBase=0xac00,LCount=19,VCount=21,TCount=28,NCount=588,SCount=11172;
+    if(a>=LBase&&a<LBase+LCount&&b>=VBase&&b<VBase+VCount)return SBase+(a-LBase)*NCount+(b-VBase)*TCount;
+    if(a>=SBase&&a<SBase+SCount&&((a-SBase)%TCount)==0&&b>TBase&&b<TBase+TCount)return a+(b-TBase);
+    uint32_t lo=0,hi=v->composition_count;while(lo<hi){uint32_t mid=lo+(hi-lo)/2;NormComposition c;if(!norm_comp_at(v,mid,&c))return 0;if(a<c.first||(a==c.first&&b<c.second))hi=mid;else if(a>c.first||(a==c.first&&b>c.second))lo=mid+1;else return c.composed;}return 0;
+}
+
+typedef struct {size_t left,right,leaf_count; mosaic_range leaf; uint8_t is_leaf;} NormMapNode;
+typedef struct {uint32_t cp;uint8_t raw,valid,ccc,reserved;size_t map_node;} NormUnit;
+typedef struct {NormMapNode*data;size_t count,cap;} NormNodeVec;
+typedef struct {NormUnit*data;size_t count,cap;} NormUnitVec;
+static int norm_reserve(void**data,size_t*cap,size_t need,size_t width){if(need<=*cap)return 1;size_t n=*cap?*cap:16;while(n<need){if(n>SIZE_MAX/2)return 0;n*=2;}size_t bytes;if(!mul_size(n,width,&bytes))return 0;void*p=realloc(*data,bytes);if(!p)return 0;*data=p;*cap=n;return 1;}
+static int norm_node_leaf(NormNodeVec*v,uint64_t start,uint64_t len,size_t*out){if(!norm_reserve((void**)&v->data,&v->cap,v->count+1,sizeof*v->data))return 0;*out=v->count;v->data[v->count++]=(NormMapNode){0,0,1,{start,len},1};return 1;}
+static int norm_node_branch(NormNodeVec*v,size_t left,size_t right,size_t*out){if(left>=v->count||right>=v->count)return 0;size_t leaves=v->data[left].leaf_count;if(v->data[right].leaf_count>SIZE_MAX-leaves)return 0;leaves+=v->data[right].leaf_count;if(!norm_reserve((void**)&v->data,&v->cap,v->count+1,sizeof*v->data))return 0;*out=v->count;v->data[v->count++]=(NormMapNode){left,right,leaves,{0,0},0};return 1;}
+static int norm_unit_push(NormUnitVec*v,NormUnit u){if(!norm_reserve((void**)&v->data,&v->cap,v->count+1,sizeof*v->data))return 0;v->data[v->count++]=u;return 1;}
+static int norm_append_scalar(const NormalizationView*v,NormUnitVec*units,uint32_t cp,size_t map){return norm_unit_push(units,(NormUnit){cp,0,1,norm_ccc_lookup(v,cp),0,map});}
+static int norm_append_decomp(const NormalizationView*v,NormUnitVec*units,uint32_t cp,size_t map,int compatibility){
+    const uint32_t SBase=0xac00,LBase=0x1100,VBase=0x1161,TBase=0x11a7,TCount=28,NCount=588,SCount=11172;
+    if(cp>=SBase&&cp<SBase+SCount){uint32_t si=cp-SBase,l=LBase+si/NCount,vo=VBase+(si%NCount)/TCount,t=si%TCount;if(!norm_append_scalar(v,units,l,map)||!norm_append_scalar(v,units,vo,map))return 0;return !t||norm_append_scalar(v,units,TBase+t,map);}
+    NormMapEntry e;uint32_t off=compatibility?v->compatibility_offset:v->canonical_offset,count=compatibility?v->compatibility_count:v->canonical_count;
+    if(norm_map_lookup(v,off,count,cp,&e)){for(uint32_t i=0;i<e.seq_len;++i)if(!norm_append_scalar(v,units,norm_seq_cp(v,&e,i),map))return 0;return 1;}
+    return norm_append_scalar(v,units,cp,map);
+}
+static int norm_reorder(NormUnitVec*v){
+    size_t maxrun=0;for(size_t i=0;i<v->count;){if(!v->data[i].valid||v->data[i].ccc==0){++i;continue;}size_t j=i+1;while(j<v->count&&v->data[j].valid&&v->data[j].ccc)++j;if(j-i>maxrun)maxrun=j-i;i=j;}
+    if(maxrun<2)return 1;
+    NormUnit*tmp=(NormUnit*)malloc(maxrun*sizeof*tmp);if(!tmp)return 0;
+    for(size_t i=0;i<v->count;){if(!v->data[i].valid||v->data[i].ccc==0){++i;continue;}size_t j=i+1;while(j<v->count&&v->data[j].valid&&v->data[j].ccc)++j;size_t n=j-i;if(n>1){size_t counts[256]={0},pos[256]={0},sum=0;for(size_t k=i;k<j;++k)++counts[v->data[k].ccc];for(size_t c=1;c<256;++c){pos[c]=sum;sum+=counts[c];}for(size_t k=i;k<j;++k)tmp[pos[v->data[k].ccc]++]=v->data[k];memcpy(v->data+i,tmp,n*sizeof*tmp);}i=j;}
+    free(tmp);return 1;
+}
+static int norm_compose(const NormalizationView*v,NormUnitVec*units,NormNodeVec*nodes){
+    size_t out=0,starter=SIZE_MAX;uint8_t last_ccc=0;
+    for(size_t i=0;i<units->count;++i){NormUnit u=units->data[i];if(!u.valid){units->data[out++]=u;starter=SIZE_MAX;last_ccc=0;continue;}uint8_t ccc=u.ccc;uint32_t composed=0;
+        if(starter!=SIZE_MAX&&(last_ccc<ccc||last_ccc==0))composed=norm_comp_lookup(v,units->data[starter].cp,u.cp);
+        if(composed){size_t map;if(!norm_node_branch(nodes,units->data[starter].map_node,u.map_node,&map))return 0;units->data[starter].cp=composed;units->data[starter].ccc=norm_ccc_lookup(v,composed);units->data[starter].map_node=map;continue;}
+        units->data[out]=u;if(ccc==0){starter=out;last_ccc=0;}else last_ccc=ccc;++out;
+    }units->count=out;return 1;
+}
+static size_t norm_utf8_len(uint32_t cp){return cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;}
+static void norm_utf8_write(uint8_t*out,uint32_t cp){if(cp<=0x7f)out[0]=(uint8_t)cp;else if(cp<=0x7ff){out[0]=(uint8_t)(0xc0|(cp>>6));out[1]=(uint8_t)(0x80|(cp&0x3f));}else if(cp<=0xffff){out[0]=(uint8_t)(0xe0|(cp>>12));out[1]=(uint8_t)(0x80|((cp>>6)&0x3f));out[2]=(uint8_t)(0x80|(cp&0x3f));}else{out[0]=(uint8_t)(0xf0|(cp>>18));out[1]=(uint8_t)(0x80|((cp>>12)&0x3f));out[2]=(uint8_t)(0x80|((cp>>6)&0x3f));out[3]=(uint8_t)(0x80|(cp&0x3f));}}
+static int range_cmp_start(const void*a,const void*b){const mosaic_range*x=(const mosaic_range*)a,*y=(const mosaic_range*)b;return x->start<y->start?-1:x->start>y->start?1:0;}
+static int norm_append_output_spans(const NormNodeVec*nodes,size_t root,mosaic_range**arena,size_t*count,size_t*cap,uint32_t*index,uint32_t*nspans){
+    if(root>=nodes->count)return 0;
+    const NormMapNode*r=&nodes->data[root];size_t leaves=r->leaf_count;if(!leaves||leaves>UINT32_MAX)return 0;
+    mosaic_range one;if(r->is_leaf){one=r->leaf;if(*count>UINT32_MAX)return 0;*index=(uint32_t)*count;if(!norm_reserve((void**)arena,cap,*count+1,sizeof**arena))return 0;(*arena)[(*count)++]=one;*nspans=1;return 1;}
+    if(leaves>SIZE_MAX/2)return 0;
+    size_t*stack=(size_t*)malloc(leaves*2u*sizeof*stack);mosaic_range*tmp=(mosaic_range*)malloc(leaves*sizeof*tmp);if(!stack||!tmp){free(stack);free(tmp);return 0;}size_t top=0,tn=0;stack[top++]=root;
+    while(top){size_t ni=stack[--top];if(ni>=nodes->count){free(stack);free(tmp);return 0;}const NormMapNode*n=&nodes->data[ni];if(n->is_leaf){tmp[tn++]=n->leaf;}else{if(top+2>leaves*2u){free(stack);free(tmp);return 0;}stack[top++]=n->right;stack[top++]=n->left;}}
+    qsort(tmp,tn,sizeof*tmp,range_cmp_start);size_t merged=0;for(size_t i=0;i<tn;++i){if(merged&&tmp[i].start==tmp[merged-1].start&&tmp[i].length==tmp[merged-1].length)continue;if(merged&&tmp[merged-1].start+tmp[merged-1].length==tmp[i].start){tmp[merged-1].length+=tmp[i].length;continue;}tmp[merged++]=tmp[i];}
+    if(*count>UINT32_MAX||merged>UINT32_MAX||*count+merged>UINT32_MAX){free(stack);free(tmp);return 0;}*index=(uint32_t)*count;*nspans=(uint32_t)merged;if(!norm_reserve((void**)arena,cap,*count+merged,sizeof**arena)){free(stack);free(tmp);return 0;}memcpy(*arena+*count,tmp,merged*sizeof*tmp);*count+=merged;free(stack);free(tmp);return 1;
+}
+static int normalize_internal(const NormalizationView*v,mosaic_normalization_mode mode,Slice input,mosaic_normalized_view*out){
+    memset(out,0,sizeof*out);if(mode<MOSAIC_NORMALIZE_PRESERVE||mode>MOSAIC_NORMALIZE_NFKC_CASEFOLD)return 0;NormUnitVec units={0};NormNodeVec nodes={0};size_t i=0;
+    while(i<input.len){ScalarUnit src=decode_one_unit(input,i);size_t map;if(!norm_node_leaf(&nodes,(uint64_t)src.start,(uint64_t)(src.end-src.start),&map))goto oom;
+        if(!src.valid){if(!norm_unit_push(&units,(NormUnit){0,input.bytes[i],0,0,0,map}))goto oom;}
+        else if(mode==MOSAIC_NORMALIZE_PRESERVE){if(!norm_append_scalar(v,&units,src.cp,map))goto oom;}
+        else if(mode==MOSAIC_NORMALIZE_NFKC_CASEFOLD){NormMapEntry e;if(norm_map_lookup(v,v->casefold_offset,v->casefold_count,src.cp,&e)){for(uint32_t j=0;j<e.seq_len;++j)if(!norm_append_decomp(v,&units,norm_seq_cp(v,&e,j),map,0))goto oom;}else if(!norm_append_decomp(v,&units,src.cp,map,0))goto oom;}
+        else if(!norm_append_decomp(v,&units,src.cp,map,mode==MOSAIC_NORMALIZE_NFKD||mode==MOSAIC_NORMALIZE_NFKC))goto oom;
+        i=src.end;
+    }
+    if(mode!=MOSAIC_NORMALIZE_PRESERVE&&!norm_reorder(&units))goto oom;
+    if((mode==MOSAIC_NORMALIZE_NFC||mode==MOSAIC_NORMALIZE_NFKC||mode==MOSAIC_NORMALIZE_NFKC_CASEFOLD)&&!norm_compose(v,&units,&nodes))goto oom;
+    size_t bytes=0;for(size_t j=0;j<units.count;++j){size_t n=units.data[j].valid?norm_utf8_len(units.data[j].cp):1;if(n>SIZE_MAX-bytes)goto oom;bytes+=n;}
+    out->bytes=bytes?(uint8_t*)malloc(bytes):(uint8_t*)malloc(1);out->units=units.count?(mosaic_normalized_unit*)calloc(units.count,sizeof*out->units):NULL;if(!out->bytes||(units.count&&!out->units))goto oom;
+    out->byte_length=bytes;out->unit_count=units.count;size_t bo=0,span_cap=0;
+    for(size_t j=0;j<units.count;++j){size_t n=units.data[j].valid?norm_utf8_len(units.data[j].cp):1;if(units.data[j].valid)norm_utf8_write(out->bytes+bo,units.data[j].cp);else out->bytes[bo]=units.data[j].raw;uint32_t si=0,sc=0;if(!norm_append_output_spans(&nodes,units.data[j].map_node,&out->source_spans,&out->source_span_count,&span_cap,&si,&sc))goto oom;out->units[j]=(mosaic_normalized_unit){(uint64_t)bo,(uint64_t)n,si,sc};bo+=n;}
+    free(units.data);free(nodes.data);return 1;
+oom:
+    free(units.data);free(nodes.data);free(out->bytes);free(out->units);free(out->source_spans);memset(out,0,sizeof*out);return 0;
+}
+
 static int security_script_ranges_internal(const SecurityView *v, Slice input, mosaic_script_span **out_ranges, size_t *out_count) {
     *out_ranges=NULL;*out_count=0;
     if(!input.len)return 1;
@@ -1201,6 +1329,13 @@ struct mosaic_security {
     uint8_t hash[32];
 };
 
+struct mosaic_normalization {
+    uint8_t *pack;
+    size_t pack_len;
+    NormalizationView view;
+    uint8_t hash[32];
+};
+
 struct mosaic_tokenizer {
     mosaic_model *model;
     mosaic_unicode *unicode_data;
@@ -1210,6 +1345,7 @@ struct mosaic_tokenizer {
     int64_t *adjustments;
     mosaic_detector *detector;
     mosaic_security *security;
+    mosaic_normalization *normalization;
     uint8_t fingerprint[32];
 };
 
@@ -1235,7 +1371,7 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.7.0"; }
+const char *mosaic_version_string(void) { return "0.8.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1720,6 +1856,20 @@ mosaic_status mosaic_security_script_name(const mosaic_security *security,uint16
 mosaic_status mosaic_security_script_ranges(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_script_span **out_ranges,size_t *out_count){if(!security||(!input&&input_len)||!out_ranges||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_ranges=NULL;*out_count=0;if(!security_script_ranges_internal(&security->view,(Slice){input,input_len},out_ranges,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
 mosaic_status mosaic_security_scan(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_security_finding **out_findings,size_t *out_count){if(!security||(!input&&input_len)||!out_findings||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_findings=NULL;*out_count=0;if(!security_scan_internal(&security->view,(Slice){input,input_len},out_findings,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
 
+mosaic_status mosaic_normalization_load_memory(const uint8_t *pack,size_t pack_len,mosaic_normalization **out_normalization){
+    if(!out_normalization||(!pack&&pack_len))return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_normalization=NULL;
+    mosaic_normalization*n=(mosaic_normalization*)calloc(1,sizeof*n);if(!n)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status=copy_bytes(pack,pack_len,&n->pack);if(status!=MOSAIC_OK){free(n);return status;}n->pack_len=pack_len;
+    if(!load_normalization_pack(n->pack,n->pack_len,&n->view)||!sha256_bytes(n->pack,n->pack_len,n->hash)){free(n->pack);free(n);return MOSAIC_ERROR_INVALID_PACK;}
+    *out_normalization=n;return MOSAIC_OK;
+}
+mosaic_status mosaic_normalization_load_file(const char *path,mosaic_normalization **out_normalization){if(!path||!out_normalization)return MOSAIC_ERROR_INVALID_ARGUMENT;uint8_t*data=NULL;size_t len=0;if(!read_file(path,&data,&len))return MOSAIC_ERROR_IO;mosaic_status status=mosaic_normalization_load_memory(data,len,out_normalization);free(data);return status;}
+void mosaic_normalization_free(mosaic_normalization*n){if(!n)return;free(n->pack);free(n);}
+mosaic_status mosaic_normalization_unicode_version(const mosaic_normalization*n,uint16_t*major,uint16_t*minor,uint16_t*micro){if(!n||!major||!minor||!micro)return MOSAIC_ERROR_INVALID_ARGUMENT;*major=n->view.unicode_major;*minor=n->view.unicode_minor;*micro=n->view.unicode_micro;return MOSAIC_OK;}
+void mosaic_normalized_view_free(mosaic_normalized_view*view){if(!view)return;free(view->bytes);free(view->units);free(view->source_spans);memset(view,0,sizeof*view);}
+mosaic_status mosaic_normalize(const mosaic_normalization*n,mosaic_normalization_mode mode,const uint8_t*input,size_t input_len,mosaic_normalized_view*out_view){if(!n||(!input&&input_len)||!out_view||mode<MOSAIC_NORMALIZE_PRESERVE||mode>MOSAIC_NORMALIZE_NFKC_CASEFOLD)return MOSAIC_ERROR_INVALID_ARGUMENT;memset(out_view,0,sizeof*out_view);if(!normalize_internal(&n->view,mode,(Slice){input,input_len},out_view))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
+
 mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const uint8_t *input, size_t input_len,
                                      mosaic_range **out_ranges, size_t *out_count) {
     if (!unicode_data || (!input && input_len) || !out_ranges || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -1763,6 +1913,11 @@ static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
         static const uint8_t security_domain[] = "SECURITY\0";
         (void)sha256_update(&ctx, security_domain, sizeof security_domain - 1u);
         (void)sha256_update(&ctx, tokenizer->security->hash, 32u);
+    }
+    if (tokenizer->normalization) {
+        static const uint8_t normalization_domain[] = "NORMALIZATION\0";
+        (void)sha256_update(&ctx, normalization_domain, sizeof normalization_domain - 1u);
+        (void)sha256_update(&ctx, tokenizer->normalization->hash, 32u);
     }
     (void)sha256_final(&ctx, tokenizer->fingerprint);
 }
@@ -1896,6 +2051,10 @@ static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_toke
         status = mosaic_tokenizer_set_security_memory(copy, source->security->pack, source->security->pack_len);
         if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
     }
+    if (source->normalization) {
+        status = mosaic_tokenizer_set_normalization_memory(copy, source->normalization->pack, source->normalization->pack_len);
+        if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
+    }
     *out_tokenizer = copy;
     return MOSAIC_OK;
 }
@@ -1957,6 +2116,20 @@ mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer, 
     return mosaic_security_scan(tokenizer->security, input, input_len, out_findings, out_count);
 }
 
+mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,const uint8_t *pack,size_t pack_len){
+    if(!tokenizer||(!pack&&pack_len))return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if(tokenizer->normalization)return MOSAIC_ERROR_CONFLICT;
+    mosaic_normalization*n=NULL;
+    mosaic_status status=mosaic_normalization_load_memory(pack,pack_len,&n);
+    if(status!=MOSAIC_OK)return status;
+    tokenizer->normalization=n;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenizer,const char *path){if(!tokenizer||!path)return MOSAIC_ERROR_INVALID_ARGUMENT;if(tokenizer->normalization)return MOSAIC_ERROR_CONFLICT;mosaic_normalization*n=NULL;mosaic_status status=mosaic_normalization_load_file(path,&n);if(status!=MOSAIC_OK)return status;tokenizer->normalization=n;tokenizer_compute_fingerprint(tokenizer);return MOSAIC_OK;}
+int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer*tokenizer){return tokenizer&&tokenizer->normalization;}
+mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer*tokenizer,mosaic_normalization_mode mode,const uint8_t*input,size_t input_len,mosaic_normalized_view*out_view){if(!tokenizer||!tokenizer->normalization)return MOSAIC_ERROR_INVALID_ARGUMENT;return mosaic_normalize(tokenizer->normalization,mode,input,input_len,out_view);}
+
 static const LanguagePack *tokenizer_language_for_detection(const mosaic_tokenizer *tokenizer,
                                                              const mosaic_detection *detection) {
     if (!detection->matched) return NULL;
@@ -2005,6 +2178,7 @@ void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     language_pack_array_free(tokenizer->languages, tokenizer->language_count);
     mosaic_detector_free(tokenizer->detector);
     mosaic_security_free(tokenizer->security);
+    mosaic_normalization_free(tokenizer->normalization);
     free(tokenizer->adjustments);
     free(tokenizer);
 }
@@ -2103,9 +2277,13 @@ static void usage(const char *argv0) {
             "       %s roundtrip-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
             "       %s security SECURITY_PACK INPUT\n"
             "       %s fingerprint-security MODEL_PACK UNICODE_PACK SECURITY_PACK\n"
-            "       %s analyze-security MODEL_PACK UNICODE_PACK SECURITY_PACK INPUT\n",
+            "       %s analyze-security MODEL_PACK UNICODE_PACK SECURITY_PACK INPUT\n"
+            "       %s normalize NORMALIZATION_PACK MODE INPUT OUTPUT\n"
+            "       %s normalize-map NORMALIZATION_PACK MODE INPUT\n"
+            "       %s fingerprint-normalization MODEL_PACK UNICODE_PACK NORMALIZATION_PACK\n"
+            "       %s analyze-normalization MODEL_PACK UNICODE_PACK NORMALIZATION_PACK MODE INPUT\n",
             argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
-            argv0, argv0, argv0, argv0, argv0, argv0, argv0);
+            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -2283,10 +2461,40 @@ static int auto_cli(int argc, char **argv) {
     mosaic_free(tokens);mosaic_free(ranges);free(input);mosaic_tokenizer_free(tokenizer);return 1;
 }
 
+
+static int parse_normalization_mode(const char *name,mosaic_normalization_mode *mode){
+    if(!strcmp(name,"preserve"))*mode=MOSAIC_NORMALIZE_PRESERVE;
+    else if(!strcmp(name,"nfd"))*mode=MOSAIC_NORMALIZE_NFD;
+    else if(!strcmp(name,"nfc"))*mode=MOSAIC_NORMALIZE_NFC;
+    else if(!strcmp(name,"nfkd"))*mode=MOSAIC_NORMALIZE_NFKD;
+    else if(!strcmp(name,"nfkc"))*mode=MOSAIC_NORMALIZE_NFKC;
+    else if(!strcmp(name,"nfkc-casefold"))*mode=MOSAIC_NORMALIZE_NFKC_CASEFOLD;
+    else return 0;
+    return 1;
+}
+static int write_bytes_file(const char *path,const uint8_t *bytes,size_t len){FILE*f=fopen(path,"wb");if(!f){perror(path);return 0;}int ok=!len||fwrite(bytes,1,len,f)==len;if(fclose(f)!=0)ok=0;return ok;}
+static void print_normalization_map(const mosaic_normalized_view *v){
+    printf("normalized_bytes=%zu units=%zu source_spans=%zu\n",v->byte_length,v->unit_count,v->source_span_count);
+    for(size_t i=0;i<v->unit_count;++i){const mosaic_normalized_unit*u=&v->units[i];printf("unit output=%" PRIu64 ":%" PRIu64 " sources=",u->output_start,u->output_start+u->output_length);for(uint32_t j=0;j<u->source_span_count;++j){mosaic_range r=v->source_spans[u->source_span_index+j];printf("%s%" PRIu64 ":%" PRIu64,j?",":"",r.start,r.start+r.length);}putchar('\n');}
+}
+static int normalization_cli(int argc,char **argv){
+    int map_only=!strcmp(argv[1],"normalize-map");if((map_only&&argc!=5)||(!map_only&&argc!=6))return -1;mosaic_normalization_mode mode;if(!parse_normalization_mode(argv[3],&mode))return -1;
+    mosaic_normalization*n=NULL;if(mosaic_normalization_load_file(argv[2],&n)!=MOSAIC_OK)return 0;uint8_t*input=NULL;size_t input_len=0;if(!read_file(argv[4],&input,&input_len)){mosaic_normalization_free(n);return 0;}mosaic_normalized_view v={0};mosaic_status status=mosaic_normalize(n,mode,input,input_len,&v);int ok=status==MOSAIC_OK;if(ok&&map_only)print_normalization_map(&v);else if(ok)ok=write_bytes_file(argv[5],v.bytes,v.byte_length);mosaic_normalized_view_free(&v);free(input);mosaic_normalization_free(n);return ok?1:0;
+}
+static int integrated_normalization_cli(int argc,char **argv){
+    int fingerprint_only=!strcmp(argv[1],"fingerprint-normalization");if((fingerprint_only&&argc!=5)||(!fingerprint_only&&argc!=7))return -1;mosaic_tokenizer*t=NULL;if(mosaic_tokenizer_load_files(argv[2],argv[3],&t)!=MOSAIC_OK)return 0;if(mosaic_tokenizer_set_normalization_file(t,argv[4])!=MOSAIC_OK){mosaic_tokenizer_free(t);return 0;}uint8_t hash[32];if(mosaic_tokenizer_fingerprint(t,hash)!=MOSAIC_OK){mosaic_tokenizer_free(t);return 0;}if(fingerprint_only){print_hex32(hash);mosaic_tokenizer_free(t);return 1;}mosaic_normalization_mode mode;if(!parse_normalization_mode(argv[5],&mode)){mosaic_tokenizer_free(t);return -1;}uint8_t*input=NULL;size_t input_len=0;if(!read_file(argv[6],&input,&input_len)){mosaic_tokenizer_free(t);return 0;}mosaic_normalized_view v={0};mosaic_status st=mosaic_tokenizer_normalize(t,mode,input,input_len,&v);if(st==MOSAIC_OK){printf("fingerprint=");static const char hex[]="0123456789abcdef";for(size_t i=0;i<32;++i)printf("%c%c",hex[hash[i]>>4],hex[hash[i]&15]);putchar('\n');print_normalization_map(&v);}mosaic_normalized_view_free(&v);free(input);mosaic_tokenizer_free(t);return st==MOSAIC_OK?1:0;
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "version"))) {
         printf("mosaic-tokenizer %s\n", mosaic_version_string());
         return 0;
+    }
+    if (argc >= 2 && (!strcmp(argv[1], "normalize") || !strcmp(argv[1], "normalize-map"))) {
+        int result=normalization_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
+    }
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-normalization") || !strcmp(argv[1], "analyze-normalization"))) {
+        int result=integrated_normalization_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
     if (argc >= 2 && !strcmp(argv[1], "security")) {
         int result=security_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;

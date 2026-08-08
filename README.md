@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.7.0
+## Stable tokenizer: 0.8.0
 
-Mosaic Tokenizer 0.7.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, and Unicode-security release with:
+Mosaic Tokenizer 0.8.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, Unicode-security, and mapped-normalization release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -23,6 +23,8 @@ Mosaic Tokenizer 0.7.0 is a stable native tokenizer, deterministic pack-authorin
 - deterministic order-independent tokenizer fingerprint for the exact set of loaded language packs;
 - reference English, Hindi, and Japanese specialization packs demonstrating mixed-language composition;
 - Unicode 17 script spans and security evidence for bidi controls, default-ignorables, noncharacters, deprecated characters, and mixed-script text;
+- a separately versioned Unicode 16 normalization pack with exact source-mapped NFD/NFC/NFKD/NFKC/NFKC-casefold shadow views;
+- normalization provenance that supports decomposition, combining-mark reordering, multi-source composition, compatibility mappings, Hangul, and malformed UTF-8 barriers without modifying source;
 - static/shared C libraries and C++-compatible public header;
 - streaming/full semantic equivalence and editable-document/full-tokenization equivalence;
 - deterministic release packaging;
@@ -32,7 +34,7 @@ Mosaic Tokenizer 0.7.0 is a stable native tokenizer, deterministic pack-authorin
 - byte fallback is surface-based, so existing model token IDs need not equal byte values;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 adds Unicode-17 script/security evidence and advances the backward-compatible C API surface to 0.5.0.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 adds a separately pinned Unicode-16 normalization shadow-view pack and advances the backward-compatible C API surface to 0.6.0. Canonical tokenization semantics remain version 2.
 
 This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
@@ -72,7 +74,7 @@ make test
 python tools/qualify_native.py
 ```
 
-Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector packs, Python/native differentials, Unicode 17 grapheme conformance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, and performance/RSS regression floors.
+Qualification covers deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector/security/normalization packs, Python/native differentials, Unicode 17 grapheme/security conformance, 10,000 ICU-backed Unicode-16 normalization comparisons, exact normalization provenance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, and performance/RSS regression floors.
 
 ## CLI
 
@@ -114,6 +116,20 @@ Automatic document routing:
 ```
 
 Auto mode applies a specialization only when the detector confidence gate passes and the exact language pack is loaded. Otherwise it uses the base model.
+
+
+## Mapped normalization
+
+0.8 adds a normalization shadow-view layer without changing authoritative source bytes or model token IDs. The bundled normalization pack is explicitly Unicode 16.0.0, generated offline with ICU 76.1; the deployed runtime itself has no ICU dependency. Unicode 17 segmentation/security packs remain independently versioned.
+
+```bash
+./build/mosaic-tokenizer normalize-map fixtures/packs/normalization16-v1.mpack nfd INPUT
+./build/mosaic-tokenizer fingerprint-normalization \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack \
+  fixtures/packs/normalization16-v1.mpack
+```
+
+NFD, NFC, NFKD, NFKC and NFKC-casefold views return exact output bytes plus per-output-unit source span mappings. Invalid UTF-8 remains an opaque byte barrier instead of being replaced.
 
 ## Existing-tokenizer compatibility
 
@@ -158,7 +174,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.7.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.8.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 

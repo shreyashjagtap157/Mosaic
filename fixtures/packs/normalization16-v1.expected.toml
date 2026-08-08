@@ -1,0 +1,13 @@
+file_length = 273080
+canonical_content_hash = "6248e92f2ccfbb99f6c4ee4173ea365657b60eb1b5b1be0090b7aac94057c81c"
+file_sha256 = "78848429c7a6e97e87466222b104e004188df6d710587641b5dda50fdbe6dac5"
+unicode = "16.0.0"
+icu = "76.1"
+extractor_sha256 = "a9eccbca01147ac981bee4aa737d7242bf05ac9125f709b5ada779ffa7fbec9d"
+raw_extract_sha256 = "2802a9125df754b0d56d72d3e465601cc4331707da553228cb23deb6ec55640c"
+ccc_ranges = 393
+canonical_mappings = 2081
+compatibility_mappings = 5913
+nfkc_casefold_mappings = 10554
+composition_pairs = 961
+sequence_codepoints = 8476

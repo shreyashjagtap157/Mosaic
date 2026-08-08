@@ -4,9 +4,9 @@ Date: 2026-08-08
 
 ## Current release
 
-**Mosaic Tokenizer 0.7.0: qualified Unicode-17 security-evidence release.**
+**Mosaic Tokenizer 0.8.0: qualified mapped-normalization release.**
 
-The stable native tokenizer now provides exact arbitrary-byte model tokenization, deterministic Viterbi and raw-BPE execution, Unicode-17 grapheme views, composable language packs, fail-soft document routing, deterministic authoring/training tools, raw `.tiktoken` rank interchange, and a separately versioned Unicode-17 script/security evidence pack. Security evidence never mutates source bytes or model IDs.
+The stable native tokenizer now provides exact arbitrary-byte model tokenization, deterministic Viterbi and raw-BPE execution, Unicode-17 grapheme views, composable language packs, fail-soft document routing, deterministic authoring/training tools, raw `.tiktoken` rank interchange, a separately versioned Unicode-17 script/security evidence pack, and a separately pinned Unicode-16 normalization shadow-view pack. Security and normalization evidence never mutate source bytes or model IDs.
 
 ## Architectural direction audit
 
@@ -14,7 +14,7 @@ The implementation remains aligned with the converged design:
 
 - source bytes remain authoritative and every byte remains representable without unknown tokens;
 - canonical runtime decisions use deterministic integer semantics;
-- Unicode/language/security information is derived and byte-mapped;
+- Unicode/language/security/normalization information is derived and byte-mapped;
 - language packs specialize costs over existing model surfaces and cannot add hidden model IDs;
 - automatic detection is advisory and fail-soft;
 - pack generation is offline while the runtime only validates/executes packs;
@@ -32,17 +32,17 @@ The rejected 0.2 per-candidate language-pack lookup and rejected 0.7 per-byte se
 - **Pack specialization:** external language and detector packs implemented.
 - **Authoring:** deterministic model/language/detector authoring and baseline corpus training implemented.
 - **Unicode security evidence:** Unicode-17 script/property pack implemented.
+- **Mapped normalization:** Unicode-16 NFD/NFC/NFKD/NFKC/NFKC-casefold pack and exact source provenance implemented and qualified.
 - **M4 Wedge Tournament:** not yet run and not silently bypassed.
 
 ## Remaining tokenizer work before the broader platform
 
-1. mapped Unicode normalization with explicitly pinned data/version provenance;
-2. richer existing-tokenizer compatibility profiles including pre-tokenization semantics;
-3. bounded-memory streaming while preserving exact EOF equality;
-4. genuine local incremental retokenization equivalent to full processing;
-5. callback/visitor security evidence for bounded output memory;
-6. production-scale vocabulary/language/detector training and quality evaluation;
-7. Wedge Tournament after the common tokenizer benchmark substrate is representative.
+1. richer existing-tokenizer compatibility profiles including pre-tokenization semantics;
+2. bounded-memory streaming while preserving exact EOF equality;
+3. genuine local incremental retokenization equivalent to full processing;
+4. callback/visitor security evidence for bounded output memory;
+5. production-scale vocabulary/language/detector training and quality evaluation;
+6. Wedge Tournament after the common tokenizer benchmark substrate is representative.
 
 After that, the broader Mosaic platform still requires TokenDocument/Token IR, consumer projections/capability negotiation, structured/compiler profiles, semantic enrichment, sub-byte views, multiscale blocks, caching/packed serialization, trust/signature/registry infrastructure, cross-platform qualification, bindings, reliability campaigns, and a 1.0 compatibility freeze.
 

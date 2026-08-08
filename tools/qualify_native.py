@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.7 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.8 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -13,7 +13,7 @@ def run(cmd, env=None):
     subprocess.run([str(x) for x in cmd],cwd=ROOT,check=True,env=env)
 
 def main()->int:
-    required=['gcc','clang','make','ar','c++','python3','/usr/bin/time']
+    required=['gcc','clang','make','ar','c++','python3','pkg-config','/usr/bin/time']
     missing=[x for x in required if not (Path(x).exists() if x.startswith('/') else shutil.which(x))]
     if missing:
         print('FAIL: missing native qualification tools: '+', '.join(missing),file=sys.stderr);return 2
@@ -22,7 +22,7 @@ def main()->int:
         ['tools/generate_empty_pack.py','--check'],['tools/build_m2_fixture.py','--check'],
         ['tools/generate_m2_malformed.py','--check'],['tools/build_m3_model_fixture.py','--check'],
         ['tools/generate_m3_malformed.py','--check'],['tools/build_model_v2_fixture.py','--check'],['tools/build_tiktoken_compat_fixture.py','--check'],
-        ['tools/build_language_packs.py','--check'],['tools/generate_language_malformed.py','--check'],['tools/build_detector_pack.py','--check'],['tools/generate_detector_malformed.py','--check'],['tools/build_unicode17_pack.py','--check'],['tools/build_security17_pack.py','--check'],['tools/generate_security17_malformed.py','--check'],
+        ['tools/build_language_packs.py','--check'],['tools/generate_language_malformed.py','--check'],['tools/build_detector_pack.py','--check'],['tools/generate_detector_malformed.py','--check'],['tools/build_unicode17_pack.py','--check'],['tools/build_security17_pack.py','--check'],['tools/generate_security17_malformed.py','--check'],['tools/build_normalization16_pack.py','--check'],['tools/generate_normalization16_malformed.py','--check'],
         ['tools/generate_unicode17_malformed.py','--check'],['tools/validate_m2_fixture.py'],
         ['tools/validate_path_order.py'],['tools/validate_manifest_identity.py'],
         ['tools/validate_m3_model.py'],['tools/validate_unicode17.py'],['tools/validate_repo.py']]
@@ -40,6 +40,11 @@ def main()->int:
     # qualified the GCC build above and would otherwise spend most of release time in process startup.
     run([clang/'mosaic-tokenizer','--version'])
     clang_api=os.environ.copy();clang_api['MOSAIC_LIB']=str(clang/'libmosaic.so');run(py+['tools/validate_c_api.py'],clang_api);run(py+['tools/validate_language_packs.py'],clang_api);run(py+['tools/validate_detector.py'],clang_api)
+    icu_cflags=subprocess.check_output(['pkg-config','--cflags','icu-uc'],text=True).split()
+    icu_libs=subprocess.check_output(['pkg-config','--libs','icu-uc'],text=True).split()
+    norm_smoke=clang/'mosaic-normalization-smoke'
+    run(['clang','-O2','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Inative/include',*icu_cflags,'conformance/c/normalization_smoke.c',clang/'mosaic_lib.o',*icu_libs,'-o',norm_smoke])
+    run([norm_smoke,ROOT/'fixtures/packs/normalization16-v1.mpack',MODEL,UNICODE])
     # Deterministic 10 MiB benchmark fixture and conservative regression floor.
     bench=Path(tempfile.gettempdir())/'mosaic-release-10m.bin'
     chunk=b'hello world tokenizers :: value->_id '+ 'नमस्ते 世界 こんにちは\n'.encode()
@@ -56,7 +61,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.7 release qualification completed')
+    print('PASS: Mosaic native v0.8 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())

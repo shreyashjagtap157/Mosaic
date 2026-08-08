@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.7.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.8.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -35,6 +35,8 @@ if(BUILD_TESTING)
   set(MOSAIC_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../conformance/c)
   set(MOSAIC_MODEL_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack)
   set(MOSAIC_UNICODE_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack)
+  set(MOSAIC_NORMALIZATION_PACK ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/normalization16-v1.mpack)
+  find_package(ICU COMPONENTS uc REQUIRED)
 
   add_executable(mosaic-api-smoke-static ${MOSAIC_TEST_DIR}/api_smoke.c)
   target_include_directories(mosaic-api-smoke-static PRIVATE ${MOSAIC_INCLUDE})
@@ -84,6 +86,12 @@ if(BUILD_TESTING)
   add_test(NAME security COMMAND mosaic-security-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack)
 
+  add_executable(mosaic-normalization-smoke ${MOSAIC_TEST_DIR}/normalization_smoke.c)
+  target_include_directories(mosaic-normalization-smoke PRIVATE ${MOSAIC_INCLUDE} ${ICU_INCLUDE_DIRS})
+  target_link_libraries(mosaic-normalization-smoke PRIVATE mosaic_static ICU::uc)
+  mosaic_warnings(mosaic-normalization-smoke)
+  add_test(NAME normalization COMMAND mosaic-normalization-smoke ${MOSAIC_NORMALIZATION_PACK} ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -100,6 +108,7 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/normalization16-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs)
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack

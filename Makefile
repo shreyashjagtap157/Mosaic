@@ -20,6 +20,8 @@ fixtures:
 	$(PYTHON) tools/build_unicode17_pack.py --check
 	$(PYTHON) tools/build_security17_pack.py --check
 	$(PYTHON) tools/generate_security17_malformed.py --check
+	$(PYTHON) tools/build_normalization16_pack.py --check
+	$(PYTHON) tools/generate_normalization16_malformed.py --check
 
 test: fixtures
 	$(MAKE) -C native test

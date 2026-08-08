@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0 — 2026-08-08
+
+Stable source-mapped normalization shadow-view release.
+
+- self-contained Unicode-16 normalization pack generated offline from ICU 76.1;
+- exact source-mapped NFD, NFC, NFKD, NFKC, and NFKC-casefold views;
+- algorithmic Hangul decomposition/composition and canonical combining-mark reordering;
+- malformed UTF-8 preserved as opaque normalization barriers;
+- 10,000 independent ICU differential cases and 11 malformed normalization fixtures;
+- generator composition-pair defect found and fixed before release by differential testing;
+- backward-compatible C API surface advanced to 0.6.0 while tokenization semantics remain version 2.
+
 ## 0.7.0 — 2026-08-08
 
 Stable Unicode-17 script/security evidence release.

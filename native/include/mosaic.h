@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 5
+#define MOSAIC_C_API_VERSION_MINOR 6
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -29,6 +29,7 @@ typedef struct mosaic_unicode mosaic_unicode;
 typedef struct mosaic_tokenizer mosaic_tokenizer;
 typedef struct mosaic_detector mosaic_detector;
 typedef struct mosaic_security mosaic_security;
+typedef struct mosaic_normalization mosaic_normalization;
 typedef struct mosaic_stream mosaic_stream;
 typedef struct mosaic_document mosaic_document;
 
@@ -67,6 +68,32 @@ typedef struct mosaic_security_finding {
     uint64_t start;
     uint64_t length;
 } mosaic_security_finding;
+
+
+typedef enum mosaic_normalization_mode {
+    MOSAIC_NORMALIZE_PRESERVE = 0,
+    MOSAIC_NORMALIZE_NFD = 1,
+    MOSAIC_NORMALIZE_NFC = 2,
+    MOSAIC_NORMALIZE_NFKD = 3,
+    MOSAIC_NORMALIZE_NFKC = 4,
+    MOSAIC_NORMALIZE_NFKC_CASEFOLD = 5
+} mosaic_normalization_mode;
+
+typedef struct mosaic_normalized_unit {
+    uint64_t output_start;
+    uint64_t output_length;
+    uint32_t source_span_index;
+    uint32_t source_span_count;
+} mosaic_normalized_unit;
+
+typedef struct mosaic_normalized_view {
+    uint8_t *bytes;
+    size_t byte_length;
+    mosaic_normalized_unit *units;
+    size_t unit_count;
+    mosaic_range *source_spans;
+    size_t source_span_count;
+} mosaic_normalized_view;
 
 typedef struct mosaic_detection {
     uint32_t matched;
@@ -113,6 +140,13 @@ int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer,
                                               const uint8_t *input, size_t input_len,
                                               mosaic_security_finding **out_findings, size_t *out_count);
+/* Optional mapped-normalization pack. The pack version is independent of segmentation/security packs. */
+mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,
+                                                        const uint8_t *normalization_pack, size_t normalization_pack_len);
+mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenizer, const char *path);
+int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer *tokenizer, mosaic_normalization_mode mode,
+                                         const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view);
 int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
@@ -203,6 +237,16 @@ mosaic_status mosaic_security_script_name(const mosaic_security *security, uint1
                                           char *buffer, size_t capacity, size_t *out_required);
 mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                    mosaic_security_finding **out_findings, size_t *out_count);
+
+/* Version-pinned normalization shadow views. Source bytes are never modified. */
+mosaic_status mosaic_normalization_load_memory(const uint8_t *pack, size_t pack_len, mosaic_normalization **out_normalization);
+mosaic_status mosaic_normalization_load_file(const char *path, mosaic_normalization **out_normalization);
+void mosaic_normalization_free(mosaic_normalization *normalization);
+mosaic_status mosaic_normalization_unicode_version(const mosaic_normalization *normalization,
+                                                    uint16_t *major, uint16_t *minor, uint16_t *micro);
+mosaic_status mosaic_normalize(const mosaic_normalization *normalization, mosaic_normalization_mode mode,
+                               const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view);
+void mosaic_normalized_view_free(mosaic_normalized_view *view);
 
 /* Invalid UTF-8 bytes are returned as one-byte opaque grapheme ranges. */
 mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data,

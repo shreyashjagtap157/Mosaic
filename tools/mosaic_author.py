@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic authoring tool for Mosaic v1 model/language/detector/security-aware packs.
+"""Deterministic authoring tool for Mosaic v1 model/language/detector/security/normalization-aware packs.
 
 This tool is intentionally dependency-free. It produces the same checked MOSPACK
 container consumed by the native runtime. Training is compression-first and
@@ -520,7 +520,8 @@ def cmd_detector(args) -> None:
 def cmd_inspect(args) -> None:
     info=read_outer(args.pack)
     kinds={section["kind"] for section in info["sections"]}
-    if 7 in kinds: info["pack_class"]="unicode-security"
+    if 8 in kinds: info["pack_class"]="unicode-normalization"
+    elif 7 in kinds: info["pack_class"]="unicode-security"
     elif 6 in kinds: info["pack_class"]="detector"
     elif 5 in kinds: info["pack_class"]="language-or-unicode"
     if 4 in kinds:
@@ -532,7 +533,7 @@ def cmd_inspect(args) -> None:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mosaic-author", description="Deterministic Mosaic pack authoring")
-    p.add_argument("--version", action="version", version="mosaic-author 0.7.0")
+    p.add_argument("--version", action="version", version="mosaic-author 0.8.0")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("model", help="compile model vocabulary from JSON")
     m.add_argument("config", type=Path); m.add_argument("output", type=Path); m.set_defaults(func=cmd_model)
