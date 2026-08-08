@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.1 — 2026-08-08
+
+Cross-platform conformance patch.
+
+- remove direct C11 `<threads.h>` dependence from cache, runtime-policy, executor, and observability conformance tests;
+- exercise the same private Win32/pthread portability shim used by the runtime;
+- preserve tokenizer semantics, pack formats, and C ABI unchanged.
+
 ## 0.27.0 — 2026-08-08
 
 Enterprise portability and release-supply-chain hardening release.

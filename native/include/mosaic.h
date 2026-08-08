@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define MOSAIC_RELEASE_VERSION "0.27.0"
+#define MOSAIC_RELEASE_VERSION "0.27.1"
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
 #define MOSAIC_C_API_VERSION_MINOR 21
