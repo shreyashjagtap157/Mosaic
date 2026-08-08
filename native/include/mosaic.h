@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 20
+#define MOSAIC_C_API_VERSION_MINOR 21
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -92,7 +92,8 @@ enum {
     MOSAIC_CAP_CACHE_BACKEND = 1ull << 18,
     MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19,
     MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20,
-    MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21
+    MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21,
+    MOSAIC_CAP_OBSERVABILITY = 1ull << 22
 };
 
 typedef struct mosaic_range {
@@ -253,6 +254,52 @@ typedef struct mosaic_block_plan_info {
 } mosaic_block_plan_info;
 
 
+
+typedef enum mosaic_operation {
+    MOSAIC_OPERATION_ENCODE = 1,
+    MOSAIC_OPERATION_DECODE = 2,
+    MOSAIC_OPERATION_DETECT = 3,
+    MOSAIC_OPERATION_GRAPHEMES = 4,
+    MOSAIC_OPERATION_SECURITY = 5,
+    MOSAIC_OPERATION_NORMALIZE = 6,
+    MOSAIC_OPERATION_LEX = 7,
+    MOSAIC_OPERATION_TOKEN_DOCUMENT = 8
+} mosaic_operation;
+
+typedef enum mosaic_event_kind {
+    MOSAIC_EVENT_SUCCESS = 1,
+    MOSAIC_EVENT_FAILURE = 2,
+    MOSAIC_EVENT_RESOURCE_REJECTED = 3
+} mosaic_event_kind;
+
+enum {
+    MOSAIC_OBSERVE_SUCCESS = 1u << 0,
+    MOSAIC_OBSERVE_FAILURE = 1u << 1,
+    MOSAIC_OBSERVE_RESOURCE = 1u << 2
+};
+
+typedef struct mosaic_event {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t operation;
+    uint32_t status;
+    uint64_t sequence;
+    uint64_t input_units;
+    uint64_t output_units;
+    uint64_t resource_limit;
+    uint8_t tokenizer_fingerprint_sha256[32];
+} mosaic_event;
+
+typedef void (*mosaic_observer_callback)(void *context, const mosaic_event *event);
+
+typedef struct mosaic_observer_config {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t event_mask;
+    uint32_t reserved;
+    mosaic_observer_callback callback;
+    void *context;
+} mosaic_observer_config;
 
 typedef struct mosaic_runtime_limits {
     uint32_t struct_size;
@@ -471,6 +518,11 @@ mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokeni
                                                   mosaic_detection *out_detection);
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
+
+/* Optional privacy-preserving synchronous observer. Configure before sealing. The callback may be
+ * invoked concurrently and MUST be thread-safe; events never contain source bytes or token surfaces. */
+mosaic_status mosaic_tokenizer_set_observer(mosaic_tokenizer *tokenizer, const mosaic_observer_config *config);
+mosaic_status mosaic_tokenizer_get_observer(const mosaic_tokenizer *tokenizer, mosaic_observer_config *out_config);
 
 /* Runtime policy and immutable publication. Configure before sealing, then share read-only across threads. */
 void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits);

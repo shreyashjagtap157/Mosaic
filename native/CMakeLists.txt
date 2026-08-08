@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.23.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.24.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -215,6 +215,17 @@ if(BUILD_TESTING)
   target_link_libraries(mosaic-executor-smoke PRIVATE mosaic_static Threads::Threads)
   mosaic_warnings(mosaic-executor-smoke)
   add_test(NAME executor COMMAND mosaic-executor-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+
+  add_executable(mosaic-observability-smoke ${MOSAIC_TEST_DIR}/observability_smoke.c)
+  target_include_directories(mosaic-observability-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-observability-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-observability-smoke)
+  add_test(NAME observability COMMAND mosaic-observability-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
+    ${MOSAIC_NORMALIZATION_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack)
 
   add_executable(mosaic-trust-smoke ${MOSAIC_TEST_DIR}/trust_smoke.c)
   target_include_directories(mosaic-trust-smoke PRIVATE ${MOSAIC_INCLUDE})

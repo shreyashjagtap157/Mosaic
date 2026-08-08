@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.0 — 2026-08-08
+
+Enterprise privacy-preserving observability release.
+
+- structured encode/decode/detect/Unicode/security/normalization/lex/TokenDocument events;
+- success/failure/resource event filtering and exact semantic fingerprint correlation;
+- concurrent callback qualification through the bounded executor;
+- same-tokenizer observer reentrancy suppression;
+- telemetry configuration excluded from semantic and deployment identity.
+
 ## 0.23.0 — 2026-08-08
 
 Enterprise bounded parallel batch-execution release.

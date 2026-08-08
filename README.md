@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.12.0
+## Stable tokenizer: 0.24.0
 
-Mosaic Tokenizer 0.12.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, Unicode-security, mapped-normalization, bounded-processing, and exact incremental-document release with:
+Mosaic Tokenizer 0.24.0 is the current stable native enterprise tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -38,8 +38,14 @@ Mosaic Tokenizer 0.12.0 is a stable native tokenizer, deterministic pack-authori
 - raw-byte BPE model execution and deterministic `.tiktoken` mergeable-rank import/export;
 - byte fallback is surface-based, so existing model token IDs need not equal byte values;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
+- rich TokenDocument security/normalization/lexical/semantic projections and canonical cold serialization;
+- token-aligned KiB blocks, MiB macroblocks, authenticated packed model projection, bounded content cache and backend protocol;
+- immutable runtime limits/sealing, semantic-vs-deployment identity separation, lock-free runtime counters;
+- optional Ed25519 publisher trust library and content-addressed SQLite/WAL pack registry/lockfiles;
+- reusable bounded parallel executor with deterministic result order and per-item failure isolation;
+- synchronous metadata-only observability with concurrent callback qualification and no source-content exposure.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 added a separately pinned Unicode-16 normalization shadow-view pack. Version 0.9.0 added exact bounded online Viterbi streaming and bounded-output security visitors. Version 0.10.0 added transactional exact incremental Viterbi documents with safe-prefix reuse. Version 0.11.0 added checkpoint-state forward resynchronization and compact incremental caching. Version 0.12.0 adds the first immutable TokenDocument/Core IR and advances the backward-compatible C API surface to 0.10.0. Canonical tokenization semantics remain version 2.
+All prior releases remain preserved by Git tags. The 0.13–0.24 line adds rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 added a separately pinned Unicode-16 normalization shadow-view pack. Version 0.9.0 added exact bounded online Viterbi streaming and bounded-output security visitors. Version 0.10.0 added transactional exact incremental Viterbi documents with safe-prefix reuse. Version 0.11.0 added checkpoint-state forward resynchronization and compact incremental caching. Version 0.12.0 adds the first immutable TokenDocument/Core IR and advances the backward-compatible C API surface to 0.10.0. Canonical tokenization semantics remain version 2.
 
 This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, forward-resynchronizing block incrementality, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 

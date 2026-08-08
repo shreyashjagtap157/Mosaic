@@ -1634,9 +1634,34 @@ struct mosaic_tokenizer {
     mosaic_lexer *lexer;
     uint8_t fingerprint[32];
     mosaic_runtime_limits limits;
+    mosaic_observer_config observer;
+    _Atomic uint64_t observer_sequence;
     TokenizerTelemetry telemetry;
     _Atomic int sealed;
 };
+
+static uint32_t observer_mask_for_kind(uint32_t kind) {
+    if (kind == MOSAIC_EVENT_SUCCESS) return MOSAIC_OBSERVE_SUCCESS;
+    if (kind == MOSAIC_EVENT_RESOURCE_REJECTED) return MOSAIC_OBSERVE_RESOURCE;
+    return MOSAIC_OBSERVE_FAILURE;
+}
+
+static _Thread_local const mosaic_tokenizer *observer_active_tokenizer = NULL;
+
+static void tokenizer_observe(const mosaic_tokenizer *tokenizer, uint32_t kind, uint32_t operation,
+                              mosaic_status status, size_t input_units, size_t output_units, uint64_t resource_limit) {
+    if (!tokenizer || !tokenizer->observer.callback || !(tokenizer->observer.event_mask & observer_mask_for_kind(kind)) ||
+        observer_active_tokenizer == tokenizer) return;
+    mosaic_event event = {0};
+    event.struct_size = sizeof event; event.kind = kind; event.operation = operation; event.status = (uint32_t)status;
+    event.sequence = atomic_fetch_add_explicit(&((mosaic_tokenizer *)tokenizer)->observer_sequence, 1u, memory_order_relaxed) + 1u;
+    event.input_units = (uint64_t)input_units; event.output_units = (uint64_t)output_units; event.resource_limit = resource_limit;
+    memcpy(event.tokenizer_fingerprint_sha256, tokenizer->fingerprint, 32u);
+    const mosaic_tokenizer *previous = observer_active_tokenizer;
+    observer_active_tokenizer = tokenizer;
+    tokenizer->observer.callback(tokenizer->observer.context, &event);
+    observer_active_tokenizer = previous;
+}
 
 static int tokenizer_input_allowed(const mosaic_tokenizer *tokenizer, size_t input_len);
 
@@ -1748,7 +1773,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.23.0"; }
+const char *mosaic_version_string(void) { return "0.24.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -2622,6 +2647,7 @@ static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_toke
         if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
     }
     copy->limits = source->limits;
+    copy->observer = source->observer;
     if (atomic_load_explicit(&source->sealed, memory_order_acquire)) atomic_store_explicit(&copy->sealed, 1, memory_order_release);
     *out_tokenizer = copy;
     return MOSAIC_OK;
@@ -3226,14 +3252,28 @@ int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer) { return
 mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                               mosaic_security_finding **out_findings, size_t *out_count) {
     if (!tokenizer || !tokenizer->security) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
-    return mosaic_security_scan(tokenizer->security, input, input_len, out_findings, out_count);
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_SECURITY, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    mosaic_status status = mosaic_security_scan(tokenizer->security, input, input_len, out_findings, out_count);
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_SECURITY,
+                      status, input_len, status == MOSAIC_OK && out_count ? *out_count : 0u, 0u);
+    return status;
 }
 mosaic_status mosaic_tokenizer_security_visit(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                                mosaic_security_visitor visitor, void *context, size_t *out_count) {
     if (!tokenizer || !tokenizer->security) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
-    return mosaic_security_visit(tokenizer->security, input, input_len, visitor, context, out_count);
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_SECURITY, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    mosaic_status status = mosaic_security_visit(tokenizer->security, input, input_len, visitor, context, out_count);
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_SECURITY,
+                      status, input_len, status == MOSAIC_OK && out_count ? *out_count : 0u, 0u);
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokenizer,const uint8_t *pack,size_t pack_len){
@@ -3287,10 +3327,34 @@ mosaic_status mosaic_tokenizer_set_lexer_file(mosaic_tokenizer *tokenizer, const
     return MOSAIC_OK;
 }
 
-mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer,const uint8_t *input,size_t len,mosaic_lex_token **out,size_t *count){if(!tokenizer||!tokenizer->lexer)return MOSAIC_ERROR_UNSUPPORTED;if(!tokenizer_input_allowed(tokenizer,len))return MOSAIC_ERROR_RESOURCE_LIMIT;return mosaic_lex(tokenizer->lexer,input,len,out,count);}
+mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t len,
+                                  mosaic_lex_token **out, size_t *count) {
+    if (!tokenizer || !tokenizer->lexer) return MOSAIC_ERROR_UNSUPPORTED;
+    if (!tokenizer_input_allowed(tokenizer, len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_LEX, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    mosaic_status status = mosaic_lex(tokenizer->lexer, input, len, out, count);
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_LEX,
+                      status, len, status == MOSAIC_OK && count ? *count : 0u, 0u);
+    return status;
+}
 
 int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer*tokenizer){return tokenizer&&tokenizer->normalization;}
-mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer*tokenizer,mosaic_normalization_mode mode,const uint8_t*input,size_t input_len,mosaic_normalized_view*out_view){if(!tokenizer||!tokenizer->normalization)return MOSAIC_ERROR_INVALID_ARGUMENT;if(!tokenizer_input_allowed(tokenizer,input_len))return MOSAIC_ERROR_RESOURCE_LIMIT;return mosaic_normalize(tokenizer->normalization,mode,input,input_len,out_view);}
+mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer *tokenizer, mosaic_normalization_mode mode,
+                                          const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view) {
+    if (!tokenizer || !tokenizer->normalization) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_NORMALIZE, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    mosaic_status status = mosaic_normalize(tokenizer->normalization, mode, input, input_len, out_view);
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_NORMALIZE,
+                      status, input_len, status == MOSAIC_OK && out_view ? out_view->byte_length : 0u, 0u);
+    return status;
+}
 
 static const LanguagePack *tokenizer_language_for_detection(const mosaic_tokenizer *tokenizer,
                                                              const mosaic_detection *detection) {
@@ -3305,11 +3369,16 @@ mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer
                                                mosaic_detection *out_detection) {
     if (!tokenizer || !tokenizer->detector || (!input && input_len) || !out_detection)
         return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_DETECT, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
     mosaic_status status = mosaic_detector_detect(tokenizer->detector, input, input_len, out_detection);
-    if (status != MOSAIC_OK) return status;
-    out_detection->available = tokenizer_language_for_detection(tokenizer, out_detection) ? 1u : 0u;
-    return MOSAIC_OK;
+    if (status == MOSAIC_OK) out_detection->available = tokenizer_language_for_detection(tokenizer, out_detection) ? 1u : 0u;
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_DETECT,
+                      status, input_len, status == MOSAIC_OK && out_detection->matched ? 1u : 0u, 0u);
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
@@ -3317,7 +3386,7 @@ mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
                                            uint32_t **out_ids, size_t *out_count,
                                            mosaic_detection *out_detection) {
     if (!tokenizer || !out_ids || !out_count || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) { tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_ENCODE, MOSAIC_ERROR_RESOURCE_LIMIT, input_len, 0u, tokenizer->limits.max_input_bytes); return MOSAIC_ERROR_RESOURCE_LIMIT; }
     TokenizerTelemetry *m = &((mosaic_tokenizer *)tokenizer)->telemetry;
     atomic_fetch_add_explicit(&m->encode_calls, 1, memory_order_relaxed);
     atomic_fetch_add_explicit(&m->bytes_in, input_len, memory_order_relaxed);
@@ -3332,8 +3401,15 @@ mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
         mosaic_free(*out_ids); *out_ids = NULL; *out_count = 0; status = MOSAIC_ERROR_RESOURCE_LIMIT;
         atomic_fetch_add_explicit(&m->resource_rejections, 1, memory_order_relaxed);
     }
-    if (status == MOSAIC_OK) atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed);
-    else atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+    if (status == MOSAIC_OK) {
+        atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed);
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_SUCCESS, MOSAIC_OPERATION_ENCODE, status, input_len, *out_count, 0u);
+    } else {
+        atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+        tokenizer_observe(tokenizer, status == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE,
+                          MOSAIC_OPERATION_ENCODE, status, input_len, 0u,
+                          status == MOSAIC_ERROR_RESOURCE_LIMIT ? tokenizer->limits.max_output_tokens : 0u);
+    }
     return status;
 }
 
@@ -3342,7 +3418,11 @@ mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokeni
                                                   mosaic_token **out_tokens, size_t *out_count,
                                                   mosaic_detection *out_detection) {
     if (!tokenizer || !out_tokens || !out_count || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_ENCODE, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
     TokenizerTelemetry *m = &((mosaic_tokenizer *)tokenizer)->telemetry;
     atomic_fetch_add_explicit(&m->encode_calls, 1, memory_order_relaxed);
     atomic_fetch_add_explicit(&m->bytes_in, input_len, memory_order_relaxed);
@@ -3357,8 +3437,15 @@ mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokeni
         mosaic_free(*out_tokens); *out_tokens = NULL; *out_count = 0; status = MOSAIC_ERROR_RESOURCE_LIMIT;
         atomic_fetch_add_explicit(&m->resource_rejections, 1, memory_order_relaxed);
     }
-    if (status == MOSAIC_OK) atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed);
-    else atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+    if (status == MOSAIC_OK) {
+        atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed);
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_SUCCESS, MOSAIC_OPERATION_ENCODE, status, input_len, *out_count, 0u);
+    } else {
+        atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+        tokenizer_observe(tokenizer, status == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE,
+                          MOSAIC_OPERATION_ENCODE, status, input_len, 0u,
+                          status == MOSAIC_ERROR_RESOURCE_LIMIT ? tokenizer->limits.max_output_tokens : 0u);
+    }
     return status;
 }
 
@@ -3373,6 +3460,21 @@ void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     mosaic_lexer_free(tokenizer->lexer);
     free(tokenizer->adjustments);
     free(tokenizer);
+}
+
+mosaic_status mosaic_tokenizer_set_observer(mosaic_tokenizer *tokenizer, const mosaic_observer_config *config) {
+    if (!tokenizer || !config || config->struct_size < sizeof *config || config->flags || config->reserved ||
+        (config->event_mask & ~(MOSAIC_OBSERVE_SUCCESS | MOSAIC_OBSERVE_FAILURE | MOSAIC_OBSERVE_RESOURCE)) ||
+        (config->event_mask && !config->callback)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (atomic_load_explicit(&tokenizer->sealed, memory_order_acquire)) return MOSAIC_ERROR_STATE;
+    tokenizer->observer = *config;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_get_observer(const mosaic_tokenizer *tokenizer, mosaic_observer_config *out_config) {
+    if (!tokenizer || !out_config) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_config = tokenizer->observer;
+    return MOSAIC_OK;
 }
 
 void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits) {
@@ -3471,7 +3573,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY | MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION | MOSAIC_CAP_PARALLEL_BATCH;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY | MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION | MOSAIC_CAP_PARALLEL_BATCH | MOSAIC_CAP_OBSERVABILITY;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3479,24 +3581,34 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
 mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                       uint32_t **out_ids, size_t *out_count) {
     if (!tokenizer || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) { tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_ENCODE, MOSAIC_ERROR_RESOURCE_LIMIT, input_len, 0u, tokenizer->limits.max_input_bytes); return MOSAIC_ERROR_RESOURCE_LIMIT; }
     TokenizerTelemetry *m = &((mosaic_tokenizer *)tokenizer)->telemetry;
     atomic_fetch_add_explicit(&m->encode_calls, 1, memory_order_relaxed);
     atomic_fetch_add_explicit(&m->bytes_in, input_len, memory_order_relaxed);
     mosaic_status st = encode_internal(tokenizer->model, input, input_len, tokenizer->adjustments, (size_t)(tokenizer->limits.max_output_tokens > SIZE_MAX ? SIZE_MAX : tokenizer->limits.max_output_tokens), out_ids, out_count);
     if (st == MOSAIC_OK && (uint64_t)*out_count > tokenizer->limits.max_output_tokens) { mosaic_free(*out_ids); *out_ids=NULL; *out_count=0; st=MOSAIC_ERROR_RESOURCE_LIMIT; atomic_fetch_add_explicit(&m->resource_rejections,1,memory_order_relaxed); }
-    if (st == MOSAIC_OK) atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed); else atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);
+    if (st == MOSAIC_OK) {
+        atomic_fetch_add_explicit(&m->tokens_out, *out_count, memory_order_relaxed);
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_SUCCESS, MOSAIC_OPERATION_ENCODE, st, input_len, *out_count, 0u);
+    } else {
+        atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);
+        tokenizer_observe(tokenizer, st == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE,
+                          MOSAIC_OPERATION_ENCODE, st, input_len, 0u,
+                          st == MOSAIC_ERROR_RESOURCE_LIMIT ? tokenizer->limits.max_output_tokens : 0u);
+    }
     return st;
 }
 
 mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                              mosaic_token **out_tokens, size_t *out_count) {
     if (!tokenizer || !out_tokens || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer, input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) { tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_ENCODE, MOSAIC_ERROR_RESOURCE_LIMIT, input_len, 0u, tokenizer->limits.max_input_bytes); return MOSAIC_ERROR_RESOURCE_LIMIT; }
     TokenizerTelemetry *m=&((mosaic_tokenizer*)tokenizer)->telemetry; atomic_fetch_add_explicit(&m->encode_calls,1,memory_order_relaxed); atomic_fetch_add_explicit(&m->bytes_in,input_len,memory_order_relaxed);
     mosaic_status st=encode_tokens_internal(tokenizer->model,input,input_len,tokenizer->adjustments,(size_t)(tokenizer->limits.max_output_tokens>SIZE_MAX?SIZE_MAX:tokenizer->limits.max_output_tokens),out_tokens,out_count);
     if(st==MOSAIC_OK && (uint64_t)*out_count>tokenizer->limits.max_output_tokens){mosaic_free(*out_tokens);*out_tokens=NULL;*out_count=0;st=MOSAIC_ERROR_RESOURCE_LIMIT;atomic_fetch_add_explicit(&m->resource_rejections,1,memory_order_relaxed);}
-    if(st==MOSAIC_OK)atomic_fetch_add_explicit(&m->tokens_out,*out_count,memory_order_relaxed);else atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);return st;
+    if(st==MOSAIC_OK){atomic_fetch_add_explicit(&m->tokens_out,*out_count,memory_order_relaxed);tokenizer_observe(tokenizer,MOSAIC_EVENT_SUCCESS,MOSAIC_OPERATION_ENCODE,st,input_len,*out_count,0u);}
+    else{atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);tokenizer_observe(tokenizer,st==MOSAIC_ERROR_RESOURCE_LIMIT?MOSAIC_EVENT_RESOURCE_REJECTED:MOSAIC_EVENT_FAILURE,MOSAIC_OPERATION_ENCODE,st,input_len,0u,st==MOSAIC_ERROR_RESOURCE_LIMIT?tokenizer->limits.max_output_tokens:0u);}
+    return st;
 }
 
 mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const uint32_t *ids, size_t count,
@@ -3507,15 +3619,24 @@ mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const u
                                      (size_t)(tokenizer->limits.max_input_bytes>SIZE_MAX?SIZE_MAX:tokenizer->limits.max_input_bytes),
                                      out_bytes,out_len);
     if(st==MOSAIC_OK && (uint64_t)*out_len>tokenizer->limits.max_input_bytes){mosaic_free(*out_bytes);*out_bytes=NULL;*out_len=0;st=MOSAIC_ERROR_RESOURCE_LIMIT;atomic_fetch_add_explicit(&m->resource_rejections,1,memory_order_relaxed);}
-    if(st==MOSAIC_OK)atomic_fetch_add_explicit(&m->bytes_out,*out_len,memory_order_relaxed);else atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);return st;
+    if(st==MOSAIC_OK){atomic_fetch_add_explicit(&m->bytes_out,*out_len,memory_order_relaxed);tokenizer_observe(tokenizer,MOSAIC_EVENT_SUCCESS,MOSAIC_OPERATION_DECODE,st,count,*out_len,0u);}
+    else{atomic_fetch_add_explicit(&m->failures,1,memory_order_relaxed);tokenizer_observe(tokenizer,st==MOSAIC_ERROR_RESOURCE_LIMIT?MOSAIC_EVENT_RESOURCE_REJECTED:MOSAIC_EVENT_FAILURE,MOSAIC_OPERATION_DECODE,st,count,0u,st==MOSAIC_ERROR_RESOURCE_LIMIT?tokenizer->limits.max_input_bytes:0u);}
+    return st;
 }
 
 mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_range **out_ranges, size_t *out_count) {
     if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    if (!tokenizer_input_allowed(tokenizer,input_len)) return MOSAIC_ERROR_RESOURCE_LIMIT;
-    return mosaic_grapheme_ranges(tokenizer->unicode_data, input, input_len, out_ranges, out_count);
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_GRAPHEMES, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    mosaic_status status = mosaic_grapheme_ranges(tokenizer->unicode_data, input, input_len, out_ranges, out_count);
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_GRAPHEMES,
+                      status, input_len, status == MOSAIC_OK && out_count ? *out_count : 0u, 0u);
+    return status;
 }
 
 static int normalization_mode_valid(mosaic_normalization_mode mode) {
@@ -3594,32 +3715,66 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
     *out_document = doc; return MOSAIC_OK;
 }
 
+static size_t token_document_projection_count(uint32_t flags) {
+    size_t count = 0u;
+    for (; flags; flags &= flags - 1u) ++count;
+    return count;
+}
+
+static void tokenizer_observe_token_document(const mosaic_tokenizer *tokenizer, mosaic_status status,
+                                              size_t input_len, uint32_t flags) {
+    if (!tokenizer) return;
+    const uint32_t kind = status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS :
+                          status == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE;
+    uint64_t limit = 0u;
+    if (status == MOSAIC_ERROR_RESOURCE_LIMIT) {
+        limit = tokenizer->limits.max_input_bytes < tokenizer->limits.max_token_document_bytes ?
+                tokenizer->limits.max_input_bytes : tokenizer->limits.max_token_document_bytes;
+    }
+    tokenizer_observe(tokenizer, kind, MOSAIC_OPERATION_TOKEN_DOCUMENT, status, input_len,
+                      status == MOSAIC_OK ? token_document_projection_count(flags) : 0u, limit);
+}
+
 mosaic_status mosaic_tokenizer_token_document_create(const mosaic_tokenizer *tokenizer,
                                                        const uint8_t *input, size_t input_len, uint32_t flags,
                                                        mosaic_token_document **out_document) {
-    return token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 0, out_document);
+    mosaic_status status = token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 0, out_document);
+    tokenizer_observe_token_document(tokenizer, status, input_len, flags);
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_token_document_create_auto(const mosaic_tokenizer *tokenizer,
                                                             const uint8_t *input, size_t input_len, uint32_t flags,
                                                             mosaic_token_document **out_document) {
-    return token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 1, out_document);
+    mosaic_status status = token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 1, out_document);
+    tokenizer_observe_token_document(tokenizer, status, input_len, flags);
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_token_document_create_ex(const mosaic_tokenizer *tokenizer,
                                                           const uint8_t *input, size_t input_len,
                                                           const mosaic_token_document_options *options,
                                                           mosaic_token_document **out_document) {
-    if (!options || options->struct_size < sizeof(*options) || options->reserved) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 0, out_document);
+    if (!options || options->struct_size < sizeof(*options) || options->reserved) {
+        tokenizer_observe_token_document(tokenizer, MOSAIC_ERROR_INVALID_ARGUMENT, input_len, options ? options->flags : 0u);
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    }
+    mosaic_status status = token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 0, out_document);
+    tokenizer_observe_token_document(tokenizer, status, input_len, options->flags);
+    return status;
 }
 
 mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokenizer *tokenizer,
                                                                const uint8_t *input, size_t input_len,
                                                                const mosaic_token_document_options *options,
                                                                mosaic_token_document **out_document) {
-    if (!options || options->struct_size < sizeof(*options) || options->reserved) return MOSAIC_ERROR_INVALID_ARGUMENT;
-    return token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 1, out_document);
+    if (!options || options->struct_size < sizeof(*options) || options->reserved) {
+        tokenizer_observe_token_document(tokenizer, MOSAIC_ERROR_INVALID_ARGUMENT, input_len, options ? options->flags : 0u);
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    }
+    mosaic_status status = token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 1, out_document);
+    tokenizer_observe_token_document(tokenizer, status, input_len, options->flags);
+    return status;
 }
 
 mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info) {

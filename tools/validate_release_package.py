@@ -59,9 +59,16 @@ def main():
         if ids.read_bytes()!=(258).to_bytes(4,'little'):raise SystemExit('packaged raw-BPE compatibility failed')
         client=temp/'client.c';client.write_text(r'''#include <mosaic.h>
 #include <stddef.h>
+#include <stdatomic.h>
 #include <string.h>
 
 typedef struct { size_t count; } visitor_state;
+typedef struct { atomic_uint_fast64_t count; } observer_state;
+static void package_observer(void *ctx, const mosaic_event *event) {
+    observer_state *state = (observer_state *)ctx;
+    if (event && event->struct_size == sizeof *event)
+        atomic_fetch_add_explicit(&state->count, 1u, memory_order_relaxed);
+}
 static mosaic_status count_security(void *ctx, const mosaic_security_finding *finding) {
     (void)finding;
     visitor_state *s = (visitor_state *)ctx;
@@ -81,6 +88,11 @@ int main(int argc, char **argv) {
     unsigned char semantic_id[32] = {0}, runtime_default[32] = {0}, runtime_limited[32] = {0};
     if (mosaic_tokenizer_fingerprint(t, semantic_id) != MOSAIC_OK ||
         mosaic_tokenizer_runtime_identity(t, runtime_default) != MOSAIC_OK) return 49;
+    observer_state obs = {0};
+    mosaic_observer_config ocfg = {sizeof ocfg, 0u, MOSAIC_OBSERVE_SUCCESS | MOSAIC_OBSERVE_FAILURE | MOSAIC_OBSERVE_RESOURCE, 0u, package_observer, &obs};
+    if (mosaic_tokenizer_set_observer(t, &ocfg) != MOSAIC_OK) return 62;
+    unsigned char runtime_observed[32] = {0};
+    if (mosaic_tokenizer_runtime_identity(t, runtime_observed) != MOSAIC_OK || memcmp(runtime_default, runtime_observed, 32)) return 63;
     mosaic_runtime_limits limits = {0};
     mosaic_runtime_limits_default(&limits);
     limits.max_input_bytes = 1024 * 1024;
@@ -239,6 +251,7 @@ int main(int argc, char **argv) {
     mosaic_normalized_view_free(&v);
     mosaic_runtime_metrics metrics = {0};
     if (mosaic_tokenizer_get_metrics(t, &metrics) != MOSAIC_OK || !metrics.encode_calls || !metrics.tokens_out) return 52;
+    if (!atomic_load_explicit(&obs.count, memory_order_relaxed)) return 64;
     mosaic_free(ids);
     mosaic_tokenizer_free(t);
     unsigned char *doc_copy = 0; size_t doc_copy_n = 0;
