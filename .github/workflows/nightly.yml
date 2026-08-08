@@ -53,6 +53,8 @@ jobs:
       - run: python tools/validate_c_unicode.py
       - run: python tools/validate_c_unicode_malformed.py
       - run: python tools/validate_c_api.py
+      - name: Reliability release campaign
+        run: python tools/reliability_campaign.py --tier release --output build/reliability/nightly-release.json
 
   rust-cross-platform:
     strategy:

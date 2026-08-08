@@ -252,6 +252,13 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack.sig)
   endif()
 
+  add_executable(mosaic-reliability-smoke ${MOSAIC_TEST_DIR}/reliability_smoke.c)
+  target_include_directories(mosaic-reliability-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-reliability-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-reliability-smoke)
+  add_test(NAME reliability COMMAND mosaic-reliability-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+  set_tests_properties(reliability PROPERTIES ENVIRONMENT "MOSAIC_RELIABILITY_ITERS=1000")
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)

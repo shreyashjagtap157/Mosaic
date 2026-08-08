@@ -154,8 +154,30 @@ VALUES(?,?,?,?,?,?,?,?,?,?)''',(publisher,name,version,h,len(data),info['pack_cl
             if not p.exists():errors.append(f'missing object {h}')
             elif sha256_file(p)!=h:errors.append(f'corrupt object {h}')
         return errors
+    def repair(self,pack:Path)->str:
+        info=inspect_pack(pack)
+        if not info['canonical_hash_valid']:raise ValueError('pack canonical hash invalid')
+        data=pack.read_bytes();h=sha256_bytes(data)
+        with self.connect() as db:
+            count=db.execute('SELECT COUNT(*) FROM packs WHERE sha256=?',(h,)).fetchone()[0]
+        if not count:raise ValueError('repair source is not referenced by registry metadata')
+        target=self.object_path(h);target.parent.mkdir(parents=True,exist_ok=True)
+        fd,tmpname=tempfile.mkstemp(prefix='repair-',dir=self.tmp);tmp=Path(tmpname)
+        try:
+            with os.fdopen(fd,'wb') as f:f.write(data);f.flush();os.fsync(f.fileno())
+            os.replace(tmp,target)
+        finally:tmp.unlink(missing_ok=True)
+        if sha256_file(target)!=h:raise ValueError('repaired object failed identity verification')
+        return h
     def audit(self)->list[str]:
         errors=[]
+        try:
+            with self.connect() as db:
+                checks=[r[0] for r in db.execute('PRAGMA integrity_check').fetchall()]
+                if checks!=['ok']:errors.extend(f'sqlite integrity: {x}' for x in checks)
+                schema=db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+                if not schema or schema[0]!=str(SCHEMA):errors.append('registry schema metadata mismatch')
+        except sqlite3.Error as exc:errors.append(f'sqlite error: {exc}')
         for r in self.rows():
             p=self.object_path(r.sha256)
             if not p.exists():errors.append(f'missing {r.publisher}/{r.name}@{r.version}')
@@ -182,6 +204,7 @@ def main()->int:
     q=sub.add_parser('resolve');q.add_argument('registry',type=Path);q.add_argument('requirements',type=Path);q.add_argument('-o','--output',required=True,type=Path)
     q=sub.add_parser('verify-lock');q.add_argument('registry',type=Path);q.add_argument('lock',type=Path)
     q=sub.add_parser('audit');q.add_argument('registry',type=Path)
+    q=sub.add_parser('repair');q.add_argument('registry',type=Path);q.add_argument('pack',type=Path)
     q=sub.add_parser('gc');q.add_argument('registry',type=Path)
     a=ap.parse_args();r=Registry(a.registry);r.init()
     if a.cmd=='init':print(json.dumps({'registry':str(r.root),'schema':SCHEMA},sort_keys=True))
@@ -193,6 +216,7 @@ def main()->int:
         e=r.verify_lock(json.loads(a.lock.read_text()));print(json.dumps({'ok':not e,'errors':e},sort_keys=True));return 0 if not e else 1
     elif a.cmd=='audit':
         e=r.audit();print(json.dumps({'ok':not e,'errors':e,'catalog_sha256':r.catalog_hash()},sort_keys=True));return 0 if not e else 1
+    elif a.cmd=='repair':print(json.dumps({'sha256':r.repair(a.pack)},sort_keys=True))
     elif a.cmd=='gc':print(json.dumps({'removed':r.gc()},sort_keys=True))
     return 0
 if __name__=='__main__':

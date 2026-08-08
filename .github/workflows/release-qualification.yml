@@ -47,6 +47,8 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -r requirements-dev.txt
       - run: python tools/qualify_native.py
+      - name: Reliability release campaign
+        run: python tools/reliability_campaign.py --tier release --output build/reliability/release.json
       - run: python tools/build_release.py --no-build
       - run: python tools/validate_release_package.py
       - uses: actions/upload-artifact@v4
