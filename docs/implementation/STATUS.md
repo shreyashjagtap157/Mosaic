@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Current release
 
-**Mosaic Tokenizer 0.9.0: qualified bounded-processing release.**
+**Mosaic Tokenizer 0.10.0: qualified exact incremental-document release.**
 
 The stable native tokenizer now provides exact arbitrary-byte model tokenization, deterministic Viterbi and raw-BPE execution, Unicode-17 grapheme views, composable language packs, fail-soft document routing, deterministic authoring/training tools, raw `.tiktoken` rank interchange, a separately versioned Unicode-17 script/security evidence pack, a separately pinned Unicode-16 normalization shadow-view pack, exact online Viterbi streaming, and callback-based bounded-output security evidence. Security and normalization evidence never mutate source bytes or model IDs.
 
@@ -34,12 +34,13 @@ The rejected 0.2 per-candidate language-pack lookup and rejected 0.7 per-byte se
 - **Unicode security evidence:** Unicode-17 script/property pack implemented.
 - **Mapped normalization:** Unicode-16 NFD/NFC/NFKD/NFKC/NFKC-casefold pack and exact source provenance implemented and qualified.
 - **Bounded streaming/security evidence:** exact survivor-prefix online Viterbi plus callback security visitor implemented and qualified.
+- **Incremental documents:** exact Viterbi safe-prefix reuse implemented; forward checkpoint resynchronization remains a later multiscale improvement.
 - **M4 Wedge Tournament:** not yet run and not silently bypassed.
 
 ## Remaining tokenizer work before the broader platform
 
 1. richer existing-tokenizer compatibility profiles including pre-tokenization semantics;
-2. genuine local incremental retokenization equivalent to full processing;
+2. forward-resynchronizing block/checkpoint incrementality for middle-of-document edits;
 3. production-scale vocabulary/language/detector training and quality evaluation;
 4. Wedge Tournament after the common tokenizer benchmark substrate is representative.
 

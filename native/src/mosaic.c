@@ -1432,8 +1432,19 @@ struct mosaic_document {
     size_t capacity;
 };
 
+struct mosaic_incremental_document {
+    mosaic_model *model;
+    int64_t *adjustments;
+    uint8_t *buffer;
+    size_t len;
+    mosaic_token *tokens;
+    size_t token_count;
+    size_t last_reprocessed_bytes;
+    size_t last_reused_prefix_bytes;
+};
+
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.9.0"; }
+const char *mosaic_version_string(void) { return "0.10.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1869,6 +1880,150 @@ void mosaic_document_free(mosaic_document *document) {
     free(document->adjustments);
     free(document->buffer);
     free(document);
+}
+
+static mosaic_status incremental_document_allocate(const mosaic_model *model, const int64_t *adjustments,
+                                                   const uint8_t *input, size_t input_len,
+                                                   mosaic_incremental_document **out_document) {
+    if (!model || (!input && input_len) || !out_document) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_document = NULL;
+    if (model->vocab.algorithm != 0u) return MOSAIC_ERROR_UNSUPPORTED;
+    mosaic_incremental_document *document = (mosaic_incremental_document *)calloc(1, sizeof *document);
+    if (!document) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status = mosaic_model_load_memory(model->pack, model->pack_len, &document->model);
+    if (status != MOSAIC_OK) { free(document); return status; }
+    if (adjustments) {
+        size_t count = (size_t)document->model->vocab.count;
+        if (count > SIZE_MAX / sizeof *document->adjustments) { mosaic_model_free(document->model); free(document); return MOSAIC_ERROR_OVERFLOW; }
+        document->adjustments = count ? (int64_t *)malloc(count * sizeof *document->adjustments) : NULL;
+        if (count && !document->adjustments) { mosaic_model_free(document->model); free(document); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        if (count) memcpy(document->adjustments, adjustments, count * sizeof *document->adjustments);
+    }
+    if (input_len) {
+        document->buffer = (uint8_t *)malloc(input_len);
+        if (!document->buffer) { mosaic_model_free(document->model); free(document->adjustments); free(document); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        memcpy(document->buffer, input, input_len);
+    }
+    document->len = input_len;
+    status = encode_tokens_internal(document->model, document->buffer, document->len, document->adjustments,
+                                    &document->tokens, &document->token_count);
+    if (status != MOSAIC_OK) { mosaic_incremental_document_free(document); return status; }
+    document->last_reprocessed_bytes = input_len;
+    *out_document = document;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_incremental_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                                 mosaic_incremental_document **out_document) {
+    return incremental_document_allocate(model, NULL, input, input_len, out_document);
+}
+
+mosaic_status mosaic_tokenizer_incremental_document_create(const mosaic_tokenizer *tokenizer,
+                                                           const uint8_t *input, size_t input_len,
+                                                           mosaic_incremental_document **out_document) {
+    if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return incremental_document_allocate(tokenizer->model, tokenizer->adjustments, input, input_len, out_document);
+}
+
+static size_t incremental_safe_restart(const mosaic_incremental_document *document, size_t edit_start, size_t *out_prefix_tokens) {
+    size_t guard = document->model->vocab.max_surface_len ? (size_t)document->model->vocab.max_surface_len - 1u : 0u;
+    size_t target = edit_start > guard ? edit_start - guard : 0u;
+    size_t restart = 0, prefix = 0;
+    for (size_t i = 0; i < document->token_count; ++i) {
+        const mosaic_token *token = &document->tokens[i];
+        if (token->start > SIZE_MAX || token->length > SIZE_MAX || (size_t)token->start > SIZE_MAX - (size_t)token->length) break;
+        size_t end = (size_t)token->start + (size_t)token->length;
+        if (end > target) break;
+        restart = end; prefix = i + 1u;
+    }
+    *out_prefix_tokens = prefix;
+    return restart;
+}
+
+mosaic_status mosaic_incremental_document_apply_edit(mosaic_incremental_document *document,
+                                                      uint64_t start64, uint64_t delete64,
+                                                      const uint8_t *replacement, size_t replacement_len) {
+    if (!document || (!replacement && replacement_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (start64 > SIZE_MAX || delete64 > SIZE_MAX) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t start = (size_t)start64, delete_len = (size_t)delete64;
+    if (start > document->len || delete_len > document->len - start) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t kept = document->len - delete_len;
+    if (replacement_len > SIZE_MAX - kept) return MOSAIC_ERROR_OVERFLOW;
+    size_t new_len = kept + replacement_len;
+    size_t prefix_tokens = 0;
+    size_t restart = incremental_safe_restart(document, start, &prefix_tokens);
+    uint8_t *next_buffer = NULL;
+    size_t old_tail = start + delete_len, tail_len = document->len - old_tail;
+    if (new_len) {
+        next_buffer = (uint8_t *)malloc(new_len);
+        if (!next_buffer) return MOSAIC_ERROR_OUT_OF_MEMORY;
+        if (start) memcpy(next_buffer, document->buffer, start);
+        if (replacement_len) memcpy(next_buffer + start, replacement, replacement_len);
+        if (tail_len) memcpy(next_buffer + start + replacement_len, document->buffer + old_tail, tail_len);
+    } else if (start || replacement_len || tail_len) {
+        return MOSAIC_ERROR_INTERNAL;
+    }
+
+    mosaic_token *suffix = NULL; size_t suffix_count = 0;
+    mosaic_status status = encode_tokens_internal(document->model, next_buffer ? next_buffer + restart : NULL,
+                                                  new_len - restart, document->adjustments, &suffix, &suffix_count);
+    if (status != MOSAIC_OK) { free(next_buffer); return status; }
+    if (prefix_tokens > SIZE_MAX - suffix_count || prefix_tokens + suffix_count > SIZE_MAX / sizeof(mosaic_token)) {
+        free(suffix); free(next_buffer); return MOSAIC_ERROR_OVERFLOW;
+    }
+    size_t total = prefix_tokens + suffix_count;
+    mosaic_token *combined = NULL;
+    if (total) {
+        combined = (mosaic_token *)malloc(total * sizeof *combined);
+        if (!combined) { free(suffix); free(next_buffer); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+        if (prefix_tokens) {
+            if (!document->tokens) { free(combined); free(suffix); free(next_buffer); return MOSAIC_ERROR_INTERNAL; }
+            memcpy(combined, document->tokens, prefix_tokens * sizeof *combined);
+        }
+    } else if (prefix_tokens || suffix_count) {
+        free(suffix); free(next_buffer); return MOSAIC_ERROR_INTERNAL;
+    }
+    for (size_t i = 0; i < suffix_count; ++i) {
+        suffix[i].start += (uint64_t)restart;
+        combined[prefix_tokens + i] = suffix[i];
+    }
+    free(suffix);
+    free(document->buffer); free(document->tokens);
+    document->buffer = next_buffer; document->len = new_len; document->tokens = combined; document->token_count = total;
+    document->last_reprocessed_bytes = new_len - restart;
+    document->last_reused_prefix_bytes = restart;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_incremental_document_encode(const mosaic_incremental_document *document,
+                                                  uint32_t **out_ids, size_t *out_count) {
+    if (!document || !out_ids || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_ids = NULL; *out_count = 0;
+    if (document->token_count > SIZE_MAX / sizeof(uint32_t)) return MOSAIC_ERROR_OVERFLOW;
+    uint32_t *ids = document->token_count ? (uint32_t *)malloc(document->token_count * sizeof *ids) : NULL;
+    if (document->token_count && !ids) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    for (size_t i = 0; i < document->token_count; ++i) ids[i] = document->tokens[i].id;
+    *out_ids = ids; *out_count = document->token_count; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_incremental_document_copy_bytes(const mosaic_incremental_document *document,
+                                                      uint8_t **out_bytes, size_t *out_len) {
+    if (!document || !out_bytes || !out_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_bytes = NULL; *out_len = 0;
+    mosaic_status status = copy_bytes(document->buffer, document->len, out_bytes);
+    if (status == MOSAIC_OK) *out_len = document->len;
+    return status;
+}
+
+size_t mosaic_incremental_document_last_reprocessed_bytes(const mosaic_incremental_document *document) {
+    return document ? document->last_reprocessed_bytes : 0u;
+}
+size_t mosaic_incremental_document_last_reused_prefix_bytes(const mosaic_incremental_document *document) {
+    return document ? document->last_reused_prefix_bytes : 0u;
+}
+void mosaic_incremental_document_free(mosaic_incremental_document *document) {
+    if (!document) return;
+    mosaic_model_free(document->model); free(document->adjustments); free(document->buffer); free(document->tokens); free(document);
 }
 
 mosaic_status mosaic_unicode_load_memory(const uint8_t *pack, size_t pack_len, mosaic_unicode **out_unicode) {

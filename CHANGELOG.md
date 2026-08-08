@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0 — 2026-08-08
+
+Stable exact incremental Viterbi document release.
+
+- canonical token-cache prefix reuse after edits with a proven safe restart boundary;
+- transactional edit application and exact source-copy behavior;
+- 1,000 randomized edit/full differentials and language-specialized coverage;
+- explicit reprocessed/reused byte metrics;
+- raw-BPE incremental rejection pending a separate merge-semantics proof;
+- near-end 10 MiB locality/performance release gate;
+- backward-compatible C API advanced to 0.8.0 while tokenization semantics remain version 2.
+
 ## 0.9.0 — 2026-08-08
 
 Stable bounded-processing release.

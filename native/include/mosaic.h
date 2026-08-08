@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 7
+#define MOSAIC_C_API_VERSION_MINOR 8
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -35,6 +35,7 @@ typedef struct mosaic_normalization mosaic_normalization;
 typedef struct mosaic_stream mosaic_stream;
 typedef struct mosaic_online_stream mosaic_online_stream;
 typedef struct mosaic_document mosaic_document;
+typedef struct mosaic_incremental_document mosaic_incremental_document;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -239,6 +240,26 @@ mosaic_status mosaic_document_encode_auto(const mosaic_document *document, uint3
                                           mosaic_detection *out_detection);
 mosaic_status mosaic_document_copy_bytes(const mosaic_document *document, uint8_t **out_bytes, size_t *out_len);
 void mosaic_document_free(mosaic_document *document);
+
+/* Exact Viterbi incremental document. The implementation preserves an unchanged canonical prefix
+ * and retokenizes only from a proven-safe token boundary preceding an edit. Raw-BPE models are
+ * explicitly unsupported by this API. The operation is transactional: a failed edit leaves the
+ * prior document and token cache unchanged. */
+mosaic_status mosaic_incremental_document_create(const mosaic_model *model, const uint8_t *input, size_t input_len,
+                                                 mosaic_incremental_document **out_document);
+mosaic_status mosaic_tokenizer_incremental_document_create(const mosaic_tokenizer *tokenizer,
+                                                           const uint8_t *input, size_t input_len,
+                                                           mosaic_incremental_document **out_document);
+mosaic_status mosaic_incremental_document_apply_edit(mosaic_incremental_document *document,
+                                                      uint64_t start, uint64_t delete_len,
+                                                      const uint8_t *replacement, size_t replacement_len);
+mosaic_status mosaic_incremental_document_encode(const mosaic_incremental_document *document,
+                                                  uint32_t **out_ids, size_t *out_count);
+mosaic_status mosaic_incremental_document_copy_bytes(const mosaic_incremental_document *document,
+                                                      uint8_t **out_bytes, size_t *out_len);
+size_t mosaic_incremental_document_last_reprocessed_bytes(const mosaic_incremental_document *document);
+size_t mosaic_incremental_document_last_reused_prefix_bytes(const mosaic_incremental_document *document);
+void mosaic_incremental_document_free(mosaic_incremental_document *document);
 
 mosaic_status mosaic_detector_load_memory(const uint8_t *pack, size_t pack_len, mosaic_detector **out_detector);
 mosaic_status mosaic_detector_load_file(const char *path, mosaic_detector **out_detector);

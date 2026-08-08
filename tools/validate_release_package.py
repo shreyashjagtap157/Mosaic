@@ -105,6 +105,17 @@ int main(int argc, char **argv) {
     mosaic_free(online_tail);
     mosaic_online_stream_free(online);
 
+    mosaic_incremental_document *incremental = 0;
+    if (mosaic_tokenizer_incremental_document_create(t, in, 9, &incremental) != MOSAIC_OK) return 20;
+    const unsigned char ex = '!';
+    if (mosaic_incremental_document_apply_edit(incremental, 9, 0, &ex, 1) != MOSAIC_OK) return 21;
+    unsigned int *incremental_ids = 0;
+    size_t incremental_n = 0;
+    if (mosaic_incremental_document_encode(incremental, &incremental_ids, &incremental_n) != MOSAIC_OK) return 22;
+    if (!incremental_n || mosaic_incremental_document_last_reprocessed_bytes(incremental) > 10) return 23;
+    mosaic_free(incremental_ids);
+    mosaic_incremental_document_free(incremental);
+
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};
     if (mosaic_tokenizer_normalize(t, MOSAIC_NORMALIZE_NFD, ni, 2, &v) != MOSAIC_OK) return 11;

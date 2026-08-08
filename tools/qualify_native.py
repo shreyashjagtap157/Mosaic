@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.9 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.10 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -28,7 +28,7 @@ def main()->int:
         ['tools/validate_m3_model.py'],['tools/validate_unicode17.py'],['tools/validate_repo.py']]
     for g in gates: run(py+g)
     run(['make','-C','native','clean','all','test'])
-    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','validate_detector.py','validate_authoring.py','validate_tiktoken_compat.py','validate_security17.py','benchmark_language_packs.py','benchmark_detector.py','benchmark_bounded_processing.py']:
+    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','validate_detector.py','validate_authoring.py','validate_tiktoken_compat.py','validate_security17.py','benchmark_language_packs.py','benchmark_detector.py','benchmark_bounded_processing.py','benchmark_incremental.py']:
         run(py+['tools/'+script])
     # Sanitizer stress and all malformed classes run inside long-lived C processes above.
     # Clang is a genuinely independent compiler gate.
@@ -48,6 +48,9 @@ def main()->int:
     online_smoke=clang/'mosaic-online-stream-smoke'
     run(['clang','-O2','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Inative/include','conformance/c/online_stream_smoke.c',clang/'mosaic_lib.o','-o',online_smoke])
     run([online_smoke,MODEL,UNICODE,ROOT/'fixtures/packs/language/en-v1.mpack',ROOT/'fixtures/packs/language/hi-v1.mpack',ROOT/'fixtures/packs/language/ja-v1.mpack',ROOT/'fixtures/packs/raw-bpe-v1.mpack',ROOT/'fixtures/packs/online-adversarial-v1.mpack'])
+    incremental_smoke=clang/'mosaic-incremental-smoke'
+    run(['clang','-O2','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Inative/include','conformance/c/incremental_smoke.c',clang/'mosaic_lib.o','-o',incremental_smoke])
+    run([incremental_smoke,MODEL,UNICODE,ROOT/'fixtures/packs/language/en-v1.mpack',ROOT/'fixtures/packs/language/hi-v1.mpack',ROOT/'fixtures/packs/language/ja-v1.mpack',ROOT/'fixtures/packs/raw-bpe-v1.mpack'])
     # Deterministic 10 MiB benchmark fixture and conservative regression floor.
     bench=Path(tempfile.gettempdir())/'mosaic-release-10m.bin'
     chunk=b'hello world tokenizers :: value->_id '+ 'नमस्ते 世界 こんにちは\n'.encode()
@@ -64,7 +67,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.9 release qualification completed')
+    print('PASS: Mosaic native v0.10 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())
