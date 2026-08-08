@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 — 2026-08-08
+
+Windows native build portability patch.
+
+- give Windows static archives distinct basenames (`mosaic_static.lib`, `mosaic_trust_static.lib`) so they cannot collide with DLL import libraries (`mosaic.lib`, `mosaic_trust.lib`);
+- add configure-time guards that fail closed if a Windows static/shared target pair regresses to the same `.lib` output name;
+- preserve Linux/macOS library filenames, native/trust ABI 1.0.0, tokenizer semantics version 2, and all stable binary formats unchanged.
+
 ## 1.0.1 — 2026-08-08
 
 Cross-platform source-integrity and Windows tooling patch.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 1.0.1 LANGUAGES C CXX)
+project(mosaic VERSION 1.0.2 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -21,10 +21,29 @@ function(mosaic_warnings target)
   endif()
 endfunction()
 
+function(mosaic_assert_distinct_windows_outputs static_target shared_target)
+  if(WIN32)
+    get_target_property(_static_output ${static_target} OUTPUT_NAME)
+    get_target_property(_shared_output ${shared_target} OUTPUT_NAME)
+    if(_static_output STREQUAL _shared_output)
+      message(FATAL_ERROR
+        "Windows artifact collision: ${static_target} and ${shared_target} both produce '${_static_output}.lib'. "
+        "The static archive must have a distinct basename from the DLL import library.")
+    endif()
+  endif()
+endfunction()
+
 add_library(mosaic_static STATIC ${MOSAIC_SRC})
 target_compile_definitions(mosaic_static PRIVATE MOSAIC_LIBRARY_ONLY)
 target_include_directories(mosaic_static PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-set_target_properties(mosaic_static PROPERTIES OUTPUT_NAME mosaic)
+if(WIN32)
+  # A Windows DLL produces an import library beside the DLL. Keep that
+  # import library as mosaic.lib and give the static archive a distinct
+  # basename so Ninja/MSBuild never have two producers for the same file.
+  set_target_properties(mosaic_static PROPERTIES OUTPUT_NAME mosaic_static)
+else()
+  set_target_properties(mosaic_static PROPERTIES OUTPUT_NAME mosaic)
+endif()
 mosaic_warnings(mosaic_static)
 target_link_libraries(mosaic_static PUBLIC Threads::Threads)
 
@@ -34,6 +53,7 @@ target_include_directories(mosaic_shared PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLU
 set_target_properties(mosaic_shared PROPERTIES OUTPUT_NAME mosaic C_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 mosaic_warnings(mosaic_shared)
 target_link_libraries(mosaic_shared PUBLIC Threads::Threads)
+mosaic_assert_distinct_windows_outputs(mosaic_static mosaic_shared)
 
 add_executable(mosaic-tokenizer ${MOSAIC_SRC})
 target_include_directories(mosaic-tokenizer PRIVATE ${MOSAIC_INCLUDE})
@@ -43,7 +63,12 @@ target_link_libraries(mosaic-tokenizer PRIVATE Threads::Threads)
 if(MOSAIC_BUILD_TRUST AND OpenSSL_FOUND)
   add_library(mosaic_trust_static STATIC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_trust.c)
   target_include_directories(mosaic_trust_static PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-  set_target_properties(mosaic_trust_static PROPERTIES OUTPUT_NAME mosaic_trust)
+  if(WIN32)
+    # Same import-library collision rule as the core library.
+    set_target_properties(mosaic_trust_static PROPERTIES OUTPUT_NAME mosaic_trust_static)
+  else()
+    set_target_properties(mosaic_trust_static PROPERTIES OUTPUT_NAME mosaic_trust)
+  endif()
   mosaic_warnings(mosaic_trust_static)
   target_link_libraries(mosaic_trust_static PUBLIC OpenSSL::Crypto)
 
@@ -53,6 +78,7 @@ if(MOSAIC_BUILD_TRUST AND OpenSSL_FOUND)
   set_target_properties(mosaic_trust_shared PROPERTIES OUTPUT_NAME mosaic_trust C_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
   mosaic_warnings(mosaic_trust_shared)
   target_link_libraries(mosaic_trust_shared PUBLIC OpenSSL::Crypto)
+  mosaic_assert_distinct_windows_outputs(mosaic_trust_static mosaic_trust_shared)
 elseif(MOSAIC_BUILD_TRUST)
   message(STATUS "OpenSSL Crypto not found: optional Mosaic trust library disabled")
 endif()
