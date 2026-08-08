@@ -22,6 +22,10 @@ static int reject_normalization(const char *root, const char *name) {
     char path[1024]; if (snprintf(path,sizeof path,"%s/fixtures/packs/malformed-normalization16/%s",root,name) < 0) return 0;
     mosaic_normalization *n=NULL; mosaic_status s=mosaic_normalization_load_file(path,&n); if(n)mosaic_normalization_free(n); return s==MOSAIC_ERROR_INVALID_PACK;
 }
+static int reject_lexer(const char *root, const char *name) {
+    char path[1024]; if (snprintf(path,sizeof path,"%s/fixtures/packs/malformed-lexer/%s",root,name) < 0) return 0;
+    mosaic_lexer *lexer=NULL; mosaic_status s=mosaic_lexer_load_file(path,&lexer); if(lexer)mosaic_lexer_free(lexer); return s==MOSAIC_ERROR_INVALID_PACK;
+}
 static int reject_detector(const char *root, const char *name) {
     char path[1024]; if (snprintf(path,sizeof path,"%s/fixtures/packs/malformed-detector/%s",root,name) < 0) return 0;
     mosaic_detector *d=NULL; mosaic_status s=mosaic_detector_load_file(path,&d); if(d)mosaic_detector_free(d); return s==MOSAIC_ERROR_INVALID_PACK;
@@ -33,10 +37,12 @@ int main(int argc,char**argv){
     const char *languages[]={"language-bad-magic.mpack","language-version.mpack","language-flags.mpack","language-invalid-tag.mpack","language-entry-flags.mpack","language-entry-reserved.mpack","language-zero-surface.mpack","language-max-surface.mpack","language-min-cost.mpack","language-noncanonical-order.mpack"};
     const char *security[]={"security-bad-magic.mpack","security-version.mpack","security-header-size.mpack","security-unicode-version.mpack","security-reserved.mpack","security-zero-scripts.mpack","security-script-id.mpack","security-script-name.mpack","security-script-overlap.mpack","security-ignorable-overlap.mpack","security-layout.mpack"};
     const char *normalizations[]={"normalization-bad-magic.mpack","normalization-version.mpack","normalization-header-size.mpack","normalization-unicode-version.mpack","normalization-reserved.mpack","normalization-count-limit.mpack","normalization-ccc-overlap.mpack","normalization-map-order.mpack","normalization-sequence-oob.mpack","normalization-composition-order.mpack","normalization-layout.mpack"};
+    const char *lexers[]={"lexer-bad-magic.mpack","lexer-version.mpack","lexer-reserved.mpack","lexer-line-count.mpack","lexer-empty-name.mpack","lexer-line-flags.mpack","lexer-block-flags.mpack","lexer-keyword-order.mpack","lexer-max-delimiter.mpack"};
     const char *detectors[]={"detector-bad-magic.mpack","detector-version.mpack","detector-flags.mpack","detector-zero-profiles.mpack","detector-profile-width.mpack","detector-negative-margin.mpack","detector-invalid-tag.mpack","detector-profile-reserved.mpack","detector-zero-weight.mpack","detector-profile-oob.mpack","detector-feature-reserved.mpack","detector-max-feature.mpack","detector-first-endpoint.mpack","detector-first-range.mpack"};
     for(size_t i=0;i<sizeof models/sizeof models[0];++i)if(!reject_model(argv[1],models[i]))return 3;
     for(size_t i=0;i<sizeof unicode/sizeof unicode[0];++i)if(!reject_unicode(argv[1],unicode[i]))return 4;
     for(size_t i=0;i<sizeof detectors/sizeof detectors[0];++i)if(!reject_detector(argv[1],detectors[i]))return 7;
+    for(size_t i=0;i<sizeof lexers/sizeof lexers[0];++i)if(!reject_lexer(argv[1],lexers[i]))return 11;
     for(size_t i=0;i<sizeof security/sizeof security[0];++i)if(!reject_security(argv[1],security[i]))return 8;
     for(size_t i=0;i<sizeof normalizations/sizeof normalizations[0];++i)if(!reject_normalization(argv[1],normalizations[i]))return 10;
     char model[1024],uni[1024];
@@ -45,5 +51,5 @@ int main(int argc,char**argv){
     for(size_t i=0;i<sizeof languages/sizeof languages[0];++i)if(!reject_language(argv[1],tok,languages[i])){mosaic_tokenizer_free(tok);return 9;}
     if(mosaic_tokenizer_language_count(tok)!=0){mosaic_tokenizer_free(tok);return 9;}
     mosaic_tokenizer_free(tok);
-    puts("OK malformed model=12 unicode=9 language=10 detector=14 security=11 normalization=11");return 0;
+    puts("OK malformed model=12 unicode=9 language=10 detector=14 security=11 normalization=11 lexer=9");return 0;
 }

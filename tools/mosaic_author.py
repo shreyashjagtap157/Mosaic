@@ -428,6 +428,55 @@ def load_json(path: Path) -> dict:
     return obj
 
 
+def build_lexer_pack(cfg: dict) -> bytes:
+    name=str(cfg.get("name","")).encode("utf-8")
+    if not name or len(name)>63 or b"\0" in name: raise ValueError("lexer name must be 1..63 UTF-8 bytes without NUL")
+    flags=1 if bool(cfg.get("dollar_identifiers",False)) else 0
+    blob=bytearray(); offsets={}
+    def intern(raw: bytes) -> tuple[int,int]:
+        if not raw or len(raw)>65535: raise ValueError("lexer delimiter/keyword length outside v1 range")
+        if raw in offsets:return offsets[raw]
+        off=len(blob);blob.extend(raw);offsets[raw]=(off,len(raw));return off,len(raw)
+    def text(x) -> bytes:
+        if not isinstance(x,str): raise ValueError("lexer strings must be JSON strings")
+        return x.encode("utf-8")
+    line=[]
+    for raw in sorted({text(x) for x in cfg.get("line_comments",[]) }):
+        off,n=intern(raw);line.append(struct.pack("<IHH",off,n,0))
+    blocks=[]
+    parsed=[]
+    for obj in cfg.get("block_comments",[]):
+        a=text(obj["start"]);z=text(obj["end"]); parsed.append((a,z,1 if obj.get("nested",False) else 0))
+    for a,z,nested in sorted(parsed,key=lambda x:(x[0],x[1],x[2])):
+        ao,an=intern(a);zo,zn=intern(z);blocks.append(struct.pack("<IIHHHH",ao,zo,an,zn,nested,0))
+    strings=[];parsed=[]
+    for obj in cfg.get("strings",[]):
+        d=text(obj["delimiter"]);esc=obj.get("escape","")
+        if esc is None: esc=""
+        eb=text(esc)
+        if len(eb)>1: raise ValueError("lexer escape must encode to zero or one byte")
+        parsed.append((d,eb[0] if eb else 0))
+    for d,esc in sorted(parsed,key=lambda x:(x[0],x[1])):
+        off,n=intern(d);strings.append(struct.pack("<IHBBI",off,n,esc,0,0))
+    keywords=[]
+    for raw in sorted({text(x) for x in cfg.get("keywords",[]) }):
+        off,n=intern(raw);keywords.append(struct.pack("<IHH",off,n,0))
+    name_off,name_len=intern(name)
+    maxd=max([0]+[len(x) for x in {text(v) for v in cfg.get("line_comments",[])}])
+    for obj in cfg.get("block_comments",[]):maxd=max(maxd,len(text(obj["start"])),len(text(obj["end"])))
+    for obj in cfg.get("strings",[]):maxd=max(maxd,len(text(obj["delimiter"])))
+    line_off=64; block_off=align(line_off+len(line)*8,8); string_off=align(block_off+len(blocks)*16,8)
+    keyword_off=align(string_off+len(strings)*12,8); blob_off=align(keyword_off+len(keywords)*8,8)
+    out=bytearray(blob_off+len(blob));out[:4]=b"MSLX"
+    struct.pack_into("<HHIIIIIIIIIHHIIII",out,4,1,0,len(line),len(blocks),len(strings),len(keywords),line_off,block_off,string_off,keyword_off,name_off,name_len,flags,blob_off,len(blob),maxd,0)
+    for i,r in enumerate(line):out[line_off+i*8:line_off+(i+1)*8]=r
+    for i,r in enumerate(blocks):out[block_off+i*16:block_off+(i+1)*16]=r
+    for i,r in enumerate(strings):out[string_off+i*12:string_off+(i+1)*12]=r
+    for i,r in enumerate(keywords):out[keyword_off+i*8:keyword_off+(i+1)*8]=r
+    out[blob_off:]=blob
+    return wrap_pack(9,bytes(out),8)
+
+
 def cmd_model(args) -> None:
     cfg = load_json(args.config)
     algorithm_name = str(cfg.get("algorithm", "viterbi")).lower()
@@ -516,11 +565,15 @@ def cmd_language(args) -> None:
 def cmd_detector(args) -> None:
     write_pack(args.output, build_detector_pack(load_json(args.config)))
 
+def cmd_lexer(args) -> None:
+    write_pack(args.output, build_lexer_pack(load_json(args.config)))
+
 
 def cmd_inspect(args) -> None:
     info=read_outer(args.pack)
     kinds={section["kind"] for section in info["sections"]}
     if 8 in kinds: info["pack_class"]="unicode-normalization"
+    elif 9 in kinds: info["pack_class"]="lexer"
     elif 7 in kinds: info["pack_class"]="unicode-security"
     elif 6 in kinds: info["pack_class"]="detector"
     elif 5 in kinds: info["pack_class"]="language-or-unicode"
@@ -533,7 +586,7 @@ def cmd_inspect(args) -> None:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mosaic-author", description="Deterministic Mosaic pack authoring")
-    p.add_argument("--version", action="version", version="mosaic-author 0.13.0")
+    p.add_argument("--version", action="version", version="mosaic-author 0.14.0")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("model", help="compile model vocabulary from JSON")
     m.add_argument("config", type=Path); m.add_argument("output", type=Path); m.set_defaults(func=cmd_model)
@@ -551,6 +604,8 @@ def parser() -> argparse.ArgumentParser:
     l.add_argument("config", type=Path); l.add_argument("output", type=Path); l.set_defaults(func=cmd_language)
     d = sub.add_parser("detector", help="compile detector JSON")
     d.add_argument("config", type=Path); d.add_argument("output", type=Path); d.set_defaults(func=cmd_detector)
+    lx = sub.add_parser("lexer", help="compile declarative lexer profile JSON")
+    lx.add_argument("config", type=Path); lx.add_argument("output", type=Path); lx.set_defaults(func=cmd_lexer)
     i = sub.add_parser("inspect", help="inspect MOSPACK container metadata")
     i.add_argument("pack", type=Path); i.set_defaults(func=cmd_inspect)
     return p

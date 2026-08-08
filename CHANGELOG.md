@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0 — 2026-08-08
+
+Stable declarative lexer and lexical TokenDocument release.
+
+- bounded lexer pack v1 with exact lexical partitions;
+- C/Python/Rust/JSON reference profiles;
+- longest-prefix delimiters and optional nested block comments;
+- lexical TokenDocument projection and capability bit;
+- standalone/integrated lexer CLI;
+- nine malformed lexer pack classes and sanitizer coverage.
+
 ## 0.13.0 — 2026-08-08
 
 Rich TokenDocument projection and capability-negotiation release.

@@ -65,6 +65,17 @@ typedef struct {
     int64_t *adjustments;
 } LanguagePack;
 
+typedef struct { uint32_t offset; uint16_t len; uint16_t flags; } LexerShort;
+typedef struct { uint32_t start_offset; uint32_t end_offset; uint16_t start_len; uint16_t end_len; uint16_t flags; uint16_t reserved; } LexerBlock;
+typedef struct { uint32_t offset; uint16_t len; uint8_t escape; uint8_t flags; uint32_t reserved; } LexerString;
+typedef struct {
+    const uint8_t *section; size_t section_len;
+    uint32_t line_count, block_count, string_count, keyword_count;
+    uint32_t line_offset, block_offset, string_offset, keyword_offset;
+    uint32_t name_offset; uint16_t name_len; uint16_t flags;
+    uint32_t blob_offset, blob_len, max_delim_len;
+} LexerView;
+
 typedef struct {
     uint32_t tag_offset;
     uint16_t tag_len;
@@ -488,6 +499,145 @@ static int language_surface_delta(const LanguageView *v, Slice surface, int32_t 
     }
     *out = 0;
     return 1;
+}
+
+static int lexer_blob_slice(const LexerView *v, uint32_t off, uint16_t len, Slice *out) {
+    if (!len || off > v->blob_len || len > v->blob_len - off) return 0;
+    out->bytes = v->section + v->blob_offset + off; out->len = len; return 1;
+}
+static int lexer_short_at(const LexerView *v, uint32_t base, uint32_t count, uint32_t index, LexerShort *out, Slice *surface) {
+    if (index >= count) return 0;
+    const uint8_t *e = v->section + base + (size_t)index * 8u;
+    out->offset = rd32(e); out->len = rd16(e + 4); out->flags = rd16(e + 6);
+    return lexer_blob_slice(v, out->offset, out->len, surface);
+}
+static int lexer_block_at(const LexerView *v, uint32_t index, LexerBlock *out, Slice *start, Slice *end) {
+    if (index >= v->block_count) return 0;
+    const uint8_t *e = v->section + v->block_offset + (size_t)index * 16u;
+    out->start_offset = rd32(e); out->end_offset = rd32(e + 4); out->start_len = rd16(e + 8); out->end_len = rd16(e + 10);
+    out->flags = rd16(e + 12); out->reserved = rd16(e + 14);
+    return !out->reserved && !(out->flags & ~1u) && lexer_blob_slice(v, out->start_offset, out->start_len, start) && lexer_blob_slice(v, out->end_offset, out->end_len, end);
+}
+static int lexer_string_at(const LexerView *v, uint32_t index, LexerString *out, Slice *delim) {
+    if (index >= v->string_count) return 0;
+    const uint8_t *e = v->section + v->string_offset + (size_t)index * 12u;
+    out->offset = rd32(e); out->len = rd16(e + 4); out->escape = e[6]; out->flags = e[7]; out->reserved = rd32(e + 8);
+    return !out->reserved && !out->flags && lexer_blob_slice(v, out->offset, out->len, delim);
+}
+static int parse_lexer(Slice s, LexerView *v) {
+    if (s.len < 64 || memcmp(s.bytes, "MSLX", 4) != 0 || rd16(s.bytes + 4) != 1 || rd16(s.bytes + 6) != 0) return fail("invalid lexer header");
+    uint32_t lc=rd32(s.bytes+8),bc=rd32(s.bytes+12),sc=rd32(s.bytes+16),kc=rd32(s.bytes+20);
+    uint32_t lo=rd32(s.bytes+24),bo=rd32(s.bytes+28),so=rd32(s.bytes+32),ko=rd32(s.bytes+36),no=rd32(s.bytes+40);
+    uint16_t nl=rd16(s.bytes+44),flags=rd16(s.bytes+46); uint32_t blob=rd32(s.bytes+48),blob_len=rd32(s.bytes+52),maxd=rd32(s.bytes+56);
+    if (rd32(s.bytes+60) || lo!=64 || lc>64 || bc>32 || sc>32 || kc>4096 || !nl || nl>63 || (flags & ~1u)) return fail("invalid lexer layout");
+    uint64_t le=(uint64_t)lo+lc*8u,be=(uint64_t)bo+bc*16u,se=(uint64_t)so+sc*12u,ke=(uint64_t)ko+kc*8u,ble=(uint64_t)blob+blob_len;
+    if (!(le<=bo && be<=so && se<=ko && ke<=blob && ble==s.len)) return fail("lexer regions overlap/out of bounds");
+    if (no>blob_len || nl>blob_len-no) return fail("lexer name out of bounds");
+    if (!all_zero(s.bytes+(size_t)le,bo-(size_t)le)||!all_zero(s.bytes+(size_t)be,so-(size_t)be)||!all_zero(s.bytes+(size_t)se,ko-(size_t)se)||!all_zero(s.bytes+(size_t)ke,blob-(size_t)ke)) return fail("lexer padding nonzero");
+    *v=(LexerView){s.bytes,s.len,lc,bc,sc,kc,lo,bo,so,ko,no,nl,flags,blob,blob_len,maxd};
+    Slice prev={0}; uint32_t observed=0;
+    for(uint32_t i=0;i<lc;++i){LexerShort r;Slice x;if(!lexer_short_at(v,lo,lc,i,&r,&x)||r.flags)return fail("invalid line delimiter");if(i&&compare_slices(prev,x)>=0)return fail("line delimiters not canonical");prev=x;if(x.len>observed)observed=(uint32_t)x.len;}
+    prev=(Slice){0};for(uint32_t i=0;i<bc;++i){LexerBlock r;Slice a,z;if(!lexer_block_at(v,i,&r,&a,&z))return fail("invalid block delimiter");if(i&&compare_slices(prev,a)>=0)return fail("block delimiters not canonical");prev=a;if(a.len>observed)observed=(uint32_t)a.len;if(z.len>observed)observed=(uint32_t)z.len;}
+    prev=(Slice){0};for(uint32_t i=0;i<sc;++i){LexerString r;Slice x;if(!lexer_string_at(v,i,&r,&x))return fail("invalid string delimiter");if(i&&compare_slices(prev,x)>=0)return fail("string delimiters not canonical");prev=x;if(x.len>observed)observed=(uint32_t)x.len;}
+    prev=(Slice){0};for(uint32_t i=0;i<kc;++i){LexerShort r;Slice x;if(!lexer_short_at(v,ko,kc,i,&r,&x)||r.flags)return fail("invalid keyword");if(i&&compare_slices(prev,x)>=0)return fail("keywords not canonical");prev=x;}
+    if(observed!=maxd)return fail("lexer max delimiter mismatch");
+    return 1;
+}
+static int load_lexer_pack(const uint8_t *data,size_t len,LexerView *v){Section*sections=NULL;uint32_t count=0,mi=0,li=0;if(!parse_outer(data,len,&sections,&count,&mi,&li))return 0;int n=0;Section ls={0};for(uint32_t i=0;i<count;++i)if(sections[i].kind==9){++n;ls=sections[i];}if(n!=1){free(sections);return fail("expected exactly one lexer section");}int ok=validate_manifest_lock(sec_slice(data,&sections[mi]),sec_slice(data,&sections[li]))&&parse_lexer(sec_slice(data,&ls),v);free(sections);return ok;}
+static int lexer_prefix_at(const uint8_t *input,size_t len,size_t pos,Slice x){return x.len<=len-pos&&memcmp(input+pos,x.bytes,x.len)==0;}
+static int lexer_keyword(const LexerView*v,const uint8_t*input,size_t len){uint32_t lo=0,hi=v->keyword_count;Slice target={input,len};while(lo<hi){uint32_t mid=lo+(hi-lo)/2;LexerShort r;Slice x;if(!lexer_short_at(v,v->keyword_offset,v->keyword_count,mid,&r,&x))return 0;int c=compare_slices(x,target);if(c<0)lo=mid+1;else if(c>0)hi=mid;else return 1;}return 0;}
+static int lex_token_append(mosaic_lex_token **out,size_t *count,size_t *cap,uint32_t kind,size_t start,size_t end){if(end<=start)return 0;if(*count==*cap){size_t n=*cap?*cap*2u:64u;if(n<*count||n>SIZE_MAX/sizeof**out)return 0;void*p=realloc(*out,n*sizeof**out);if(!p)return 0;*out=(mosaic_lex_token*)p;*cap=n;}(*out)[(*count)++]=(mosaic_lex_token){kind,0u,(uint64_t)start,(uint64_t)(end-start)};return 1;}
+static int ascii_ident_start(uint8_t c,int dollar){return(c>='A'&&c<='Z')||(c>='a'&&c<='z')||c=='_'||(dollar&&c=='$')||c>=0x80;}
+static int ascii_ident_continue(uint8_t c,int dollar){return ascii_ident_start(c,dollar)||(c>='0'&&c<='9');}
+static int lex_view(const LexerView *v, const uint8_t *input, size_t len, mosaic_lex_token **out, size_t *out_count) {
+    *out = NULL; *out_count = 0;
+    size_t cap = 0, pos = 0;
+    int dollar = (v->flags & 1u) != 0;
+    while (pos < len) {
+        size_t start = pos;
+        uint8_t c = input[pos];
+        if (c == '\r' || c == '\n') {
+            if (c == '\r' && pos + 1u < len && input[pos + 1u] == '\n') pos += 2u; else ++pos;
+            if (!lex_token_append(out, out_count, &cap, MOSAIC_LEX_NEWLINE, start, pos)) goto oom;
+            continue;
+        }
+        if (c == ' ' || c == '\t' || c == '\v' || c == '\f') {
+            do { ++pos; } while (pos < len && (input[pos] == ' ' || input[pos] == '\t' || input[pos] == '\v' || input[pos] == '\f'));
+            if (!lex_token_append(out, out_count, &cap, MOSAIC_LEX_WHITESPACE, start, pos)) goto oom;
+            continue;
+        }
+        uint32_t best = UINT32_MAX; size_t best_len = 0;
+        for (uint32_t i = 0; i < v->line_count; ++i) {
+            LexerShort r; Slice x;
+            if (!lexer_short_at(v, v->line_offset, v->line_count, i, &r, &x)) goto oom;
+            if (x.len > best_len && lexer_prefix_at(input, len, pos, x)) { best = i; best_len = x.len; }
+        }
+        if (best != UINT32_MAX) {
+            pos += best_len; while (pos < len && input[pos] != '\r' && input[pos] != '\n') ++pos;
+            if (!lex_token_append(out, out_count, &cap, MOSAIC_LEX_COMMENT, start, pos)) goto oom;
+            continue;
+        }
+        best = UINT32_MAX; best_len = 0;
+        for (uint32_t i = 0; i < v->block_count; ++i) {
+            LexerBlock r; Slice a, z;
+            if (!lexer_block_at(v, i, &r, &a, &z)) goto oom;
+            if (a.len > best_len && lexer_prefix_at(input, len, pos, a)) { best = i; best_len = a.len; }
+        }
+        if (best != UINT32_MAX) {
+            LexerBlock r; Slice a, z;
+            if (!lexer_block_at(v, best, &r, &a, &z)) goto oom;
+            pos += a.len; size_t depth = 1u;
+            while (pos < len && depth) {
+                if ((r.flags & 1u) && lexer_prefix_at(input, len, pos, a)) { ++depth; pos += a.len; continue; }
+                if (lexer_prefix_at(input, len, pos, z)) { --depth; pos += z.len; continue; }
+                ++pos;
+            }
+            if (!lex_token_append(out, out_count, &cap, depth ? MOSAIC_LEX_ERROR : MOSAIC_LEX_COMMENT, start, pos)) goto oom;
+            continue;
+        }
+        best = UINT32_MAX; best_len = 0;
+        for (uint32_t i = 0; i < v->string_count; ++i) {
+            LexerString r; Slice d;
+            if (!lexer_string_at(v, i, &r, &d)) goto oom;
+            if (d.len > best_len && lexer_prefix_at(input, len, pos, d)) { best = i; best_len = d.len; }
+        }
+        if (best != UINT32_MAX) {
+            LexerString r; Slice d;
+            if (!lexer_string_at(v, best, &r, &d)) goto oom;
+            pos += d.len; int closed = 0;
+            while (pos < len) {
+                if (r.escape && input[pos] == r.escape) { pos += pos + 1u < len ? 2u : 1u; continue; }
+                if (lexer_prefix_at(input, len, pos, d)) { pos += d.len; closed = 1; break; }
+                ++pos;
+            }
+            if (!lex_token_append(out, out_count, &cap, closed ? MOSAIC_LEX_STRING : MOSAIC_LEX_ERROR, start, pos)) goto oom;
+            continue;
+        }
+        if (ascii_ident_start(c, dollar)) {
+            ++pos; while (pos < len && ascii_ident_continue(input[pos], dollar)) ++pos;
+            uint32_t kind = lexer_keyword(v, input + start, pos - start) ? MOSAIC_LEX_KEYWORD : MOSAIC_LEX_IDENTIFIER;
+            if (!lex_token_append(out, out_count, &cap, kind, start, pos)) goto oom;
+            continue;
+        }
+        if (c >= '0' && c <= '9') {
+            ++pos; int exp_sign = 0;
+            while (pos < len) {
+                uint8_t q = input[pos];
+                if ((q >= '0' && q <= '9') || (q >= 'A' && q <= 'Z') || (q >= 'a' && q <= 'z') || q == '_' || q == '.' || q == '\'') {
+                    exp_sign = q == 'e' || q == 'E' || q == 'p' || q == 'P'; ++pos; continue;
+                }
+                if (exp_sign && (q == '+' || q == '-')) { exp_sign = 0; ++pos; continue; }
+                break;
+            }
+            if (!lex_token_append(out, out_count, &cap, MOSAIC_LEX_NUMBER, start, pos)) goto oom;
+            continue;
+        }
+        ++pos;
+        if (!lex_token_append(out, out_count, &cap, MOSAIC_LEX_PUNCTUATION, start, pos)) goto oom;
+    }
+    return 1;
+oom:
+    free(*out); *out = NULL; *out_count = 0; return 0;
 }
 
 static int detector_profile(const DetectorView *v, uint32_t index, DetectorProfile *out, Slice *tag) {
@@ -1392,6 +1542,13 @@ struct mosaic_normalization {
     uint8_t hash[32];
 };
 
+struct mosaic_lexer {
+    uint8_t *pack;
+    size_t pack_len;
+    LexerView view;
+    uint8_t hash[32];
+};
+
 struct mosaic_tokenizer {
     mosaic_model *model;
     mosaic_unicode *unicode_data;
@@ -1402,6 +1559,7 @@ struct mosaic_tokenizer {
     mosaic_detector *detector;
     mosaic_security *security;
     mosaic_normalization *normalization;
+    mosaic_lexer *lexer;
     uint8_t fingerprint[32];
 };
 
@@ -1489,6 +1647,8 @@ struct mosaic_token_document {
     mosaic_security_finding *security_findings;
     size_t security_finding_count;
     mosaic_normalized_view normalized;
+    mosaic_lex_token *lexical_tokens;
+    size_t lexical_token_count;
     mosaic_normalization_mode normalization_mode;
     uint32_t flags;
     uint8_t source_sha256[32];
@@ -1497,7 +1657,7 @@ struct mosaic_token_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.13.0"; }
+const char *mosaic_version_string(void) { return "0.14.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -2143,6 +2303,19 @@ mosaic_status mosaic_normalization_unicode_version(const mosaic_normalization*n,
 void mosaic_normalized_view_free(mosaic_normalized_view*view){if(!view)return;free(view->bytes);free(view->units);free(view->source_spans);memset(view,0,sizeof*view);}
 mosaic_status mosaic_normalize(const mosaic_normalization*n,mosaic_normalization_mode mode,const uint8_t*input,size_t input_len,mosaic_normalized_view*out_view){if(!n||(!input&&input_len)||!out_view||mode<MOSAIC_NORMALIZE_PRESERVE||mode>MOSAIC_NORMALIZE_NFKC_CASEFOLD)return MOSAIC_ERROR_INVALID_ARGUMENT;memset(out_view,0,sizeof*out_view);if(!normalize_internal(&n->view,mode,(Slice){input,input_len},out_view))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
 
+mosaic_status mosaic_lexer_load_memory(const uint8_t *pack,size_t pack_len,mosaic_lexer **out_lexer){
+    if(!out_lexer||(!pack&&pack_len))return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_lexer=NULL;
+    mosaic_lexer*l=(mosaic_lexer*)calloc(1,sizeof*l);if(!l)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status st=copy_bytes(pack,pack_len,&l->pack);if(st!=MOSAIC_OK){free(l);return st;}l->pack_len=pack_len;
+    if(!load_lexer_pack(l->pack,l->pack_len,&l->view)||!sha256_bytes(l->pack,l->pack_len,l->hash)){free(l->pack);free(l);return MOSAIC_ERROR_INVALID_PACK;}
+    *out_lexer=l;return MOSAIC_OK;
+}
+mosaic_status mosaic_lexer_load_file(const char *path,mosaic_lexer **out_lexer){if(!path||!out_lexer)return MOSAIC_ERROR_INVALID_ARGUMENT;uint8_t*d=NULL;size_t n=0;if(!read_file(path,&d,&n))return MOSAIC_ERROR_IO;mosaic_status st=mosaic_lexer_load_memory(d,n,out_lexer);free(d);return st;}
+void mosaic_lexer_free(mosaic_lexer *lexer){if(!lexer)return;free(lexer->pack);free(lexer);}
+mosaic_status mosaic_lexer_profile_name(const mosaic_lexer *lexer,char *buffer,size_t capacity,size_t *out_required){if(!lexer||!out_required)return MOSAIC_ERROR_INVALID_ARGUMENT;size_t need=(size_t)lexer->view.name_len+1u;*out_required=need;if(!buffer)return capacity?MOSAIC_ERROR_INVALID_ARGUMENT:MOSAIC_OK;if(capacity<need)return MOSAIC_ERROR_OVERFLOW;memcpy(buffer,lexer->view.section+lexer->view.blob_offset+lexer->view.name_offset,lexer->view.name_len);buffer[lexer->view.name_len]='\0';return MOSAIC_OK;}
+mosaic_status mosaic_lex(const mosaic_lexer *lexer,const uint8_t *input,size_t input_len,mosaic_lex_token **out_tokens,size_t *out_count){if(!lexer||(!input&&input_len)||!out_tokens||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_tokens=NULL;*out_count=0;if(!lex_view(&lexer->view,input,input_len,out_tokens,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
+
 mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const uint8_t *input, size_t input_len,
                                      mosaic_range **out_ranges, size_t *out_count) {
     if (!unicode_data || (!input && input_len) || !out_ranges || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -2191,6 +2364,11 @@ static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
         static const uint8_t normalization_domain[] = "NORMALIZATION\0";
         (void)sha256_update(&ctx, normalization_domain, sizeof normalization_domain - 1u);
         (void)sha256_update(&ctx, tokenizer->normalization->hash, 32u);
+    }
+    if (tokenizer->lexer) {
+        static const uint8_t lexer_domain[] = "LEXER\0";
+        (void)sha256_update(&ctx, lexer_domain, sizeof lexer_domain - 1u);
+        (void)sha256_update(&ctx, tokenizer->lexer->hash, 32u);
     }
     (void)sha256_final(&ctx, tokenizer->fingerprint);
 }
@@ -2326,6 +2504,10 @@ static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_toke
     }
     if (source->normalization) {
         status = mosaic_tokenizer_set_normalization_memory(copy, source->normalization->pack, source->normalization->pack_len);
+        if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
+    }
+    if (source->lexer) {
+        status = mosaic_tokenizer_set_lexer_memory(copy, source->lexer->pack, source->lexer->pack_len);
         if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
     }
     *out_tokenizer = copy;
@@ -2945,6 +3127,11 @@ mosaic_status mosaic_tokenizer_set_normalization_memory(mosaic_tokenizer *tokeni
     return MOSAIC_OK;
 }
 mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenizer,const char *path){if(!tokenizer||!path)return MOSAIC_ERROR_INVALID_ARGUMENT;if(tokenizer->normalization)return MOSAIC_ERROR_CONFLICT;mosaic_normalization*n=NULL;mosaic_status status=mosaic_normalization_load_file(path,&n);if(status!=MOSAIC_OK)return status;tokenizer->normalization=n;tokenizer_compute_fingerprint(tokenizer);return MOSAIC_OK;}
+int mosaic_tokenizer_lexer_loaded(const mosaic_tokenizer *tokenizer){return tokenizer&&tokenizer->lexer?1:0;}
+mosaic_status mosaic_tokenizer_set_lexer_memory(mosaic_tokenizer *tokenizer,const uint8_t *pack,size_t len){if(!tokenizer||(!pack&&len))return MOSAIC_ERROR_INVALID_ARGUMENT;if(tokenizer->lexer)return MOSAIC_ERROR_CONFLICT;mosaic_lexer*l=NULL;mosaic_status st=mosaic_lexer_load_memory(pack,len,&l);if(st!=MOSAIC_OK)return st;tokenizer->lexer=l;tokenizer_compute_fingerprint(tokenizer);return MOSAIC_OK;}
+mosaic_status mosaic_tokenizer_set_lexer_file(mosaic_tokenizer *tokenizer,const char *path){if(!tokenizer||!path)return MOSAIC_ERROR_INVALID_ARGUMENT;if(tokenizer->lexer)return MOSAIC_ERROR_CONFLICT;mosaic_lexer*l=NULL;mosaic_status st=mosaic_lexer_load_file(path,&l);if(st!=MOSAIC_OK)return st;tokenizer->lexer=l;tokenizer_compute_fingerprint(tokenizer);return MOSAIC_OK;}
+mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer,const uint8_t *input,size_t len,mosaic_lex_token **out,size_t *count){if(!tokenizer||!tokenizer->lexer)return MOSAIC_ERROR_UNSUPPORTED;return mosaic_lex(tokenizer->lexer,input,len,out,count);}
+
 int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer*tokenizer){return tokenizer&&tokenizer->normalization;}
 mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer*tokenizer,mosaic_normalization_mode mode,const uint8_t*input,size_t input_len,mosaic_normalized_view*out_view){if(!tokenizer||!tokenizer->normalization)return MOSAIC_ERROR_INVALID_ARGUMENT;return mosaic_normalize(tokenizer->normalization,mode,input,input_len,out_view);}
 
@@ -2997,6 +3184,7 @@ void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     mosaic_detector_free(tokenizer->detector);
     mosaic_security_free(tokenizer->security);
     mosaic_normalization_free(tokenizer->normalization);
+    mosaic_lexer_free(tokenizer->lexer);
     free(tokenizer->adjustments);
     free(tokenizer);
 }
@@ -3016,6 +3204,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->detector) caps |= MOSAIC_CAP_DETECTOR;
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
+    if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3054,11 +3243,12 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
                                                     mosaic_normalization_mode normalization_mode, int auto_mode,
                                                     mosaic_token_document **out_document) {
     const uint32_t supported = MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES |
-                               MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION;
+                               MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION | MOSAIC_TOKEN_DOCUMENT_LEXICAL;
     if (!tokenizer || (!input && input_len) || !out_document || (flags & ~supported) || !normalization_mode_valid(normalization_mode))
         return MOSAIC_ERROR_INVALID_ARGUMENT;
     if ((flags & MOSAIC_TOKEN_DOCUMENT_SECURITY) && !tokenizer->security) return MOSAIC_ERROR_UNSUPPORTED;
     if ((flags & MOSAIC_TOKEN_DOCUMENT_NORMALIZATION) && !tokenizer->normalization) return MOSAIC_ERROR_UNSUPPORTED;
+    if ((flags & MOSAIC_TOKEN_DOCUMENT_LEXICAL) && !tokenizer->lexer) return MOSAIC_ERROR_UNSUPPORTED;
     *out_document = NULL;
     mosaic_token_document *doc = (mosaic_token_document *)calloc(1, sizeof *doc);
     if (!doc) return MOSAIC_ERROR_OUT_OF_MEMORY;
@@ -3107,6 +3297,10 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
         mosaic_status status = mosaic_tokenizer_normalize(tokenizer, normalization_mode, input, input_len, &doc->normalized);
         if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
     }
+    if (flags & MOSAIC_TOKEN_DOCUMENT_LEXICAL) {
+        mosaic_status status = mosaic_tokenizer_lex(tokenizer, input, input_len, &doc->lexical_tokens, &doc->lexical_token_count);
+        if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
+    }
     *out_document = doc; return MOSAIC_OK;
 }
 
@@ -3146,6 +3340,7 @@ mosaic_status mosaic_token_document_get_info(const mosaic_token_document *docume
     out_info->security_finding_count = (uint64_t)document->security_finding_count;
     out_info->normalized_byte_length = (uint64_t)document->normalized.byte_length;
     out_info->normalized_unit_count = (uint64_t)document->normalized.unit_count;
+    out_info->lexical_token_count = (uint64_t)document->lexical_token_count;
     out_info->normalization_mode = document->normalization_mode;
     memcpy(out_info->source_sha256, document->source_sha256, 32);
     memcpy(out_info->tokenizer_fingerprint_sha256, document->tokenizer_fingerprint, 32);
@@ -3223,12 +3418,15 @@ overflow: mosaic_normalized_view_free(out_view); return MOSAIC_ERROR_OVERFLOW;
 oom: mosaic_normalized_view_free(out_view); return MOSAIC_ERROR_OUT_OF_MEMORY;
 }
 
+mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,mosaic_lex_token **out_tokens,size_t *out_count){if(!document||!out_tokens||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_tokens=NULL;*out_count=0;if(!(document->flags&MOSAIC_TOKEN_DOCUMENT_LEXICAL))return MOSAIC_ERROR_UNSUPPORTED;if(document->lexical_token_count>SIZE_MAX/sizeof**out_tokens)return MOSAIC_ERROR_OVERFLOW;mosaic_lex_token*copy=document->lexical_token_count?(mosaic_lex_token*)malloc(document->lexical_token_count*sizeof*copy):NULL;if(document->lexical_token_count&&!copy)return MOSAIC_ERROR_OUT_OF_MEMORY;if(document->lexical_token_count)memcpy(copy,document->lexical_tokens,document->lexical_token_count*sizeof*copy);*out_tokens=copy;*out_count=document->lexical_token_count;return MOSAIC_OK;}
+
 void mosaic_token_document_free(mosaic_token_document *document) {
     if (!document) return;
     free(document->source);
     free(document->model_tokens);
     free(document->graphemes);
     free(document->security_findings);
+    free(document->lexical_tokens);
     mosaic_normalized_view_free(&document->normalized);
     free(document);
 }
@@ -3297,12 +3495,16 @@ static void usage(const char *argv0) {
             "       %s security SECURITY_PACK INPUT\n"
             "       %s fingerprint-security MODEL_PACK UNICODE_PACK SECURITY_PACK\n"
             "       %s analyze-security MODEL_PACK UNICODE_PACK SECURITY_PACK INPUT\n"
+            "       %s lexer LEXER_PACK INPUT\n"
+            "       %s fingerprint-lexer MODEL_PACK UNICODE_PACK LEXER_PACK\n"
+            "       %s analyze-lexer MODEL_PACK UNICODE_PACK LEXER_PACK INPUT\n"
             "       %s normalize NORMALIZATION_PACK MODE INPUT OUTPUT\n"
             "       %s normalize-map NORMALIZATION_PACK MODE INPUT\n"
             "       %s fingerprint-normalization MODEL_PACK UNICODE_PACK NORMALIZATION_PACK\n"
             "       %s analyze-normalization MODEL_PACK UNICODE_PACK NORMALIZATION_PACK MODE INPUT\n",
             argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
-            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
+            argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
+            argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -3481,6 +3683,75 @@ static int auto_cli(int argc, char **argv) {
 }
 
 
+static const char *lex_kind_name(uint16_t kind) {
+    switch ((mosaic_lex_kind)kind) {
+        case MOSAIC_LEX_WHITESPACE: return "whitespace";
+        case MOSAIC_LEX_NEWLINE: return "newline";
+        case MOSAIC_LEX_IDENTIFIER: return "identifier";
+        case MOSAIC_LEX_KEYWORD: return "keyword";
+        case MOSAIC_LEX_NUMBER: return "number";
+        case MOSAIC_LEX_STRING: return "string";
+        case MOSAIC_LEX_COMMENT: return "comment";
+        case MOSAIC_LEX_PUNCTUATION: return "punctuation";
+        case MOSAIC_LEX_ERROR: return "error";
+        default: return "unknown";
+    }
+}
+
+static void print_lex_tokens(const mosaic_lex_token *tokens, size_t count) {
+    printf("lexical_tokens=%zu\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        printf("lex kind=%s kind_id=%u flags=%u start=%" PRIu64 " length=%" PRIu64 "\n",
+               lex_kind_name(tokens[i].kind), (unsigned)tokens[i].kind, (unsigned)tokens[i].flags,
+               tokens[i].start, tokens[i].length);
+    }
+}
+
+static int lexer_cli(int argc, char **argv) {
+    if (argc != 4) return -1;
+    mosaic_lexer *lexer = NULL;
+    if (mosaic_lexer_load_file(argv[2], &lexer) != MOSAIC_OK) return 0;
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[3], &input, &input_len)) { mosaic_lexer_free(lexer); return 0; }
+    mosaic_lex_token *tokens = NULL; size_t count = 0;
+    mosaic_status st = mosaic_lex(lexer, input, input_len, &tokens, &count);
+    if (st == MOSAIC_OK) {
+        char profile[128] = {0}; size_t required = 0;
+        if (mosaic_lexer_profile_name(lexer, profile, sizeof profile, &required) != MOSAIC_OK) {
+            mosaic_free(tokens); free(input); mosaic_lexer_free(lexer); return 0;
+        }
+        printf("profile=%s bytes=%zu ", profile, input_len);
+        print_lex_tokens(tokens, count);
+    }
+    mosaic_free(tokens); free(input); mosaic_lexer_free(lexer);
+    return st == MOSAIC_OK ? 1 : 0;
+}
+
+static int integrated_lexer_cli(int argc, char **argv) {
+    int fingerprint_only = !strcmp(argv[1], "fingerprint-lexer");
+    if ((fingerprint_only && argc != 5) || (!fingerprint_only && argc != 6)) return -1;
+    mosaic_tokenizer *tokenizer = NULL;
+    if (mosaic_tokenizer_load_files(argv[2], argv[3], &tokenizer) != MOSAIC_OK) return 0;
+    if (mosaic_tokenizer_set_lexer_file(tokenizer, argv[4]) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    uint8_t fingerprint[32];
+    if (mosaic_tokenizer_fingerprint(tokenizer, fingerprint) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    if (fingerprint_only) { print_hex32(fingerprint); mosaic_tokenizer_free(tokenizer); return 1; }
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[5], &input, &input_len)) { mosaic_tokenizer_free(tokenizer); return 0; }
+    mosaic_lex_token *tokens = NULL; size_t count = 0;
+    mosaic_status st = mosaic_tokenizer_lex(tokenizer, input, input_len, &tokens, &count);
+    if (st == MOSAIC_OK) {
+        printf("fingerprint=");
+        static const char hex[] = "0123456789abcdef";
+        for (size_t i = 0; i < 32; ++i) printf("%c%c", hex[fingerprint[i] >> 4], hex[fingerprint[i] & 15]);
+        printf(" bytes=%zu ", input_len);
+        print_lex_tokens(tokens, count);
+    }
+    mosaic_free(tokens); free(input); mosaic_tokenizer_free(tokenizer);
+    return st == MOSAIC_OK ? 1 : 0;
+}
+
+
 static int parse_normalization_mode(const char *name,mosaic_normalization_mode *mode){
     if(!strcmp(name,"preserve"))*mode=MOSAIC_NORMALIZE_PRESERVE;
     else if(!strcmp(name,"nfd"))*mode=MOSAIC_NORMALIZE_NFD;
@@ -3508,6 +3779,12 @@ int main(int argc, char **argv) {
     if (argc == 2 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "version"))) {
         printf("mosaic-tokenizer %s\n", mosaic_version_string());
         return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "lexer")) {
+        int result=lexer_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
+    }
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-lexer") || !strcmp(argv[1], "analyze-lexer"))) {
+        int result=integrated_lexer_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
     if (argc >= 2 && (!strcmp(argv[1], "normalize") || !strcmp(argv[1], "normalize-map"))) {
         int result=normalization_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;

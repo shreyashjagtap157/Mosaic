@@ -12,7 +12,7 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack'
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
         manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
@@ -25,6 +25,12 @@ def main():
         if sf!=manifest['reference_security_fingerprint_sha256']:raise SystemExit('packaged security fingerprint mismatch')
         nf=run([cli,'fingerprint-normalization',model,uni,normalization])
         if nf!=manifest['reference_normalization_fingerprint_sha256']:raise SystemExit('packaged normalization fingerprint mismatch')
+        for tag,path in lexers.items():
+            lfpx=run([cli,'fingerprint-lexer',model,uni,path])
+            if lfpx!=manifest['lexer_packs'][tag]['tokenizer_fingerprint_sha256']:raise SystemExit(f'packaged lexer fingerprint mismatch: {tag}')
+        lexer_sample=temp/'lexer.c';lexer_sample.write_bytes(b'int main(){return 0;} // hi\n')
+        lexer_out=run([cli,'lexer',lexers['c'],lexer_sample])
+        if 'profile=c' not in lexer_out or 'kind=keyword' not in lexer_out or 'kind=comment' not in lexer_out:raise SystemExit('packaged lexer CLI smoke failed')
         for line in (d/'SHA256SUMS').read_text().splitlines():
             expected,rel=line.split('  ',1);actual=hashlib.sha256((d/rel).read_bytes()).hexdigest()
             if actual!=expected:raise SystemExit(f'checksum mismatch: {rel}')
@@ -64,13 +70,14 @@ static mosaic_status count_security(void *ctx, const mosaic_security_finding *fi
 }
 
 int main(int argc, char **argv) {
-    if (argc != 7) return 2;
+    if (argc != 8) return 2;
     mosaic_tokenizer *t = 0;
     if (mosaic_tokenizer_load_files(argv[1], argv[2], &t) != MOSAIC_OK) return 3;
     if (mosaic_tokenizer_add_language_file(t, argv[3]) != MOSAIC_OK) return 4;
     if (mosaic_tokenizer_set_detector_file(t, argv[4]) != MOSAIC_OK) return 5;
     if (mosaic_tokenizer_set_security_file(t, argv[5]) != MOSAIC_OK) return 8;
     if (mosaic_tokenizer_set_normalization_file(t, argv[6]) != MOSAIC_OK) return 10;
+    if (mosaic_tokenizer_set_lexer_file(t, argv[7]) != MOSAIC_OK) return 31;
 
     const unsigned char in[] = "tokenizer";
     unsigned int *ids = 0;
@@ -128,12 +135,15 @@ int main(int argc, char **argv) {
     mosaic_resync_document_free(resync);
 
     mosaic_token_document *tdoc = 0;
-    if (mosaic_tokenizer_token_document_create(t, in, 9, MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES, &tdoc) != MOSAIC_OK) return 28;
+    if (mosaic_tokenizer_token_document_create(t, in, 9, MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES | MOSAIC_TOKEN_DOCUMENT_LEXICAL, &tdoc) != MOSAIC_OK) return 28;
     mosaic_token_document_info tinfo = {0};
     if (mosaic_token_document_get_info(tdoc, &tinfo) != MOSAIC_OK || tinfo.source_length != 9 || !tinfo.model_token_count) return 29;
     mosaic_document_token *dtokens = 0; size_t dtn = 0;
     if (mosaic_token_document_model_tokens(tdoc, &dtokens, &dtn) != MOSAIC_OK || dtn != tinfo.model_token_count) return 30;
     mosaic_free(dtokens);
+    mosaic_lex_token *ltokens = 0; size_t ltn = 0;
+    if (mosaic_token_document_lexical_tokens(tdoc, &ltokens, &ltn) != MOSAIC_OK || !ltn) return 32;
+    mosaic_free(ltokens);
 
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};
@@ -150,6 +160,6 @@ int main(int argc, char **argv) {
 }
 ''')
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-o',temp/'client'],check=True)
-        subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization],check=True)
-    print(f'OK: packaged release {archive.name} passes CLI, detector/language/security/normalization packs, manifest, checksums, authoring, compatibility, and external static-client smoke');return 0
+        subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True)
+    print(f'OK: packaged release {archive.name} passes CLI, detector/language/security/normalization/lexer packs, manifest, checksums, authoring, compatibility, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())

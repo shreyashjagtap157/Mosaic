@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 11
+#define MOSAIC_C_API_VERSION_MINOR 12
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -38,6 +38,7 @@ typedef struct mosaic_document mosaic_document;
 typedef struct mosaic_incremental_document mosaic_incremental_document;
 typedef struct mosaic_resync_document mosaic_resync_document;
 typedef struct mosaic_token_document mosaic_token_document;
+typedef struct mosaic_lexer mosaic_lexer;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -56,7 +57,8 @@ enum {
     MOSAIC_TOKEN_DOCUMENT_MODEL = 1u << 0,
     MOSAIC_TOKEN_DOCUMENT_GRAPHEMES = 1u << 1,
     MOSAIC_TOKEN_DOCUMENT_SECURITY = 1u << 2,
-    MOSAIC_TOKEN_DOCUMENT_NORMALIZATION = 1u << 3
+    MOSAIC_TOKEN_DOCUMENT_NORMALIZATION = 1u << 3,
+    MOSAIC_TOKEN_DOCUMENT_LEXICAL = 1u << 4
 };
 
 enum {
@@ -71,7 +73,8 @@ enum {
     MOSAIC_CAP_EDITABLE_DOCUMENT = 1ull << 8,
     MOSAIC_CAP_INCREMENTAL_DOCUMENT = 1ull << 9,
     MOSAIC_CAP_RESYNC_DOCUMENT = 1ull << 10,
-    MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11
+    MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11,
+    MOSAIC_CAP_LEXER = 1ull << 12
 };
 
 typedef struct mosaic_range {
@@ -131,6 +134,26 @@ typedef struct mosaic_normalized_view {
     size_t source_span_count;
 } mosaic_normalized_view;
 
+
+typedef enum mosaic_lex_kind {
+    MOSAIC_LEX_WHITESPACE = 1,
+    MOSAIC_LEX_NEWLINE = 2,
+    MOSAIC_LEX_IDENTIFIER = 3,
+    MOSAIC_LEX_KEYWORD = 4,
+    MOSAIC_LEX_NUMBER = 5,
+    MOSAIC_LEX_STRING = 6,
+    MOSAIC_LEX_COMMENT = 7,
+    MOSAIC_LEX_PUNCTUATION = 8,
+    MOSAIC_LEX_ERROR = 9
+} mosaic_lex_kind;
+
+typedef struct mosaic_lex_token {
+    uint32_t kind;
+    uint32_t flags;
+    uint64_t start;
+    uint64_t length;
+} mosaic_lex_token;
+
 typedef struct mosaic_detection {
     uint32_t matched;
     uint32_t available;
@@ -160,6 +183,7 @@ typedef struct mosaic_token_document_info {
     uint64_t security_finding_count;
     uint64_t normalized_byte_length;
     uint64_t normalized_unit_count;
+    uint64_t lexical_token_count;
     mosaic_normalization_mode normalization_mode;
     uint32_t reserved;
     uint8_t source_sha256[32];
@@ -214,6 +238,12 @@ mosaic_status mosaic_tokenizer_set_normalization_file(mosaic_tokenizer *tokenize
 int mosaic_tokenizer_normalization_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_normalize(const mosaic_tokenizer *tokenizer, mosaic_normalization_mode mode,
                                          const uint8_t *input, size_t input_len, mosaic_normalized_view *out_view);
+/* Optional declarative lexer profile. One exact profile may be attached to a tokenizer snapshot. */
+mosaic_status mosaic_tokenizer_set_lexer_memory(mosaic_tokenizer *tokenizer, const uint8_t *lexer_pack, size_t lexer_pack_len);
+mosaic_status mosaic_tokenizer_set_lexer_file(mosaic_tokenizer *tokenizer, const char *path);
+int mosaic_tokenizer_lexer_loaded(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_lex(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+                                   mosaic_lex_token **out_tokens, size_t *out_count);
 int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
@@ -274,6 +304,8 @@ mosaic_status mosaic_token_document_security_findings(const mosaic_token_documen
                                                        mosaic_security_finding **out_findings, size_t *out_count);
 mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document *document,
                                                      mosaic_normalized_view *out_view);
+mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,
+                                                    mosaic_lex_token **out_tokens, size_t *out_count);
 void mosaic_token_document_free(mosaic_token_document *document);
 
 /* Pack bytes are copied; caller may release its input immediately. */
@@ -393,6 +425,14 @@ mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_
                                    mosaic_security_finding **out_findings, size_t *out_count);
 mosaic_status mosaic_security_visit(const mosaic_security *security, const uint8_t *input, size_t input_len,
                                     mosaic_security_visitor visitor, void *context, size_t *out_count);
+
+/* Declarative lexer profile packs. */
+mosaic_status mosaic_lexer_load_memory(const uint8_t *pack, size_t pack_len, mosaic_lexer **out_lexer);
+mosaic_status mosaic_lexer_load_file(const char *path, mosaic_lexer **out_lexer);
+void mosaic_lexer_free(mosaic_lexer *lexer);
+mosaic_status mosaic_lexer_profile_name(const mosaic_lexer *lexer, char *buffer, size_t capacity, size_t *out_required);
+mosaic_status mosaic_lex(const mosaic_lexer *lexer, const uint8_t *input, size_t input_len,
+                         mosaic_lex_token **out_tokens, size_t *out_count);
 
 /* Version-pinned normalization shadow views. Source bytes are never modified. */
 mosaic_status mosaic_normalization_load_memory(const uint8_t *pack, size_t pack_len, mosaic_normalization **out_normalization);

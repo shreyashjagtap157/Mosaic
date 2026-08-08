@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.13.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.14.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -142,6 +142,16 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
     ${MOSAIC_NORMALIZATION_PACK})
 
+  add_executable(mosaic-lexer-smoke ${MOSAIC_TEST_DIR}/lexer_smoke.c)
+  target_include_directories(mosaic-lexer-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-lexer-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-lexer-smoke)
+  add_test(NAME lexer COMMAND mosaic-lexer-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/python-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/rust-v1.mpack
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/json-v1.mpack)
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -160,6 +170,12 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/normalization16-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs)
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/python-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/rust-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/json-v1.mpack
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs/lexer)
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs/detector)
