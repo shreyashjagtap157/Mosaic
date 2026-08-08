@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 13
+#define MOSAIC_C_API_VERSION_MINOR 14
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -39,6 +39,7 @@ typedef struct mosaic_incremental_document mosaic_incremental_document;
 typedef struct mosaic_resync_document mosaic_resync_document;
 typedef struct mosaic_token_document mosaic_token_document;
 typedef struct mosaic_lexer mosaic_lexer;
+typedef struct mosaic_block_plan mosaic_block_plan;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -77,7 +78,9 @@ enum {
     MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11,
     MOSAIC_CAP_LEXER = 1ull << 12,
     MOSAIC_CAP_SEMANTIC = 1ull << 13,
-    MOSAIC_CAP_SUBBYTE = 1ull << 14
+    MOSAIC_CAP_SUBBYTE = 1ull << 14,
+    MOSAIC_CAP_BLOCK_PLAN = 1ull << 15,
+    MOSAIC_CAP_PACKED_MODEL = 1ull << 16
 };
 
 typedef struct mosaic_range {
@@ -190,6 +193,63 @@ typedef struct mosaic_subbyte_span {
     mosaic_bit_order bit_order;
     uint32_t reserved;
 } mosaic_subbyte_span;
+
+
+
+enum {
+    MOSAIC_BLOCK_OVERSIZE_TOKEN = 1u << 0
+};
+
+typedef struct mosaic_block_policy {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t min_bytes;
+    uint64_t preferred_bytes;
+    uint64_t max_bytes;
+    uint64_t macroblock_bytes;
+    uint64_t max_blocks;
+    uint64_t max_macroblocks;
+} mosaic_block_policy;
+
+typedef struct mosaic_processing_block {
+    uint64_t source_start;
+    uint64_t source_length;
+    uint64_t first_model_token;
+    uint64_t model_token_count;
+    uint32_t flags;
+    uint32_t reserved;
+    uint8_t source_sha256[32];
+    uint8_t identity_sha256[32];
+} mosaic_processing_block;
+
+typedef struct mosaic_macroblock {
+    uint64_t first_block;
+    uint64_t block_count;
+    uint64_t source_start;
+    uint64_t source_length;
+    uint8_t identity_sha256[32];
+} mosaic_macroblock;
+
+typedef struct mosaic_block_plan_info {
+    uint64_t source_length;
+    uint64_t model_token_count;
+    uint64_t block_count;
+    uint64_t macroblock_count;
+    mosaic_block_policy policy;
+    uint8_t source_sha256[32];
+    uint8_t tokenizer_fingerprint_sha256[32];
+} mosaic_block_plan_info;
+
+typedef struct mosaic_packed_model_info {
+    uint32_t format_version;
+    uint32_t id_bit_width;
+    uint64_t token_count;
+    uint64_t source_length;
+    uint64_t encoded_bytes;
+    uint8_t source_sha256[32];
+    uint8_t tokenizer_fingerprint_sha256[32];
+    uint8_t content_sha256[32];
+} mosaic_packed_model_info;
 
 typedef struct mosaic_detection {
     uint32_t matched;
@@ -348,6 +408,29 @@ mosaic_status mosaic_token_document_semantic_components(const mosaic_token_docum
                                                                mosaic_semantic_component **out_components, size_t *out_count);
 mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_t source_len,
                                          mosaic_subbyte_span span, uint64_t *out_value);
+
+/* Enterprise multiscale processing plan. Blocks are model-token aligned and never split a token.
+ * Default policy: 16 KiB minimum, 64 KiB preferred, 256 KiB maximum, 4 MiB macroblocks. */
+void mosaic_block_policy_default(mosaic_block_policy *out_policy);
+mosaic_status mosaic_token_document_block_plan(const mosaic_token_document *document,
+                                                const mosaic_block_policy *policy,
+                                                mosaic_block_plan **out_plan);
+mosaic_status mosaic_block_plan_get_info(const mosaic_block_plan *plan, mosaic_block_plan_info *out_info);
+mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,
+                                       mosaic_processing_block **out_blocks, size_t *out_count);
+mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,
+                                            mosaic_macroblock **out_macroblocks, size_t *out_count);
+void mosaic_block_plan_free(mosaic_block_plan *plan);
+
+/* Canonical compact model-projection serialization. IDs are fixed-bit packed and token lengths
+ * are ULEB128 encoded; a SHA-256 payload checksum makes corruption fail closed. */
+mosaic_status mosaic_token_document_pack_model(const mosaic_token_document *document,
+                                                uint8_t **out_bytes, size_t *out_len);
+mosaic_status mosaic_packed_model_inspect(const uint8_t *bytes, size_t len,
+                                          mosaic_packed_model_info *out_info);
+mosaic_status mosaic_packed_model_decode(const uint8_t *bytes, size_t len,
+                                         mosaic_document_token **out_tokens, size_t *out_count);
+
 void mosaic_token_document_free(mosaic_token_document *document);
 
 /* Pack bytes are copied; caller may release its input immediately. */

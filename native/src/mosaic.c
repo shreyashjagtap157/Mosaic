@@ -178,6 +178,9 @@ static uint32_t rd32(const uint8_t *p) {
 static uint64_t rd64(const uint8_t *p) {
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
 }
+static void wr16(uint8_t *p, uint16_t v) { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); }
+static void wr32(uint8_t *p, uint32_t v) { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); p[2]=(uint8_t)(v>>16); p[3]=(uint8_t)(v>>24); }
+static void wr64(uint8_t *p, uint64_t v) { wr32(p,(uint32_t)v); wr32(p+4,(uint32_t)(v>>32)); }
 static int32_t rdi32(const uint8_t *p) {
     uint32_t u = rd32(p);
     int32_t out;
@@ -1707,8 +1710,16 @@ struct mosaic_token_document {
     mosaic_detection detection;
 };
 
+struct mosaic_block_plan {
+    mosaic_block_plan_info info;
+    mosaic_processing_block *blocks;
+    size_t block_count;
+    mosaic_macroblock *macroblocks;
+    size_t macroblock_count;
+};
+
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.15.0"; }
+const char *mosaic_version_string(void) { return "0.16.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -3256,7 +3267,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3503,6 +3514,186 @@ mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source,size_t source_len
         else value |= (uint64_t)((source[bi] >> within) & 1u) << i;
     }
     *out_value = value; return MOSAIC_OK;
+}
+
+
+#define MOSAIC_PACKED_MODEL_HEADER 160u
+static const uint8_t MOSAIC_PACKED_MODEL_MAGIC[8] = {'M','S','T','K','P','K','0','1'};
+
+static int append_processing_block(mosaic_block_plan *plan, mosaic_processing_block block, size_t limit) {
+    if (plan->block_count >= limit) return 0;
+    size_t next = plan->block_count + 1u;
+    if (next > SIZE_MAX / sizeof *plan->blocks) return 0;
+    mosaic_processing_block *grown = (mosaic_processing_block *)realloc(plan->blocks, next * sizeof *grown);
+    if (!grown) return 0;
+    plan->blocks = grown; plan->blocks[plan->block_count++] = block; return 1;
+}
+static int append_macroblock(mosaic_block_plan *plan, mosaic_macroblock block, size_t limit) {
+    if (plan->macroblock_count >= limit) return 0;
+    size_t next = plan->macroblock_count + 1u;
+    if (next > SIZE_MAX / sizeof *plan->macroblocks) return 0;
+    mosaic_macroblock *grown = (mosaic_macroblock *)realloc(plan->macroblocks, next * sizeof *grown);
+    if (!grown) return 0;
+    plan->macroblocks = grown; plan->macroblocks[plan->macroblock_count++] = block; return 1;
+}
+
+void mosaic_block_policy_default(mosaic_block_policy *out_policy) {
+    if (!out_policy) return;
+    *out_policy = (mosaic_block_policy){sizeof *out_policy, 0u, 16u*1024u, 64u*1024u, 256u*1024u,
+                                        4u*1024u*1024u, 1000000u, 100000u};
+}
+
+static int block_policy_valid(const mosaic_block_policy *p) {
+    return p && p->struct_size >= sizeof *p && !p->flags && p->min_bytes &&
+           p->min_bytes <= p->preferred_bytes && p->preferred_bytes <= p->max_bytes &&
+           p->max_bytes <= SIZE_MAX && p->macroblock_bytes >= p->max_bytes &&
+           p->max_blocks && p->max_blocks <= SIZE_MAX && p->max_macroblocks && p->max_macroblocks <= SIZE_MAX;
+}
+
+static int hash_block_identity(const uint8_t fingerprint[32], const uint8_t *source, size_t len, uint8_t out[32]) {
+    static const uint8_t domain[] = "MOSAIC-BLOCK-v1"; Sha256Ctx c; sha256_init(&c);
+    return sha256_update(&c,domain,sizeof domain-1u) && sha256_update(&c,fingerprint,32u) &&
+           sha256_update(&c,source,len) && sha256_final(&c,out);
+}
+static int hash_macro_identity(const uint8_t fingerprint[32], const mosaic_processing_block *blocks, size_t count, uint8_t out[32]) {
+    static const uint8_t domain[] = "MOSAIC-MACROBLOCK-v1"; Sha256Ctx c; sha256_init(&c);
+    if (!sha256_update(&c,domain,sizeof domain-1u) || !sha256_update(&c,fingerprint,32u)) return 0;
+    for (size_t i=0;i<count;++i) if (!sha256_update(&c,blocks[i].identity_sha256,32u)) return 0;
+    return sha256_final(&c,out);
+}
+
+mosaic_status mosaic_token_document_block_plan(const mosaic_token_document *document, const mosaic_block_policy *policy, mosaic_block_plan **out_plan) {
+    if (!document || !out_plan) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_plan = NULL;
+    if (!(document->flags & MOSAIC_TOKEN_DOCUMENT_MODEL)) return MOSAIC_ERROR_UNSUPPORTED;
+    mosaic_block_policy p; if (policy) p=*policy; else mosaic_block_policy_default(&p);
+    if (!block_policy_valid(&p)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (document->source_len && !document->model_token_count) return MOSAIC_ERROR_INTERNAL;
+    size_t sum=0; for(size_t i=0;i<document->model_token_count;++i){ if(document->model_tokens[i].reserved || !document->model_tokens[i].length || document->model_tokens[i].length>SIZE_MAX-sum) return MOSAIC_ERROR_INTERNAL; sum+=document->model_tokens[i].length; }
+    if(sum!=document->source_len) return MOSAIC_ERROR_INTERNAL;
+    mosaic_block_plan *plan=(mosaic_block_plan*)calloc(1,sizeof*plan); if(!plan)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    plan->info.source_length=document->source_len; plan->info.model_token_count=document->model_token_count; plan->info.policy=p;
+    memcpy(plan->info.source_sha256,document->source_sha256,32); memcpy(plan->info.tokenizer_fingerprint_sha256,document->tokenizer_fingerprint,32);
+    size_t ti=0, source_start=0;
+    while(ti<document->model_token_count){
+        size_t j=ti, accum=0, best_j=ti, best_len=0; uint64_t best_dist=UINT64_MAX; uint32_t flags=0;
+        while(j<document->model_token_count){
+            size_t tl=document->model_tokens[j].length;
+            if(tl>SIZE_MAX-accum){mosaic_block_plan_free(plan);return MOSAIC_ERROR_OVERFLOW;}
+            if(accum && (uint64_t)accum+(uint64_t)tl>p.max_bytes)break;
+            accum+=tl; ++j;
+            if((uint64_t)accum>=p.min_bytes && (uint64_t)accum<=p.max_bytes){
+                uint64_t dist=(uint64_t)accum>p.preferred_bytes?(uint64_t)accum-p.preferred_bytes:p.preferred_bytes-(uint64_t)accum;
+                if(dist<best_dist || (dist==best_dist && accum>best_len)){best_dist=dist;best_len=accum;best_j=j;}
+            }
+            if((uint64_t)accum>=p.max_bytes)break;
+        }
+        if(best_j==ti){
+            best_j=ti+1u; best_len=document->model_tokens[ti].length;
+            if((uint64_t)best_len>p.max_bytes)flags|=MOSAIC_BLOCK_OVERSIZE_TOKEN;
+        }
+        mosaic_processing_block b={0}; b.source_start=source_start;b.source_length=best_len;b.first_model_token=ti;b.model_token_count=best_j-ti;b.flags=flags;
+        if(!sha256_bytes(document->source+source_start,best_len,b.source_sha256)||!hash_block_identity(document->tokenizer_fingerprint,document->source+source_start,best_len,b.identity_sha256)){mosaic_block_plan_free(plan);return MOSAIC_ERROR_INTERNAL;}
+        if (!append_processing_block(plan, b, (size_t)p.max_blocks)) {
+            mosaic_status error = plan->block_count >= (size_t)p.max_blocks ? MOSAIC_ERROR_RESOURCE_LIMIT : MOSAIC_ERROR_OUT_OF_MEMORY;
+            mosaic_block_plan_free(plan);
+            return error;
+        }
+        source_start+=best_len;ti=best_j;
+    }
+    size_t bi=0; while(bi<plan->block_count){
+        size_t first=bi; uint64_t total=0;
+        do { if(UINT64_MAX-total<plan->blocks[bi].source_length){mosaic_block_plan_free(plan);return MOSAIC_ERROR_OVERFLOW;} total+=plan->blocks[bi].source_length; ++bi; } while(bi<plan->block_count && total<p.macroblock_bytes);
+        mosaic_macroblock m={0};m.first_block=first;m.block_count=bi-first;m.source_start=plan->blocks[first].source_start;m.source_length=total;
+        if(!hash_macro_identity(document->tokenizer_fingerprint,plan->blocks+first,bi-first,m.identity_sha256)){mosaic_block_plan_free(plan);return MOSAIC_ERROR_INTERNAL;}
+        if (!append_macroblock(plan, m, (size_t)p.max_macroblocks)) {
+            mosaic_status error = plan->macroblock_count >= (size_t)p.max_macroblocks ? MOSAIC_ERROR_RESOURCE_LIMIT : MOSAIC_ERROR_OUT_OF_MEMORY;
+            mosaic_block_plan_free(plan);
+            return error;
+        }
+    }
+    plan->info.block_count=plan->block_count;plan->info.macroblock_count=plan->macroblock_count;*out_plan=plan;return MOSAIC_OK;
+}
+
+mosaic_status mosaic_block_plan_get_info(const mosaic_block_plan *plan,mosaic_block_plan_info *out_info){if(!plan||!out_info)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_info=plan->info;return MOSAIC_OK;}
+mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,mosaic_processing_block **out_blocks,size_t *out_count){if(!plan||!out_blocks||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_blocks=NULL;*out_count=0;if(plan->block_count>SIZE_MAX/sizeof**out_blocks)return MOSAIC_ERROR_OVERFLOW;mosaic_processing_block*c=plan->block_count?(mosaic_processing_block*)malloc(plan->block_count*sizeof*c):NULL;if(plan->block_count&&!c)return MOSAIC_ERROR_OUT_OF_MEMORY;if(plan->block_count)memcpy(c,plan->blocks,plan->block_count*sizeof*c);*out_blocks=c;*out_count=plan->block_count;return MOSAIC_OK;}
+mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,mosaic_macroblock **out_macroblocks,size_t *out_count){if(!plan||!out_macroblocks||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_macroblocks=NULL;*out_count=0;if(plan->macroblock_count>SIZE_MAX/sizeof**out_macroblocks)return MOSAIC_ERROR_OVERFLOW;mosaic_macroblock*c=plan->macroblock_count?(mosaic_macroblock*)malloc(plan->macroblock_count*sizeof*c):NULL;if(plan->macroblock_count&&!c)return MOSAIC_ERROR_OUT_OF_MEMORY;if(plan->macroblock_count)memcpy(c,plan->macroblocks,plan->macroblock_count*sizeof*c);*out_macroblocks=c;*out_count=plan->macroblock_count;return MOSAIC_OK;}
+void mosaic_block_plan_free(mosaic_block_plan *plan){if(!plan)return;free(plan->blocks);free(plan->macroblocks);free(plan);}
+
+static size_t uleb_size_u64(uint64_t v){size_t n=1;while(v>=128u){v>>=7u;++n;}return n;}
+static void uleb_write_u64(uint8_t *p,uint64_t v,size_t *used){size_t n=0;do{uint8_t b=(uint8_t)(v&127u);v>>=7u;if(v)b|=128u;p[n++]=b;}while(v);*used=n;}
+static int uleb_read_u64(const uint8_t *p,size_t len,size_t *used,uint64_t *out){
+    uint64_t v=0;unsigned shift=0;
+    for(size_t i=0;i<len&&i<10u;++i){
+        uint8_t b=p[i];uint64_t part=(uint64_t)(b&127u);
+        if(shift>63u||(shift==63u&&part>1u))return 0;
+        v|=part<<shift;
+        if(!(b&128u)){if(i&&b==0u)return 0;*used=i+1u;*out=v;return 1;}
+        shift+=7u;
+    }
+    return 0;
+}
+static uint32_t bits_needed_u32(uint32_t v){uint32_t n=0;do{++n;v>>=1u;}while(v);return n;}
+static int packed_model_content_hash(const uint8_t *bytes,size_t len,uint8_t out[32]){
+    if(!bytes||len<MOSAIC_PACKED_MODEL_HEADER)return 0;
+    static const uint8_t zeros[32]={0};Sha256Ctx c;sha256_init(&c);
+    return sha256_update(&c,bytes,120u)&&sha256_update(&c,zeros,sizeof zeros)&&
+           sha256_update(&c,bytes+152u,len-152u)&&sha256_final(&c,out);
+}
+
+mosaic_status mosaic_token_document_pack_model(const mosaic_token_document *document,uint8_t **out_bytes,size_t *out_len){
+    if (!document || !out_bytes || !out_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_bytes = NULL;
+    *out_len = 0;
+    if (!(document->flags & MOSAIC_TOKEN_DOCUMENT_MODEL)) return MOSAIC_ERROR_UNSUPPORTED;
+    size_t lengths=0;uint32_t max_id=0;uint64_t source_sum=0;for(size_t i=0;i<document->model_token_count;++i){ResyncToken t=document->model_tokens[i];if(!t.length||t.reserved)return MOSAIC_ERROR_INTERNAL;size_t n=uleb_size_u64(t.length);if(n>SIZE_MAX-lengths)return MOSAIC_ERROR_OVERFLOW;lengths+=n;if(t.id>max_id)max_id=t.id;if(UINT64_MAX-source_sum<t.length)return MOSAIC_ERROR_OVERFLOW;source_sum+=t.length;}if(source_sum!=document->source_len)return MOSAIC_ERROR_INTERNAL;
+    uint32_t id_bits=document->model_token_count?bits_needed_u32(max_id):0u;if(id_bits&&document->model_token_count>UINT64_MAX/id_bits)return MOSAIC_ERROR_OVERFLOW;uint64_t bit_count=(uint64_t)id_bits*(uint64_t)document->model_token_count;if(bit_count>UINT64_MAX-7u)return MOSAIC_ERROR_OVERFLOW;uint64_t ids64=(bit_count+7u)/8u;if(ids64>SIZE_MAX)return MOSAIC_ERROR_OVERFLOW;size_t ids=(size_t)ids64,payload; if(!add_size(lengths,ids,&payload))return MOSAIC_ERROR_OVERFLOW;size_t total;if(!add_size(MOSAIC_PACKED_MODEL_HEADER,payload,&total))return MOSAIC_ERROR_OVERFLOW;uint8_t*out=(uint8_t*)calloc(total?total:1u,1u);if(!out)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    memcpy(out,MOSAIC_PACKED_MODEL_MAGIC,8);wr16(out+8,1u);wr16(out+10,MOSAIC_PACKED_MODEL_HEADER);wr32(out+12,0u);wr64(out+16,document->model_token_count);wr64(out+24,document->source_len);wr32(out+32,id_bits);wr32(out+36,0u);wr64(out+40,lengths);wr64(out+48,ids);memcpy(out+56,document->source_sha256,32);memcpy(out+88,document->tokenizer_fingerprint,32);
+    size_t pos=MOSAIC_PACKED_MODEL_HEADER;for(size_t i=0;i<document->model_token_count;++i){size_t used=0;uleb_write_u64(out+pos,document->model_tokens[i].length,&used);pos+=used;}uint8_t*idp=out+MOSAIC_PACKED_MODEL_HEADER+lengths;uint64_t bitpos=0;for(size_t i=0;i<document->model_token_count;++i){uint32_t id=document->model_tokens[i].id;for(uint32_t b=0;b<id_bits;++b,++bitpos)if((id>>b)&1u)idp[bitpos/8u]|=(uint8_t)(1u<<(bitpos%8u));}
+    if(!packed_model_content_hash(out,total,out+120)){free(out);return MOSAIC_ERROR_INTERNAL;}*out_bytes=out;*out_len=total;return MOSAIC_OK;
+}
+
+static mosaic_status packed_model_validate(const uint8_t *bytes,size_t len,mosaic_packed_model_info *out,size_t *out_lengths,size_t *out_ids){
+    if (!bytes || len < MOSAIC_PACKED_MODEL_HEADER || memcmp(bytes, MOSAIC_PACKED_MODEL_MAGIC, 8) ||
+        rd16(bytes + 8) != 1u || rd16(bytes + 10) != MOSAIC_PACKED_MODEL_HEADER || rd32(bytes + 12) || rd32(bytes + 36))
+        return MOSAIC_ERROR_INVALID_PACK;
+    for (size_t i = 152; i < 160; ++i) if (bytes[i]) return MOSAIC_ERROR_INVALID_PACK;
+    uint64_t count=rd64(bytes+16),source_len=rd64(bytes+24),lengths64=rd64(bytes+40),ids64=rd64(bytes+48);uint32_t bits=rd32(bytes+32);if((count==0u)!=(bits==0u)||bits>32u||count>SIZE_MAX||source_len>SIZE_MAX||lengths64>SIZE_MAX||ids64>SIZE_MAX)return MOSAIC_ERROR_INVALID_PACK;if(bits&&count>UINT64_MAX/bits)return MOSAIC_ERROR_INVALID_PACK;uint64_t expected_bits=count*(uint64_t)bits;if(expected_bits>UINT64_MAX-7u)return MOSAIC_ERROR_INVALID_PACK;uint64_t expected_ids=(expected_bits+7u)/8u;if(ids64!=expected_ids)return MOSAIC_ERROR_INVALID_PACK;size_t lengths=(size_t)lengths64,ids=(size_t)ids64,payload,total;if(!add_size(lengths,ids,&payload)||!add_size(MOSAIC_PACKED_MODEL_HEADER,payload,&total)||total!=len)return MOSAIC_ERROR_INVALID_PACK;uint8_t digest[32];if(!packed_model_content_hash(bytes,len,digest)||memcmp(digest,bytes+120,32))return MOSAIC_ERROR_INVALID_PACK;
+    size_t pos=MOSAIC_PACKED_MODEL_HEADER;uint64_t sum=0;for(uint64_t i=0;i<count;++i){size_t used=0;uint64_t tl=0;if(!uleb_read_u64(bytes+pos,MOSAIC_PACKED_MODEL_HEADER+lengths-pos,&used,&tl)||!tl||tl>UINT64_MAX-sum)return MOSAIC_ERROR_INVALID_PACK;sum+=tl;pos+=used;}if(pos!=MOSAIC_PACKED_MODEL_HEADER+lengths||sum!=source_len)return MOSAIC_ERROR_INVALID_PACK;if(ids&&expected_bits%8u){uint8_t mask=(uint8_t)(0xffu<<(expected_bits%8u));if(bytes[len-1u]&mask)return MOSAIC_ERROR_INVALID_PACK;}
+    if(out){*out=(mosaic_packed_model_info){1u,bits,count,source_len,len,{0},{0},{0}};memcpy(out->source_sha256,bytes+56,32);memcpy(out->tokenizer_fingerprint_sha256,bytes+88,32);memcpy(out->content_sha256,bytes+120,32);}if(out_lengths)*out_lengths=lengths;if(out_ids)*out_ids=ids;return MOSAIC_OK;
+}
+
+mosaic_status mosaic_packed_model_inspect(const uint8_t *bytes,size_t len,mosaic_packed_model_info *out_info){if(!out_info)return MOSAIC_ERROR_INVALID_ARGUMENT;memset(out_info,0,sizeof*out_info);return packed_model_validate(bytes,len,out_info,NULL,NULL);}
+
+mosaic_status mosaic_packed_model_decode(const uint8_t *bytes,size_t len,mosaic_document_token **out_tokens,size_t *out_count){
+    if (!out_tokens || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_tokens = NULL;
+    *out_count = 0;
+    mosaic_packed_model_info info;
+    size_t lengths = 0, ids = 0;
+    mosaic_status st = packed_model_validate(bytes, len, &info, &lengths, &ids);
+    if (st != MOSAIC_OK) return st;
+    if (info.token_count > SIZE_MAX / sizeof **out_tokens) return MOSAIC_ERROR_OVERFLOW;
+    size_t count = (size_t)info.token_count;
+    mosaic_document_token *out = count ? (mosaic_document_token *)malloc(count * sizeof *out) : NULL;
+    if (count && !out) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    size_t pos = MOSAIC_PACKED_MODEL_HEADER;
+    uint64_t start = 0, bitpos = 0;
+    const uint8_t *idp = bytes + MOSAIC_PACKED_MODEL_HEADER + lengths;
+    for (size_t i = 0; i < count; ++i) {
+        size_t used = 0; uint64_t tl = 0;
+        if (!uleb_read_u64(bytes + pos, lengths - (pos - MOSAIC_PACKED_MODEL_HEADER), &used, &tl)) { free(out); return MOSAIC_ERROR_INVALID_PACK; }
+        pos += used;
+        uint32_t id = 0;
+        for (uint32_t b = 0; b < info.id_bit_width; ++b, ++bitpos)
+            if (idp[bitpos / 8u] & (uint8_t)(1u << (bitpos % 8u))) id |= 1u << b;
+        out[i] = (mosaic_document_token){id, start, tl};
+        start += tl;
+    }
+    *out_tokens = out;
+    *out_count = count;
+    (void)ids;
+    return MOSAIC_OK;
 }
 
 void mosaic_token_document_free(mosaic_token_document *document) {

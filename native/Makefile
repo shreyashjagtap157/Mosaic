@@ -33,6 +33,7 @@ SAN_TOKEN_DOCUMENT := $(BUILD)/mosaic-token-document-smoke-san
 SAN_TOKEN_DOCUMENT_RICH := $(BUILD)/mosaic-token-document-rich-smoke-san
 SAN_LEXER := $(BUILD)/mosaic-lexer-smoke-san
 SAN_SEMANTIC := $(BUILD)/mosaic-semantic-subbyte-smoke-san
+SAN_BLOCK_STORAGE := $(BUILD)/mosaic-block-storage-smoke-san
 BPE_SMOKE := $(BUILD)/mosaic-bpe-smoke
 SECURITY_SMOKE := $(BUILD)/mosaic-security-smoke
 NORMALIZATION_SMOKE := $(BUILD)/mosaic-normalization-smoke
@@ -43,6 +44,7 @@ TOKEN_DOCUMENT_SMOKE := $(BUILD)/mosaic-token-document-smoke
 TOKEN_DOCUMENT_RICH_SMOKE := $(BUILD)/mosaic-token-document-rich-smoke
 LEXER_SMOKE := $(BUILD)/mosaic-lexer-smoke
 SEMANTIC_SMOKE := $(BUILD)/mosaic-semantic-subbyte-smoke
+BLOCK_STORAGE_SMOKE := $(BUILD)/mosaic-block-storage-smoke
 SECURITY := $(ROOT)/fixtures/packs/security17-v1.mpack
 NORMALIZATION := $(ROOT)/fixtures/packs/normalization16-v1.mpack
 ICU_CFLAGS := $(shell pkg-config --cflags icu-uc)
@@ -117,6 +119,9 @@ $(SAN_LEXER): $(TESTS)/lexer_smoke.c $(SAN_OBJ)
 $(SAN_SEMANTIC): $(TESTS)/semantic_subbyte_smoke.c $(SAN_OBJ)
 	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
 
+$(SAN_BLOCK_STORAGE): $(TESTS)/block_storage_smoke.c $(SAN_OBJ)
+	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
+
 $(BPE_SMOKE): $(TESTS)/bpe_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
@@ -145,6 +150,9 @@ $(LEXER_SMOKE): $(TESTS)/lexer_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
 $(SEMANTIC_SMOKE): $(TESTS)/semantic_subbyte_smoke.c $(STATIC_LIB)
+	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
+
+$(BLOCK_STORAGE_SMOKE): $(TESTS)/block_storage_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
 
 sanitize-api: $(SAN_API)
@@ -177,11 +185,12 @@ sanitize-incremental: $(SAN_INCREMENTAL)
 sanitize-resync: $(SAN_RESYNC)
 	MOSAIC_RESYNC_EDITS=$${MOSAIC_RESYNC_EDITS:-100} ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_RESYNC) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack $(BPE_MODEL)
 
-sanitize-token-document: $(SAN_TOKEN_DOCUMENT) $(SAN_TOKEN_DOCUMENT_RICH) $(SAN_LEXER) $(SAN_SEMANTIC)
+sanitize-token-document: $(SAN_TOKEN_DOCUMENT) $(SAN_TOKEN_DOCUMENT_RICH) $(SAN_LEXER) $(SAN_SEMANTIC) $(SAN_BLOCK_STORAGE)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TOKEN_DOCUMENT) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack $(DETECTOR)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TOKEN_DOCUMENT_RICH) $(MODEL) $(UNICODE) $(SECURITY) $(NORMALIZATION)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_LEXER) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/lexer/c-v1.mpack $(ROOT)/fixtures/packs/lexer/python-v1.mpack $(ROOT)/fixtures/packs/lexer/rust-v1.mpack $(ROOT)/fixtures/packs/lexer/json-v1.mpack
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_SEMANTIC) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/lexer/c-v1.mpack
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_BLOCK_STORAGE) $(MODEL) $(UNICODE)
 
 $(API_STATIC): $(TESTS)/api_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
@@ -204,7 +213,7 @@ cpp-smoke: $(API_CPP)
 
 sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe sanitize-security sanitize-normalization sanitize-online sanitize-incremental sanitize-resync sanitize-token-document
 
-test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(RESYNC_SMOKE) sanitize
+test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(BLOCK_STORAGE_SMOKE) $(RESYNC_SMOKE) sanitize
 	$(DETECTOR_SMOKE) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
 	$(BPE_SMOKE) $(BPE_MODEL)
 	$(SECURITY_SMOKE) $(MODEL) $(UNICODE) $(SECURITY)
@@ -216,6 +225,7 @@ test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NOR
 	$(TOKEN_DOCUMENT_RICH_SMOKE) $(MODEL) $(UNICODE) $(SECURITY) $(NORMALIZATION)
 	$(LEXER_SMOKE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/lexer/c-v1.mpack $(ROOT)/fixtures/packs/lexer/python-v1.mpack $(ROOT)/fixtures/packs/lexer/rust-v1.mpack $(ROOT)/fixtures/packs/lexer/json-v1.mpack
 	$(SEMANTIC_SMOKE) $(MODEL) $(UNICODE) $(ROOT)/fixtures/packs/lexer/c-v1.mpack
+	$(BLOCK_STORAGE_SMOKE) $(MODEL) $(UNICODE)
 
 clean:
 	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(SAN_SECURITY) $(SAN_NORMALIZATION) $(SAN_ONLINE) $(SAN_INCREMENTAL) $(SAN_RESYNC) $(SAN_TOKEN_DOCUMENT) $(SAN_TOKEN_DOCUMENT_RICH) $(SAN_LEXER) $(SAN_SEMANTIC) $(BPE_SMOKE) $(SECURITY_SMOKE) $(NORMALIZATION_SMOKE) $(ONLINE_SMOKE) $(INCREMENTAL_SMOKE) $(RESYNC_SMOKE) $(TOKEN_DOCUMENT_SMOKE) $(TOKEN_DOCUMENT_RICH_SMOKE) $(LEXER_SMOKE) $(SEMANTIC_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)

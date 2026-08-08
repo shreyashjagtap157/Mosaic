@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.15.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.16.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -158,6 +158,12 @@ if(BUILD_TESTING)
   mosaic_warnings(mosaic-semantic-subbyte-smoke)
   add_test(NAME semantic-subbyte COMMAND mosaic-semantic-subbyte-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack)
+
+  add_executable(mosaic-block-storage-smoke ${MOSAIC_TEST_DIR}/block_storage_smoke.c)
+  target_include_directories(mosaic-block-storage-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-block-storage-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-block-storage-smoke)
+  add_test(NAME block-storage COMMAND mosaic-block-storage-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})

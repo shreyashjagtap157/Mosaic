@@ -36,6 +36,7 @@ test: fixtures
 	$(PYTHON) tools/validate_authoring.py
 	$(PYTHON) tools/validate_tiktoken_compat.py
 	$(PYTHON) tools/validate_security17.py
+	$(PYTHON) tools/validate_packed_model.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py
 	$(PYTHON) tools/benchmark_resync.py

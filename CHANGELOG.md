@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0 — 2026-08-08
+
+Enterprise multiscale block planning and compact model serialization.
+
+- adaptive token-aligned KiB processing blocks and MiB macroblocks;
+- content identities bound to tokenizer fingerprints;
+- block/macroblock resource ceilings and oversized-token signaling;
+- checksummed fixed-bit ID + ULEB length serialization with exact span recovery.
+
 ## 0.15.0 — 2026-08-08
 
 Stable semantic enrichment and sub-byte view release.
