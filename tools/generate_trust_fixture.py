@@ -23,7 +23,13 @@ def build()->tuple[bytes,bytes]:
     return public,record
 
 def main()->int:
-    public,record=build(); PUB.write_bytes(public); SIG.write_bytes(record)
+    import sys
+    public,record=build()
+    if '--check' in sys.argv:
+        if not PUB.exists() or not SIG.exists() or PUB.read_bytes()!=public or SIG.read_bytes()!=record:
+            print('trust fixture mismatch',file=sys.stderr); return 1
+    else:
+        PUB.write_bytes(public); SIG.write_bytes(record)
     print(f'public={PUB.relative_to(ROOT)} key_id={hashlib.sha256(public).hexdigest()}')
     print(f'signature={SIG.relative_to(ROOT)} sha256={hashlib.sha256(record).hexdigest()}')
     return 0

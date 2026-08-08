@@ -12,7 +12,7 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
         manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
@@ -236,5 +236,16 @@ int main(int argc, char **argv) {
         trust_client=ROOT/'conformance/c/package_trust_client.c'
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',trust_client,d/'lib/libmosaic.a',d/'lib/libmosaic_trust.a','-lcrypto','-o',temp/'trust_client'],check=True)
         subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True)
-    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, authoring, compatibility, trust signing/verification, and external static-client smoke');return 0
+        regdir=temp/'registry'
+        subprocess.run([registry,'init',regdir],check=True)
+        subprocess.run([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature'],check=True)
+        subprocess.run([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0'],check=True)
+        req=temp/'requirements.json'; lock=temp/'mosaic.lock.json'
+        req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}))
+        subprocess.run([registry,'resolve',regdir,req,'-o',lock],check=True)
+        subprocess.run([registry,'verify-lock',regdir,lock],check=True)
+        subprocess.run([registry,'audit',regdir],check=True)
+        locked=json.loads(lock.read_text())
+        if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
+    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, authoring, compatibility, trust signing/verification, registry lock/audit, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())

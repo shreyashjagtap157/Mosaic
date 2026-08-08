@@ -23,6 +23,7 @@ fixtures:
 	$(PYTHON) tools/build_normalization16_pack.py --check
 	$(PYTHON) tools/generate_normalization16_malformed.py --check
 	$(PYTHON) tools/build_online_stream_fixture.py --check
+	$(PYTHON) tools/generate_trust_fixture.py --check
 
 test: fixtures
 	$(MAKE) -C native test
@@ -37,6 +38,7 @@ test: fixtures
 	$(PYTHON) tools/validate_tiktoken_compat.py
 	$(PYTHON) tools/validate_security17.py
 	$(PYTHON) tools/validate_packed_model.py
+	PYTHONPATH=tools $(PYTHON) tools/validate_registry.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py
 	$(PYTHON) tools/benchmark_resync.py

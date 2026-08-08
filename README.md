@@ -177,6 +177,10 @@ All three packs may be attached simultaneously. Their effects and tokenizer fing
 
 These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
+## Pack registry and lockfiles
+
+0.21 ships `mosaic-registry`, a content-addressed SQLite/WAL control-plane tool. It atomically installs exact pack objects, cryptographically derives verified trust state, resolves numeric SemVer requirements into exact hash-pinned canonical lockfiles, audits corruption, and garbage-collects only unreferenced objects. Mutable `latest` is never a canonical execution identity. See `docs/implementation/REGISTRY_v1.md`.
+
 ## Pack trust
 
 0.20 ships optional `libmosaic_trust` static/shared libraries. Trust verification authenticates exact SHA-256 pack identities with Ed25519 publisher keys and explicit revocation, after ordinary structural pack validation. The core tokenizer remains free of OpenSSL. See `docs/implementation/TRUST_v1.md`.

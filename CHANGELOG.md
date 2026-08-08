@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.21.0 — 2026-08-08
+
+Enterprise content-addressed pack registry release.
+
+- atomic SQLite/WAL + SHA-256 object registry;
+- cryptographically derived trust state;
+- deterministic SemVer-to-exact-hash lock resolution;
+- registry audit, lock verification, and object GC;
+- concurrent install/corruption qualification.
+
 ## 0.20.0 — 2026-08-08
 
 Optional enterprise Ed25519 pack-trust release.
