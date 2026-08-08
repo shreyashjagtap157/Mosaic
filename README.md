@@ -177,13 +177,17 @@ All three packs may be attached simultaneously. Their effects and tokenizer fing
 
 These tiny packs are **conformance/reference packs**, not claims of production linguistic quality.
 
+## Enterprise runtime policy
+
+0.19 adds explicit serving ceilings, immutable tokenizer sealing, deployment runtime identities, and lock-free operational counters. Configure packs and limits first, call `mosaic_tokenizer_seal`, then share the tokenizer across worker threads. Runtime ceilings are deployment policy and do not change the semantic tokenizer fingerprint. See `docs/implementation/RUNTIME_POLICY_v1.md`.
+
 ## Build a release bundle
 
 ```bash
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.12.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 

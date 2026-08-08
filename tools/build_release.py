@@ -59,6 +59,7 @@ def main()->int:
     for ex in sorted((ROOT/'examples/authoring').glob('*.json')): shutil.copy2(ex,stage/'examples/authoring'/ex.name)
     shutil.copy2(ROOT/'docs/implementation/AUTHORING_0.5.md',stage/'docs/AUTHORING.md')
     shutil.copy2(ROOT/'docs/implementation/COMPATIBILITY_0.6.md',stage/'docs/COMPATIBILITY.md')
+    shutil.copy2(ROOT/'docs/implementation/RUNTIME_POLICY_v1.md',stage/'docs/RUNTIME_POLICY.md')
     (stage/'bin/mosaic-author').chmod(0o755)
     release_notes=ROOT/f'docs/release/RELEASE_NOTES_{VERSION}.md'
     if release_notes.exists():shutil.copy2(release_notes,stage/'docs/RELEASE_NOTES.md')

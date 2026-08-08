@@ -78,6 +78,21 @@ int main(int argc, char **argv) {
     if (mosaic_tokenizer_set_security_file(t, argv[5]) != MOSAIC_OK) return 8;
     if (mosaic_tokenizer_set_normalization_file(t, argv[6]) != MOSAIC_OK) return 10;
     if (mosaic_tokenizer_set_lexer_file(t, argv[7]) != MOSAIC_OK) return 31;
+    unsigned char semantic_id[32] = {0}, runtime_default[32] = {0}, runtime_limited[32] = {0};
+    if (mosaic_tokenizer_fingerprint(t, semantic_id) != MOSAIC_OK ||
+        mosaic_tokenizer_runtime_identity(t, runtime_default) != MOSAIC_OK) return 49;
+    mosaic_runtime_limits limits = {0};
+    mosaic_runtime_limits_default(&limits);
+    limits.max_input_bytes = 1024 * 1024;
+    limits.max_output_tokens = 1024 * 1024;
+    limits.max_token_document_bytes = 1024 * 1024;
+    if (mosaic_tokenizer_set_runtime_limits(t, &limits) != MOSAIC_OK ||
+        mosaic_tokenizer_runtime_identity(t, runtime_limited) != MOSAIC_OK ||
+        !memcmp(runtime_default, runtime_limited, 32) ||
+        mosaic_tokenizer_seal(t) != MOSAIC_OK || !mosaic_tokenizer_is_sealed(t) ||
+        mosaic_tokenizer_set_runtime_limits(t, &limits) != MOSAIC_ERROR_STATE) return 50;
+    unsigned char semantic_after[32] = {0};
+    if (mosaic_tokenizer_fingerprint(t, semantic_after) != MOSAIC_OK || memcmp(semantic_id, semantic_after, 32)) return 51;
 
     const unsigned char in[] = "tokenizer";
     unsigned int *ids = 0;
@@ -193,6 +208,8 @@ int main(int argc, char **argv) {
     if (mosaic_tokenizer_normalize(t, MOSAIC_NORMALIZE_NFD, ni, 2, &v) != MOSAIC_OK) return 11;
     if (v.byte_length != 3 || v.bytes[0] != 'e' || v.bytes[1] != 0xcc || v.bytes[2] != 0x81) ok = 0;
     mosaic_normalized_view_free(&v);
+    mosaic_runtime_metrics metrics = {0};
+    if (mosaic_tokenizer_get_metrics(t, &metrics) != MOSAIC_OK || !metrics.encode_calls || !metrics.tokens_out) return 52;
     mosaic_free(ids);
     mosaic_tokenizer_free(t);
     unsigned char *doc_copy = 0; size_t doc_copy_n = 0;

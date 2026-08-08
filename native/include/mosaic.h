@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 16
+#define MOSAIC_C_API_VERSION_MINOR 17
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -25,7 +25,8 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_RESOURCE_LIMIT = 9,
     MOSAIC_ERROR_UNSUPPORTED = 10,
     MOSAIC_ERROR_NOT_FOUND = 11,
-    MOSAIC_ERROR_INTEGRITY = 12
+    MOSAIC_ERROR_INTEGRITY = 12,
+    MOSAIC_ERROR_STATE = 13
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;
@@ -85,7 +86,8 @@ enum {
     MOSAIC_CAP_BLOCK_PLAN = 1ull << 15,
     MOSAIC_CAP_PACKED_MODEL = 1ull << 16,
     MOSAIC_CAP_CONTENT_CACHE = 1ull << 17,
-    MOSAIC_CAP_CACHE_BACKEND = 1ull << 18
+    MOSAIC_CAP_CACHE_BACKEND = 1ull << 18,
+    MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19
 };
 
 typedef struct mosaic_range {
@@ -246,6 +248,24 @@ typedef struct mosaic_block_plan_info {
 } mosaic_block_plan_info;
 
 
+
+typedef struct mosaic_runtime_limits {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t max_input_bytes;
+    uint64_t max_output_tokens;
+    uint64_t max_token_document_bytes;
+} mosaic_runtime_limits;
+
+typedef struct mosaic_runtime_metrics {
+    uint64_t encode_calls;
+    uint64_t decode_calls;
+    uint64_t bytes_in;
+    uint64_t bytes_out;
+    uint64_t tokens_out;
+    uint64_t failures;
+    uint64_t resource_rejections;
+} mosaic_runtime_metrics;
 
 typedef struct mosaic_cache_config {
     uint32_t struct_size;
@@ -410,6 +430,17 @@ mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokeni
                                                   mosaic_detection *out_detection);
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
+
+/* Runtime policy and immutable publication. Configure before sealing, then share read-only across threads. */
+void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits);
+mosaic_status mosaic_tokenizer_set_runtime_limits(mosaic_tokenizer *tokenizer, const mosaic_runtime_limits *limits);
+mosaic_status mosaic_tokenizer_get_runtime_limits(const mosaic_tokenizer *tokenizer, mosaic_runtime_limits *out_limits);
+mosaic_status mosaic_tokenizer_seal(mosaic_tokenizer *tokenizer);
+int mosaic_tokenizer_is_sealed(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_get_metrics(const mosaic_tokenizer *tokenizer, mosaic_runtime_metrics *out_metrics);
+mosaic_status mosaic_tokenizer_runtime_identity(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
+mosaic_status mosaic_tokenizer_reset_metrics(mosaic_tokenizer *tokenizer);
+
 mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
 mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenizer, mosaic_tokenizer_capabilities *out_capabilities);
 mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,

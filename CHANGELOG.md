@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0 — 2026-08-08
+
+Enterprise immutable runtime-policy release.
+
+- explicit input/output/TokenDocument resource ceilings;
+- allocation-aware high-level encode/decode limits;
+- immutable tokenizer sealing for shared serving;
+- separate deployment runtime identity;
+- lock-free runtime metrics and resource-rejection counters;
+- stream/document/incremental policy propagation and concurrency qualification.
+
 ## 0.18.0 — 2026-08-08
 
 Authenticated persistent/distributed cache-backend protocol.

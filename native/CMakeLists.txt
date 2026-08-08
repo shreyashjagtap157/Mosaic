@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.18.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.19.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -180,6 +180,13 @@ if(BUILD_TESTING)
   target_link_libraries(mosaic-cache-backend-smoke PRIVATE mosaic_static Threads::Threads)
   mosaic_warnings(mosaic-cache-backend-smoke)
   add_test(NAME cache-backend COMMAND mosaic-cache-backend-smoke)
+
+  add_executable(mosaic-runtime-policy-smoke ${MOSAIC_TEST_DIR}/runtime_policy_smoke.c)
+  target_include_directories(mosaic-runtime-policy-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-runtime-policy-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-runtime-policy-smoke)
+  add_test(NAME runtime-policy COMMAND mosaic-runtime-policy-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack)
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
