@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.14.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.15.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -151,6 +151,13 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/python-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/rust-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/json-v1.mpack)
+
+  add_executable(mosaic-semantic-subbyte-smoke ${MOSAIC_TEST_DIR}/semantic_subbyte_smoke.c)
+  target_include_directories(mosaic-semantic-subbyte-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-semantic-subbyte-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-semantic-subbyte-smoke)
+  add_test(NAME semantic-subbyte COMMAND mosaic-semantic-subbyte-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/lexer/c-v1.mpack)
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})

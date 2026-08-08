@@ -640,6 +640,55 @@ oom:
     free(*out); *out = NULL; *out_count = 0; return 0;
 }
 
+static int semantic_append(mosaic_semantic_component **out,size_t *count,size_t *cap,uint32_t kind,size_t lex_index,size_t start,size_t end){
+    if(end<=start)return 1;
+    if(*count==*cap){size_t n=*cap?*cap*2u:32u;if(n<*count||n>SIZE_MAX/sizeof**out)return 0;void*p=realloc(*out,n*sizeof**out);if(!p)return 0;*out=(mosaic_semantic_component*)p;*cap=n;}
+    (*out)[(*count)++]=(mosaic_semantic_component){kind,0u,(uint64_t)lex_index,(uint64_t)start,(uint64_t)(end-start)};return 1;
+}
+static int ascii_upper(uint8_t c){return c>='A'&&c<='Z';}
+static int ascii_lower(uint8_t c){return c>='a'&&c<='z';}
+static int ascii_digit(uint8_t c){return c>='0'&&c<='9';}
+static int semantic_identifier(const uint8_t*source,size_t start,size_t end,size_t li,mosaic_semantic_component**out,size_t*count,size_t*cap){
+    size_t part=start,i=start;
+    while(i<end){uint8_t c=source[i];
+        if(c=='_'||c=='$'){if(!semantic_append(out,count,cap,MOSAIC_SEM_IDENTIFIER_PART,li,part,i))return 0;part=++i;continue;}
+        if(i>part){uint8_t prev=source[i-1];uint8_t next=i+1<end?source[i+1]:0;int split=(ascii_digit(c)&&!ascii_digit(prev))||(!ascii_digit(c)&&ascii_digit(prev))||(ascii_upper(c)&&ascii_lower(prev))||(ascii_upper(c)&&ascii_upper(prev)&&ascii_lower(next));if(split){if(!semantic_append(out,count,cap,MOSAIC_SEM_IDENTIFIER_PART,li,part,i))return 0;part=i;}}
+        ++i;
+    }
+    return semantic_append(out,count,cap,MOSAIC_SEM_IDENTIFIER_PART,li,part,end);
+}
+static int semantic_number(const uint8_t*source,size_t start,size_t end,size_t li,mosaic_semantic_component**out,size_t*count,size_t*cap){
+    size_t p=start;
+    if(p<end&&(source[p]=='+'||source[p]=='-')){if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_SIGN,li,p,p+1))return 0;++p;}
+    if(p+1<end&&source[p]=='0'&&(source[p+1]=='x'||source[p+1]=='X'||source[p+1]=='b'||source[p+1]=='B'||source[p+1]=='o'||source[p+1]=='O')){if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_RADIX_PREFIX,li,p,p+2))return 0;p+=2;}
+    size_t integer=p;while(p<end&&source[p]!='.'&&source[p]!='e'&&source[p]!='E'&&source[p]!='p'&&source[p]!='P')++p;
+    if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_INTEGER,li,integer,p))return 0;
+    if(p<end&&source[p]=='.'){size_t q=++p;while(p<end&&source[p]!='e'&&source[p]!='E'&&source[p]!='p'&&source[p]!='P')++p;if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_FRACTION,li,q,p))return 0;}
+    if(p<end&&(source[p]=='e'||source[p]=='E'||source[p]=='p'||source[p]=='P')){if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_EXPONENT_MARK,li,p,p+1))return 0;++p;if(p<end&&(source[p]=='+'||source[p]=='-')){if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_EXPONENT_SIGN,li,p,p+1))return 0;++p;}if(!semantic_append(out,count,cap,MOSAIC_SEM_NUMBER_EXPONENT_DIGITS,li,p,end))return 0;}
+    return 1;
+}
+static int semantic_string(const LexerView*v,const uint8_t*source,size_t source_len,const mosaic_lex_token*t,size_t li,mosaic_semantic_component**out,size_t*count,size_t*cap){
+    size_t start=(size_t)t->start,end=start+(size_t)t->length;if(end>source_len)return 0;uint32_t best=UINT32_MAX;size_t best_len=0;
+    for(uint32_t i=0;i<v->string_count;++i){LexerString r;Slice d;if(!lexer_string_at(v,i,&r,&d))return 0;if(d.len>best_len&&lexer_prefix_at(source,source_len,start,d)){best=i;best_len=d.len;}}
+    if (best == UINT32_MAX || best_len > end - start) return 1;
+    LexerString r; Slice d;
+    if (!lexer_string_at(v, best, &r, &d)) return 0;
+    if(!semantic_append(out,count,cap,MOSAIC_SEM_STRING_DELIMITER,li,start,start+d.len))return 0;
+    size_t content_start=start+d.len,content_end=end;
+    if(end>=d.len&&end-d.len>=content_start&&lexer_prefix_at(source,source_len,end-d.len,d)){content_end=end-d.len;if(!semantic_append(out,count,cap,MOSAIC_SEM_STRING_DELIMITER,li,content_end,end))return 0;}
+    return semantic_append(out,count,cap,MOSAIC_SEM_STRING_CONTENT,li,content_start,content_end);
+}
+static int semantic_enrich(const LexerView*v,const uint8_t*source,size_t source_len,const mosaic_lex_token*tokens,size_t token_count,mosaic_semantic_component**out,size_t*out_count){
+    *out=NULL;*out_count=0;size_t cap=0;
+    for(size_t i=0;i<token_count;++i){const mosaic_lex_token*t=&tokens[i];size_t start=(size_t)t->start,end=start+(size_t)t->length;if(start>source_len||end<start||end>source_len)goto fail;
+        if(t->kind==MOSAIC_LEX_IDENTIFIER){if(!semantic_identifier(source,start,end,i,out,out_count,&cap))goto fail;}
+        else if(t->kind==MOSAIC_LEX_NUMBER){if(!semantic_number(source,start,end,i,out,out_count,&cap))goto fail;}
+        else if(t->kind==MOSAIC_LEX_STRING){if(!semantic_string(v,source,source_len,t,i,out,out_count,&cap))goto fail;}
+    }
+    return 1;
+fail:free(*out);*out=NULL;*out_count=0;return 0;
+}
+
 static int detector_profile(const DetectorView *v, uint32_t index, DetectorProfile *out, Slice *tag) {
     if (index >= v->profile_count) return 0;
     const uint8_t *e = v->section + v->profiles_offset + (size_t)index * 16u;
@@ -1649,6 +1698,8 @@ struct mosaic_token_document {
     mosaic_normalized_view normalized;
     mosaic_lex_token *lexical_tokens;
     size_t lexical_token_count;
+    mosaic_semantic_component *semantic_components;
+    size_t semantic_component_count;
     mosaic_normalization_mode normalization_mode;
     uint32_t flags;
     uint8_t source_sha256[32];
@@ -1657,7 +1708,7 @@ struct mosaic_token_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.14.0"; }
+const char *mosaic_version_string(void) { return "0.15.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -3204,7 +3255,8 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->detector) caps |= MOSAIC_CAP_DETECTOR;
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
-    if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER;
+    if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
+    caps |= MOSAIC_CAP_SUBBYTE;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3243,12 +3295,12 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
                                                     mosaic_normalization_mode normalization_mode, int auto_mode,
                                                     mosaic_token_document **out_document) {
     const uint32_t supported = MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES |
-                               MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION | MOSAIC_TOKEN_DOCUMENT_LEXICAL;
+                               MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION | MOSAIC_TOKEN_DOCUMENT_LEXICAL | MOSAIC_TOKEN_DOCUMENT_SEMANTIC;
     if (!tokenizer || (!input && input_len) || !out_document || (flags & ~supported) || !normalization_mode_valid(normalization_mode))
         return MOSAIC_ERROR_INVALID_ARGUMENT;
     if ((flags & MOSAIC_TOKEN_DOCUMENT_SECURITY) && !tokenizer->security) return MOSAIC_ERROR_UNSUPPORTED;
     if ((flags & MOSAIC_TOKEN_DOCUMENT_NORMALIZATION) && !tokenizer->normalization) return MOSAIC_ERROR_UNSUPPORTED;
-    if ((flags & MOSAIC_TOKEN_DOCUMENT_LEXICAL) && !tokenizer->lexer) return MOSAIC_ERROR_UNSUPPORTED;
+    if ((flags & (MOSAIC_TOKEN_DOCUMENT_LEXICAL | MOSAIC_TOKEN_DOCUMENT_SEMANTIC)) && !tokenizer->lexer) return MOSAIC_ERROR_UNSUPPORTED;
     *out_document = NULL;
     mosaic_token_document *doc = (mosaic_token_document *)calloc(1, sizeof *doc);
     if (!doc) return MOSAIC_ERROR_OUT_OF_MEMORY;
@@ -3297,9 +3349,14 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
         mosaic_status status = mosaic_tokenizer_normalize(tokenizer, normalization_mode, input, input_len, &doc->normalized);
         if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
     }
-    if (flags & MOSAIC_TOKEN_DOCUMENT_LEXICAL) {
+    if (flags & (MOSAIC_TOKEN_DOCUMENT_LEXICAL | MOSAIC_TOKEN_DOCUMENT_SEMANTIC)) {
         mosaic_status status = mosaic_tokenizer_lex(tokenizer, input, input_len, &doc->lexical_tokens, &doc->lexical_token_count);
         if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
+        if ((flags & MOSAIC_TOKEN_DOCUMENT_SEMANTIC) &&
+            !semantic_enrich(&tokenizer->lexer->view, input, input_len, doc->lexical_tokens, doc->lexical_token_count,
+                             &doc->semantic_components, &doc->semantic_component_count)) {
+            mosaic_token_document_free(doc); return MOSAIC_ERROR_OUT_OF_MEMORY;
+        }
     }
     *out_document = doc; return MOSAIC_OK;
 }
@@ -3340,7 +3397,8 @@ mosaic_status mosaic_token_document_get_info(const mosaic_token_document *docume
     out_info->security_finding_count = (uint64_t)document->security_finding_count;
     out_info->normalized_byte_length = (uint64_t)document->normalized.byte_length;
     out_info->normalized_unit_count = (uint64_t)document->normalized.unit_count;
-    out_info->lexical_token_count = (uint64_t)document->lexical_token_count;
+    out_info->lexical_token_count = (document->flags & MOSAIC_TOKEN_DOCUMENT_LEXICAL) ? (uint64_t)document->lexical_token_count : 0u;
+    out_info->semantic_component_count = (uint64_t)document->semantic_component_count;
     out_info->normalization_mode = document->normalization_mode;
     memcpy(out_info->source_sha256, document->source_sha256, 32);
     memcpy(out_info->tokenizer_fingerprint_sha256, document->tokenizer_fingerprint, 32);
@@ -3420,6 +3478,33 @@ oom: mosaic_normalized_view_free(out_view); return MOSAIC_ERROR_OUT_OF_MEMORY;
 
 mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,mosaic_lex_token **out_tokens,size_t *out_count){if(!document||!out_tokens||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_tokens=NULL;*out_count=0;if(!(document->flags&MOSAIC_TOKEN_DOCUMENT_LEXICAL))return MOSAIC_ERROR_UNSUPPORTED;if(document->lexical_token_count>SIZE_MAX/sizeof**out_tokens)return MOSAIC_ERROR_OVERFLOW;mosaic_lex_token*copy=document->lexical_token_count?(mosaic_lex_token*)malloc(document->lexical_token_count*sizeof*copy):NULL;if(document->lexical_token_count&&!copy)return MOSAIC_ERROR_OUT_OF_MEMORY;if(document->lexical_token_count)memcpy(copy,document->lexical_tokens,document->lexical_token_count*sizeof*copy);*out_tokens=copy;*out_count=document->lexical_token_count;return MOSAIC_OK;}
 
+mosaic_status mosaic_token_document_semantic_components(const mosaic_token_document *document,mosaic_semantic_component **out_components,size_t *out_count){
+    if (!document || !out_components || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_components = NULL; *out_count = 0;
+    if(!(document->flags&MOSAIC_TOKEN_DOCUMENT_SEMANTIC))return MOSAIC_ERROR_UNSUPPORTED;
+    if(document->semantic_component_count>SIZE_MAX/sizeof**out_components)return MOSAIC_ERROR_OVERFLOW;
+    mosaic_semantic_component*copy=document->semantic_component_count?(mosaic_semantic_component*)malloc(document->semantic_component_count*sizeof*copy):NULL;
+    if(document->semantic_component_count&&!copy)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    if(document->semantic_component_count)memcpy(copy,document->semantic_components,document->semantic_component_count*sizeof*copy);
+    *out_components=copy;*out_count=document->semantic_component_count;return MOSAIC_OK;
+}
+mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source,size_t source_len,mosaic_subbyte_span span,uint64_t *out_value){
+    if(!source||!out_value||span.reserved||span.start_bit>7u||!span.bit_length||span.bit_length>64u||(span.bit_order!=MOSAIC_BIT_MSB0&&span.bit_order!=MOSAIC_BIT_LSB0))return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (span.byte_start > SIZE_MAX) return MOSAIC_ERROR_OVERFLOW;
+    size_t byte_start = (size_t)span.byte_start;
+    uint64_t last=(uint64_t)span.start_bit+(uint64_t)span.bit_length-1u;uint64_t bytes_needed=last/8u+1u;
+    if(byte_start>source_len||bytes_needed>source_len-byte_start)return MOSAIC_ERROR_OVERFLOW;
+    uint64_t value = 0;
+    for (uint32_t i = 0; i < span.bit_length; ++i) {
+        uint64_t logical = (uint64_t)span.start_bit + i;
+        size_t bi = byte_start + (size_t)(logical / 8u);
+        uint32_t within = (uint32_t)(logical % 8u);
+        if (span.bit_order == MOSAIC_BIT_MSB0) value = (value << 1u) | ((source[bi] >> (7u - within)) & 1u);
+        else value |= (uint64_t)((source[bi] >> within) & 1u) << i;
+    }
+    *out_value = value; return MOSAIC_OK;
+}
+
 void mosaic_token_document_free(mosaic_token_document *document) {
     if (!document) return;
     free(document->source);
@@ -3427,6 +3512,7 @@ void mosaic_token_document_free(mosaic_token_document *document) {
     free(document->graphemes);
     free(document->security_findings);
     free(document->lexical_tokens);
+    free(document->semantic_components);
     mosaic_normalized_view_free(&document->normalized);
     free(document);
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 — 2026-08-08
+
+Stable semantic enrichment and sub-byte view release.
+
+- identifier, number, and string source-mapped semantic components;
+- semantic TokenDocument density/capability;
+- generic bounded MSB0/LSB0 sub-byte extraction;
+- nibble/cross-byte sanitizer conformance.
+
 ## 0.14.0 — 2026-08-08
 
 Stable declarative lexer and lexical TokenDocument release.

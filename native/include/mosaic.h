@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 12
+#define MOSAIC_C_API_VERSION_MINOR 13
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -58,7 +58,8 @@ enum {
     MOSAIC_TOKEN_DOCUMENT_GRAPHEMES = 1u << 1,
     MOSAIC_TOKEN_DOCUMENT_SECURITY = 1u << 2,
     MOSAIC_TOKEN_DOCUMENT_NORMALIZATION = 1u << 3,
-    MOSAIC_TOKEN_DOCUMENT_LEXICAL = 1u << 4
+    MOSAIC_TOKEN_DOCUMENT_LEXICAL = 1u << 4,
+    MOSAIC_TOKEN_DOCUMENT_SEMANTIC = 1u << 5
 };
 
 enum {
@@ -74,7 +75,9 @@ enum {
     MOSAIC_CAP_INCREMENTAL_DOCUMENT = 1ull << 9,
     MOSAIC_CAP_RESYNC_DOCUMENT = 1ull << 10,
     MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11,
-    MOSAIC_CAP_LEXER = 1ull << 12
+    MOSAIC_CAP_LEXER = 1ull << 12,
+    MOSAIC_CAP_SEMANTIC = 1ull << 13,
+    MOSAIC_CAP_SUBBYTE = 1ull << 14
 };
 
 typedef struct mosaic_range {
@@ -154,6 +157,40 @@ typedef struct mosaic_lex_token {
     uint64_t length;
 } mosaic_lex_token;
 
+typedef enum mosaic_semantic_kind {
+    MOSAIC_SEM_IDENTIFIER_PART = 1,
+    MOSAIC_SEM_NUMBER_SIGN = 2,
+    MOSAIC_SEM_NUMBER_RADIX_PREFIX = 3,
+    MOSAIC_SEM_NUMBER_INTEGER = 4,
+    MOSAIC_SEM_NUMBER_FRACTION = 5,
+    MOSAIC_SEM_NUMBER_EXPONENT_MARK = 6,
+    MOSAIC_SEM_NUMBER_EXPONENT_SIGN = 7,
+    MOSAIC_SEM_NUMBER_EXPONENT_DIGITS = 8,
+    MOSAIC_SEM_STRING_DELIMITER = 9,
+    MOSAIC_SEM_STRING_CONTENT = 10
+} mosaic_semantic_kind;
+
+typedef struct mosaic_semantic_component {
+    uint32_t kind;
+    uint32_t flags;
+    uint64_t lexical_index;
+    uint64_t start;
+    uint64_t length;
+} mosaic_semantic_component;
+
+typedef enum mosaic_bit_order {
+    MOSAIC_BIT_MSB0 = 0,
+    MOSAIC_BIT_LSB0 = 1
+} mosaic_bit_order;
+
+typedef struct mosaic_subbyte_span {
+    uint64_t byte_start;
+    uint32_t start_bit;
+    uint32_t bit_length;
+    mosaic_bit_order bit_order;
+    uint32_t reserved;
+} mosaic_subbyte_span;
+
 typedef struct mosaic_detection {
     uint32_t matched;
     uint32_t available;
@@ -184,6 +221,7 @@ typedef struct mosaic_token_document_info {
     uint64_t normalized_byte_length;
     uint64_t normalized_unit_count;
     uint64_t lexical_token_count;
+    uint64_t semantic_component_count;
     mosaic_normalization_mode normalization_mode;
     uint32_t reserved;
     uint8_t source_sha256[32];
@@ -306,6 +344,10 @@ mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document 
                                                      mosaic_normalized_view *out_view);
 mosaic_status mosaic_token_document_lexical_tokens(const mosaic_token_document *document,
                                                     mosaic_lex_token **out_tokens, size_t *out_count);
+mosaic_status mosaic_token_document_semantic_components(const mosaic_token_document *document,
+                                                               mosaic_semantic_component **out_components, size_t *out_count);
+mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_t source_len,
+                                         mosaic_subbyte_span span, uint64_t *out_value);
 void mosaic_token_document_free(mosaic_token_document *document);
 
 /* Pack bytes are copied; caller may release its input immediately. */

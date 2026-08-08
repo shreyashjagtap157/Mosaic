@@ -144,6 +144,15 @@ int main(int argc, char **argv) {
     mosaic_lex_token *ltokens = 0; size_t ltn = 0;
     if (mosaic_token_document_lexical_tokens(tdoc, &ltokens, &ltn) != MOSAIC_OK || !ltn) return 32;
     mosaic_free(ltokens);
+    mosaic_token_document_free(tdoc);
+    tdoc = 0;
+    if (mosaic_tokenizer_token_document_create(t, in, 9, MOSAIC_TOKEN_DOCUMENT_SEMANTIC, &tdoc) != MOSAIC_OK) return 33;
+    mosaic_semantic_component *sc = 0; size_t scn = 0;
+    if (mosaic_token_document_semantic_components(tdoc, &sc, &scn) != MOSAIC_OK || !scn) return 34;
+    mosaic_free(sc);
+    const unsigned char packed = 0xad; uint64_t nibble = 0;
+    mosaic_subbyte_span ss = {0, 0, 4, MOSAIC_BIT_MSB0, 0};
+    if (mosaic_subbyte_extract_u64(&packed, 1, ss, &nibble) != MOSAIC_OK || nibble != 0xa) return 35;
 
     mosaic_normalized_view v = {0};
     const unsigned char ni[] = {0xc3, 0xa9};
