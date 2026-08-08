@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 — 2026-08-08
+
+Rich TokenDocument projection and capability-negotiation release.
+
+- optional immutable security-evidence projection;
+- optional immutable mapped-normalization projection;
+- tokenizer capability discovery;
+- density-controlled extended TokenDocument creation;
+- allocation-failure ownership path hardened under static analysis.
+
 ## 0.12.0 — 2026-08-08
 
 Core TokenDocument / Token IR release.

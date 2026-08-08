@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 10
+#define MOSAIC_C_API_VERSION_MINOR 11
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -54,7 +54,24 @@ typedef struct mosaic_document_token {
 
 enum {
     MOSAIC_TOKEN_DOCUMENT_MODEL = 1u << 0,
-    MOSAIC_TOKEN_DOCUMENT_GRAPHEMES = 1u << 1
+    MOSAIC_TOKEN_DOCUMENT_GRAPHEMES = 1u << 1,
+    MOSAIC_TOKEN_DOCUMENT_SECURITY = 1u << 2,
+    MOSAIC_TOKEN_DOCUMENT_NORMALIZATION = 1u << 3
+};
+
+enum {
+    MOSAIC_CAP_MODEL = 1ull << 0,
+    MOSAIC_CAP_GRAPHEMES = 1ull << 1,
+    MOSAIC_CAP_LANGUAGE_PACKS = 1ull << 2,
+    MOSAIC_CAP_DETECTOR = 1ull << 3,
+    MOSAIC_CAP_SECURITY = 1ull << 4,
+    MOSAIC_CAP_NORMALIZATION = 1ull << 5,
+    MOSAIC_CAP_STREAMING = 1ull << 6,
+    MOSAIC_CAP_ONLINE_STREAMING = 1ull << 7,
+    MOSAIC_CAP_EDITABLE_DOCUMENT = 1ull << 8,
+    MOSAIC_CAP_INCREMENTAL_DOCUMENT = 1ull << 9,
+    MOSAIC_CAP_RESYNC_DOCUMENT = 1ull << 10,
+    MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11
 };
 
 typedef struct mosaic_range {
@@ -122,11 +139,29 @@ typedef struct mosaic_detection {
     char language[64];
 } mosaic_detection;
 
+typedef struct mosaic_token_document_options {
+    uint32_t struct_size;
+    uint32_t flags;
+    mosaic_normalization_mode normalization_mode;
+    uint32_t reserved;
+} mosaic_token_document_options;
+
+typedef struct mosaic_tokenizer_capabilities {
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint64_t available;
+} mosaic_tokenizer_capabilities;
+
 typedef struct mosaic_token_document_info {
     uint32_t flags;
     uint64_t source_length;
     uint64_t model_token_count;
     uint64_t grapheme_count;
+    uint64_t security_finding_count;
+    uint64_t normalized_byte_length;
+    uint64_t normalized_unit_count;
+    mosaic_normalization_mode normalization_mode;
+    uint32_t reserved;
     uint8_t source_sha256[32];
     uint8_t tokenizer_fingerprint_sha256[32];
     mosaic_detection detection;
@@ -194,6 +229,7 @@ mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokeni
 void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer);
 /* Stable SHA-256 fingerprint of semantic runtime version + exact loaded pack bytes. */
 mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);
+mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenizer, mosaic_tokenizer_capabilities *out_capabilities);
 mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                       uint32_t **out_ids, size_t *out_count);
 mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
@@ -220,12 +256,24 @@ mosaic_status mosaic_tokenizer_token_document_create(const mosaic_tokenizer *tok
 mosaic_status mosaic_tokenizer_token_document_create_auto(const mosaic_tokenizer *tokenizer,
                                                             const uint8_t *input, size_t input_len, uint32_t flags,
                                                             mosaic_token_document **out_document);
+mosaic_status mosaic_tokenizer_token_document_create_ex(const mosaic_tokenizer *tokenizer,
+                                                          const uint8_t *input, size_t input_len,
+                                                          const mosaic_token_document_options *options,
+                                                          mosaic_token_document **out_document);
+mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokenizer *tokenizer,
+                                                               const uint8_t *input, size_t input_len,
+                                                               const mosaic_token_document_options *options,
+                                                               mosaic_token_document **out_document);
 mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info);
 mosaic_status mosaic_token_document_copy_source(const mosaic_token_document *document, uint8_t **out_bytes, size_t *out_len);
 mosaic_status mosaic_token_document_model_tokens(const mosaic_token_document *document,
                                                   mosaic_document_token **out_tokens, size_t *out_count);
 mosaic_status mosaic_token_document_graphemes(const mosaic_token_document *document,
                                                mosaic_range **out_ranges, size_t *out_count);
+mosaic_status mosaic_token_document_security_findings(const mosaic_token_document *document,
+                                                       mosaic_security_finding **out_findings, size_t *out_count);
+mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document *document,
+                                                     mosaic_normalized_view *out_view);
 void mosaic_token_document_free(mosaic_token_document *document);
 
 /* Pack bytes are copied; caller may release its input immediately. */

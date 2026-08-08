@@ -1152,7 +1152,11 @@ static int normalize_internal(const NormalizationView*v,mosaic_normalization_mod
     for(size_t j=0;j<units.count;++j){size_t n=units.data[j].valid?norm_utf8_len(units.data[j].cp):1;if(units.data[j].valid)norm_utf8_write(out->bytes+bo,units.data[j].cp);else out->bytes[bo]=units.data[j].raw;uint32_t si=0,sc=0;if(!norm_append_output_spans(&nodes,units.data[j].map_node,&out->source_spans,&out->source_span_count,&span_cap,&si,&sc))goto oom;out->units[j]=(mosaic_normalized_unit){(uint64_t)bo,(uint64_t)n,si,sc};bo+=n;}
     free(units.data);free(nodes.data);return 1;
 oom:
-    free(units.data);free(nodes.data);free(out->bytes);free(out->units);free(out->source_spans);memset(out,0,sizeof*out);return 0;
+    free(units.data); free(nodes.data);
+    free(out->bytes); out->bytes = NULL; out->byte_length = 0;
+    free(out->units); out->units = NULL; out->unit_count = 0;
+    free(out->source_spans); out->source_spans = NULL; out->source_span_count = 0;
+    return 0;
 }
 
 static int security_script_ranges_internal(const SecurityView *v, Slice input, mosaic_script_span **out_ranges, size_t *out_count) {
@@ -1482,6 +1486,10 @@ struct mosaic_token_document {
     size_t model_token_count;
     mosaic_range *graphemes;
     size_t grapheme_count;
+    mosaic_security_finding *security_findings;
+    size_t security_finding_count;
+    mosaic_normalized_view normalized;
+    mosaic_normalization_mode normalization_mode;
     uint32_t flags;
     uint8_t source_sha256[32];
     uint8_t tokenizer_fingerprint[32];
@@ -1489,7 +1497,7 @@ struct mosaic_token_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.12.0"; }
+const char *mosaic_version_string(void) { return "0.13.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -2999,6 +3007,19 @@ mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, ui
     return MOSAIC_OK;
 }
 
+mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenizer, mosaic_tokenizer_capabilities *out_capabilities) {
+    if (!tokenizer || !out_capabilities || out_capabilities->struct_size < sizeof(*out_capabilities)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    uint64_t caps = MOSAIC_CAP_MODEL | MOSAIC_CAP_GRAPHEMES | MOSAIC_CAP_STREAMING | MOSAIC_CAP_EDITABLE_DOCUMENT |
+                    MOSAIC_CAP_INCREMENTAL_DOCUMENT | MOSAIC_CAP_RESYNC_DOCUMENT | MOSAIC_CAP_TOKEN_DOCUMENT;
+    if (tokenizer->model && tokenizer->model->vocab.algorithm == 0u) caps |= MOSAIC_CAP_ONLINE_STREAMING;
+    if (tokenizer->language_count) caps |= MOSAIC_CAP_LANGUAGE_PACKS;
+    if (tokenizer->detector) caps |= MOSAIC_CAP_DETECTOR;
+    if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
+    if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
+    out_capabilities->available = caps; out_capabilities->reserved = 0u;
+    return MOSAIC_OK;
+}
+
 mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
                                       uint32_t **out_ids, size_t *out_count) {
     if (!tokenizer) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -3024,15 +3045,24 @@ mosaic_status mosaic_tokenizer_grapheme_ranges(const mosaic_tokenizer *tokenizer
     return mosaic_grapheme_ranges(tokenizer->unicode_data, input, input_len, out_ranges, out_count);
 }
 
+static int normalization_mode_valid(mosaic_normalization_mode mode) {
+    return mode >= MOSAIC_NORMALIZE_PRESERVE && mode <= MOSAIC_NORMALIZE_NFKC_CASEFOLD;
+}
+
 static mosaic_status token_document_create_internal(const mosaic_tokenizer *tokenizer,
-                                                    const uint8_t *input, size_t input_len, uint32_t flags, int auto_mode,
+                                                    const uint8_t *input, size_t input_len, uint32_t flags,
+                                                    mosaic_normalization_mode normalization_mode, int auto_mode,
                                                     mosaic_token_document **out_document) {
-    const uint32_t supported = MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES;
-    if (!tokenizer || (!input && input_len) || !out_document || (flags & ~supported)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    const uint32_t supported = MOSAIC_TOKEN_DOCUMENT_MODEL | MOSAIC_TOKEN_DOCUMENT_GRAPHEMES |
+                               MOSAIC_TOKEN_DOCUMENT_SECURITY | MOSAIC_TOKEN_DOCUMENT_NORMALIZATION;
+    if (!tokenizer || (!input && input_len) || !out_document || (flags & ~supported) || !normalization_mode_valid(normalization_mode))
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if ((flags & MOSAIC_TOKEN_DOCUMENT_SECURITY) && !tokenizer->security) return MOSAIC_ERROR_UNSUPPORTED;
+    if ((flags & MOSAIC_TOKEN_DOCUMENT_NORMALIZATION) && !tokenizer->normalization) return MOSAIC_ERROR_UNSUPPORTED;
     *out_document = NULL;
     mosaic_token_document *doc = (mosaic_token_document *)calloc(1, sizeof *doc);
     if (!doc) return MOSAIC_ERROR_OUT_OF_MEMORY;
-    doc->flags = flags; doc->source_len = input_len;
+    doc->flags = flags; doc->source_len = input_len; doc->normalization_mode = normalization_mode;
     if (input_len) {
         doc->source = (uint8_t *)malloc(input_len);
         if (!doc->source) { mosaic_token_document_free(doc); return MOSAIC_ERROR_OUT_OF_MEMORY; }
@@ -3069,19 +3099,43 @@ static mosaic_status token_document_create_internal(const mosaic_tokenizer *toke
         mosaic_status status = mosaic_tokenizer_grapheme_ranges(tokenizer, input, input_len, &doc->graphemes, &doc->grapheme_count);
         if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
     }
+    if (flags & MOSAIC_TOKEN_DOCUMENT_SECURITY) {
+        mosaic_status status = mosaic_tokenizer_security_scan(tokenizer, input, input_len, &doc->security_findings, &doc->security_finding_count);
+        if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
+    }
+    if (flags & MOSAIC_TOKEN_DOCUMENT_NORMALIZATION) {
+        mosaic_status status = mosaic_tokenizer_normalize(tokenizer, normalization_mode, input, input_len, &doc->normalized);
+        if (status != MOSAIC_OK) { mosaic_token_document_free(doc); return status; }
+    }
     *out_document = doc; return MOSAIC_OK;
 }
 
 mosaic_status mosaic_tokenizer_token_document_create(const mosaic_tokenizer *tokenizer,
                                                        const uint8_t *input, size_t input_len, uint32_t flags,
                                                        mosaic_token_document **out_document) {
-    return token_document_create_internal(tokenizer, input, input_len, flags, 0, out_document);
+    return token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 0, out_document);
 }
 
 mosaic_status mosaic_tokenizer_token_document_create_auto(const mosaic_tokenizer *tokenizer,
                                                             const uint8_t *input, size_t input_len, uint32_t flags,
                                                             mosaic_token_document **out_document) {
-    return token_document_create_internal(tokenizer, input, input_len, flags, 1, out_document);
+    return token_document_create_internal(tokenizer, input, input_len, flags, MOSAIC_NORMALIZE_PRESERVE, 1, out_document);
+}
+
+mosaic_status mosaic_tokenizer_token_document_create_ex(const mosaic_tokenizer *tokenizer,
+                                                          const uint8_t *input, size_t input_len,
+                                                          const mosaic_token_document_options *options,
+                                                          mosaic_token_document **out_document) {
+    if (!options || options->struct_size < sizeof(*options) || options->reserved) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 0, out_document);
+}
+
+mosaic_status mosaic_tokenizer_token_document_create_auto_ex(const mosaic_tokenizer *tokenizer,
+                                                               const uint8_t *input, size_t input_len,
+                                                               const mosaic_token_document_options *options,
+                                                               mosaic_token_document **out_document) {
+    if (!options || options->struct_size < sizeof(*options) || options->reserved) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return token_document_create_internal(tokenizer, input, input_len, options->flags, options->normalization_mode, 1, out_document);
 }
 
 mosaic_status mosaic_token_document_get_info(const mosaic_token_document *document, mosaic_token_document_info *out_info) {
@@ -3089,6 +3143,10 @@ mosaic_status mosaic_token_document_get_info(const mosaic_token_document *docume
     *out_info = (mosaic_token_document_info){0};
     out_info->flags = document->flags; out_info->source_length = (uint64_t)document->source_len;
     out_info->model_token_count = (uint64_t)document->model_token_count; out_info->grapheme_count = (uint64_t)document->grapheme_count;
+    out_info->security_finding_count = (uint64_t)document->security_finding_count;
+    out_info->normalized_byte_length = (uint64_t)document->normalized.byte_length;
+    out_info->normalized_unit_count = (uint64_t)document->normalized.unit_count;
+    out_info->normalization_mode = document->normalization_mode;
     memcpy(out_info->source_sha256, document->source_sha256, 32);
     memcpy(out_info->tokenizer_fingerprint_sha256, document->tokenizer_fingerprint, 32);
     out_info->detection = document->detection; return MOSAIC_OK;
@@ -3130,11 +3188,48 @@ mosaic_status mosaic_token_document_graphemes(const mosaic_token_document *docum
     *out_ranges = out; *out_count = document->grapheme_count; return MOSAIC_OK;
 }
 
+mosaic_status mosaic_token_document_security_findings(const mosaic_token_document *document,
+                                                       mosaic_security_finding **out_findings, size_t *out_count) {
+    if (!document || !out_findings || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_findings = NULL; *out_count = 0;
+    if (!(document->flags & MOSAIC_TOKEN_DOCUMENT_SECURITY)) return MOSAIC_ERROR_UNSUPPORTED;
+    if (document->security_finding_count > SIZE_MAX / sizeof **out_findings) return MOSAIC_ERROR_OVERFLOW;
+    mosaic_security_finding *copy = document->security_finding_count ?
+        (mosaic_security_finding *)malloc(document->security_finding_count * sizeof *copy) : NULL;
+    if (document->security_finding_count && !copy) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    if (document->security_finding_count) memcpy(copy, document->security_findings, document->security_finding_count * sizeof *copy);
+    *out_findings = copy; *out_count = document->security_finding_count; return MOSAIC_OK;
+}
+
+mosaic_status mosaic_token_document_normalized_view(const mosaic_token_document *document, mosaic_normalized_view *out_view) {
+    if (!document || !out_view) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_view = (mosaic_normalized_view){0};
+    if (!(document->flags & MOSAIC_TOKEN_DOCUMENT_NORMALIZATION)) return MOSAIC_ERROR_UNSUPPORTED;
+    const mosaic_normalized_view *src = &document->normalized;
+    if (src->byte_length) { out_view->bytes = (uint8_t *)malloc(src->byte_length); if (!out_view->bytes) goto oom; memcpy(out_view->bytes, src->bytes, src->byte_length); }
+    if (src->unit_count) {
+        if (src->unit_count > SIZE_MAX / sizeof *out_view->units) goto overflow;
+        out_view->units = (mosaic_normalized_unit *)malloc(src->unit_count * sizeof *out_view->units); if (!out_view->units) goto oom;
+        memcpy(out_view->units, src->units, src->unit_count * sizeof *out_view->units);
+    }
+    if (src->source_span_count) {
+        if (src->source_span_count > SIZE_MAX / sizeof *out_view->source_spans) goto overflow;
+        out_view->source_spans = (mosaic_range *)malloc(src->source_span_count * sizeof *out_view->source_spans); if (!out_view->source_spans) goto oom;
+        memcpy(out_view->source_spans, src->source_spans, src->source_span_count * sizeof *out_view->source_spans);
+    }
+    out_view->byte_length = src->byte_length; out_view->unit_count = src->unit_count; out_view->source_span_count = src->source_span_count;
+    return MOSAIC_OK;
+overflow: mosaic_normalized_view_free(out_view); return MOSAIC_ERROR_OVERFLOW;
+oom: mosaic_normalized_view_free(out_view); return MOSAIC_ERROR_OUT_OF_MEMORY;
+}
+
 void mosaic_token_document_free(mosaic_token_document *document) {
     if (!document) return;
     free(document->source);
     free(document->model_tokens);
     free(document->graphemes);
+    free(document->security_findings);
+    mosaic_normalized_view_free(&document->normalized);
     free(document);
 }
 
