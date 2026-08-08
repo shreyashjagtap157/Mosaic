@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0 — 2026-08-08
+
+Enterprise bounded content-cache release.
+
+- thread-safe bounded O(1)-average in-memory LRU cache;
+- explicit byte/entry ceilings and eviction semantics;
+- cache hit/miss/replace/eviction/removal/peak metrics;
+- projection-specific block cache keys bound to content identity.
+
 ## 0.16.0 — 2026-08-08
 
 Enterprise multiscale block planning and compact model serialization.

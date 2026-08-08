@@ -165,6 +165,18 @@ int main(int argc, char **argv) {
     mosaic_semantic_component *sc = 0; size_t scn = 0;
     if (mosaic_token_document_semantic_components(tdoc, &sc, &scn) != MOSAIC_OK || !scn) return 34;
     mosaic_free(sc);
+    mosaic_cache_config ccfg = {sizeof ccfg, 0u, 16u, 4096u, 1024u};
+    mosaic_cache *cache = 0;
+    if (mosaic_cache_create(&ccfg, &cache) != MOSAIC_OK) return 42;
+    unsigned char ckey[32] = {0}; ckey[0] = 7;
+    const unsigned char cval[] = {1,2,3,4};
+    if (mosaic_cache_put(cache, ckey, cval, sizeof cval) != MOSAIC_OK) return 43;
+    unsigned char *cout = 0; size_t cout_n = 0;
+    if (mosaic_cache_get(cache, ckey, &cout, &cout_n) != MOSAIC_OK || cout_n != sizeof cval || memcmp(cout, cval, sizeof cval)) return 44;
+    mosaic_free(cout);
+    mosaic_cache_stats cstats = {0};
+    if (mosaic_cache_get_stats(cache, &cstats) != MOSAIC_OK || cstats.hits != 1 || cstats.entries != 1) return 45;
+    mosaic_cache_free(cache);
     const unsigned char packed = 0xad; uint64_t nibble = 0;
     mosaic_subbyte_span ss = {0, 0, 4, MOSAIC_BIT_MSB0, 0};
     if (mosaic_subbyte_extract_u64(&packed, 1, ss, &nibble) != MOSAIC_OK || nibble != 0xa) return 35;

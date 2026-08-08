@@ -1719,7 +1719,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.16.0"; }
+const char *mosaic_version_string(void) { return "0.17.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1735,6 +1735,7 @@ const char *mosaic_status_string(mosaic_status status) {
         case MOSAIC_ERROR_CONFLICT: return "conflict";
         case MOSAIC_ERROR_RESOURCE_LIMIT: return "resource limit";
         case MOSAIC_ERROR_UNSUPPORTED: return "unsupported";
+        case MOSAIC_ERROR_NOT_FOUND: return "not found";
         default: return "unknown status";
     }
 }
@@ -3267,7 +3268,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
@@ -3619,6 +3620,13 @@ mosaic_status mosaic_block_plan_get_info(const mosaic_block_plan *plan,mosaic_bl
 mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,mosaic_processing_block **out_blocks,size_t *out_count){if(!plan||!out_blocks||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_blocks=NULL;*out_count=0;if(plan->block_count>SIZE_MAX/sizeof**out_blocks)return MOSAIC_ERROR_OVERFLOW;mosaic_processing_block*c=plan->block_count?(mosaic_processing_block*)malloc(plan->block_count*sizeof*c):NULL;if(plan->block_count&&!c)return MOSAIC_ERROR_OUT_OF_MEMORY;if(plan->block_count)memcpy(c,plan->blocks,plan->block_count*sizeof*c);*out_blocks=c;*out_count=plan->block_count;return MOSAIC_OK;}
 mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,mosaic_macroblock **out_macroblocks,size_t *out_count){if(!plan||!out_macroblocks||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_macroblocks=NULL;*out_count=0;if(plan->macroblock_count>SIZE_MAX/sizeof**out_macroblocks)return MOSAIC_ERROR_OVERFLOW;mosaic_macroblock*c=plan->macroblock_count?(mosaic_macroblock*)malloc(plan->macroblock_count*sizeof*c):NULL;if(plan->macroblock_count&&!c)return MOSAIC_ERROR_OUT_OF_MEMORY;if(plan->macroblock_count)memcpy(c,plan->macroblocks,plan->macroblock_count*sizeof*c);*out_macroblocks=c;*out_count=plan->macroblock_count;return MOSAIC_OK;}
 void mosaic_block_plan_free(mosaic_block_plan *plan){if(!plan)return;free(plan->blocks);free(plan->macroblocks);free(plan);}
+
+mosaic_status mosaic_processing_block_cache_key(const mosaic_processing_block *block,uint32_t projection_namespace,uint32_t schema_version,uint8_t out_sha256[32]){
+    if(!block||!out_sha256||!projection_namespace||!schema_version||block->reserved||!block->source_length||!block->model_token_count||(block->flags&~MOSAIC_BLOCK_OVERSIZE_TOKEN))return MOSAIC_ERROR_INVALID_ARGUMENT;
+    static const uint8_t domain[]="MOSAIC-CACHE-KEY-v1";uint8_t meta[8];wr32(meta,projection_namespace);wr32(meta+4,schema_version);Sha256Ctx c;sha256_init(&c);
+    if(!sha256_update(&c,domain,sizeof domain-1u)||!sha256_update(&c,block->identity_sha256,32u)||!sha256_update(&c,meta,sizeof meta)||!sha256_final(&c,out_sha256))return MOSAIC_ERROR_INTERNAL;
+    return MOSAIC_OK;
+}
 
 static size_t uleb_size_u64(uint64_t v){size_t n=1;while(v>=128u){v>>=7u;++n;}return n;}
 static void uleb_write_u64(uint8_t *p,uint64_t v,size_t *used){size_t n=0;do{uint8_t b=(uint8_t)(v&127u);v>>=7u;if(v)b|=128u;p[n++]=b;}while(v);*used=n;}

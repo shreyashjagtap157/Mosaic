@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.16.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.17.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
+find_package(Threads REQUIRED)
 
-set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c)
+set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_cache.c)
 set(MOSAIC_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 function(mosaic_warnings target)
@@ -20,16 +21,19 @@ target_compile_definitions(mosaic_static PRIVATE MOSAIC_LIBRARY_ONLY)
 target_include_directories(mosaic_static PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 set_target_properties(mosaic_static PROPERTIES OUTPUT_NAME mosaic)
 mosaic_warnings(mosaic_static)
+target_link_libraries(mosaic_static PUBLIC Threads::Threads)
 
 add_library(mosaic_shared SHARED ${MOSAIC_SRC})
 target_compile_definitions(mosaic_shared PRIVATE MOSAIC_LIBRARY_ONLY)
 target_include_directories(mosaic_shared PUBLIC $<BUILD_INTERFACE:${MOSAIC_INCLUDE}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 set_target_properties(mosaic_shared PROPERTIES OUTPUT_NAME mosaic WINDOWS_EXPORT_ALL_SYMBOLS ON)
 mosaic_warnings(mosaic_shared)
+target_link_libraries(mosaic_shared PUBLIC Threads::Threads)
 
 add_executable(mosaic-tokenizer ${MOSAIC_SRC})
 target_include_directories(mosaic-tokenizer PRIVATE ${MOSAIC_INCLUDE})
 mosaic_warnings(mosaic-tokenizer)
+target_link_libraries(mosaic-tokenizer PRIVATE Threads::Threads)
 
 if(BUILD_TESTING)
   set(MOSAIC_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../conformance/c)
@@ -164,6 +168,12 @@ if(BUILD_TESTING)
   target_link_libraries(mosaic-block-storage-smoke PRIVATE mosaic_static)
   mosaic_warnings(mosaic-block-storage-smoke)
   add_test(NAME block-storage COMMAND mosaic-block-storage-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+
+  add_executable(mosaic-cache-smoke ${MOSAIC_TEST_DIR}/cache_smoke.c)
+  target_include_directories(mosaic-cache-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-cache-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-cache-smoke)
+  add_test(NAME cache COMMAND mosaic-cache-smoke)
 
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})

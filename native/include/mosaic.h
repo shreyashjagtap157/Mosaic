@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 14
+#define MOSAIC_C_API_VERSION_MINOR 15
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -23,7 +23,8 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_INTERNAL = 7,
     MOSAIC_ERROR_CONFLICT = 8,
     MOSAIC_ERROR_RESOURCE_LIMIT = 9,
-    MOSAIC_ERROR_UNSUPPORTED = 10
+    MOSAIC_ERROR_UNSUPPORTED = 10,
+    MOSAIC_ERROR_NOT_FOUND = 11
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;
@@ -40,6 +41,7 @@ typedef struct mosaic_resync_document mosaic_resync_document;
 typedef struct mosaic_token_document mosaic_token_document;
 typedef struct mosaic_lexer mosaic_lexer;
 typedef struct mosaic_block_plan mosaic_block_plan;
+typedef struct mosaic_cache mosaic_cache;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -80,7 +82,8 @@ enum {
     MOSAIC_CAP_SEMANTIC = 1ull << 13,
     MOSAIC_CAP_SUBBYTE = 1ull << 14,
     MOSAIC_CAP_BLOCK_PLAN = 1ull << 15,
-    MOSAIC_CAP_PACKED_MODEL = 1ull << 16
+    MOSAIC_CAP_PACKED_MODEL = 1ull << 16,
+    MOSAIC_CAP_CONTENT_CACHE = 1ull << 17
 };
 
 typedef struct mosaic_range {
@@ -239,6 +242,30 @@ typedef struct mosaic_block_plan_info {
     uint8_t source_sha256[32];
     uint8_t tokenizer_fingerprint_sha256[32];
 } mosaic_block_plan_info;
+
+
+
+typedef struct mosaic_cache_config {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t max_entries;
+    uint64_t max_bytes;
+    uint64_t max_value_bytes;
+} mosaic_cache_config;
+
+typedef struct mosaic_cache_stats {
+    uint64_t hits;
+    uint64_t misses;
+    uint64_t puts;
+    uint64_t replacements;
+    uint64_t evictions;
+    uint64_t removes;
+    uint64_t entries;
+    uint64_t bytes;
+    uint64_t peak_bytes;
+    uint64_t clears;
+    uint64_t cleared_entries;
+} mosaic_cache_stats;
 
 typedef struct mosaic_packed_model_info {
     uint32_t format_version;
@@ -421,6 +448,23 @@ mosaic_status mosaic_block_plan_blocks(const mosaic_block_plan *plan,
 mosaic_status mosaic_block_plan_macroblocks(const mosaic_block_plan *plan,
                                             mosaic_macroblock **out_macroblocks, size_t *out_count);
 void mosaic_block_plan_free(mosaic_block_plan *plan);
+
+/* Projection-specific cache key derived from a processing-block content identity. */
+mosaic_status mosaic_processing_block_cache_key(const mosaic_processing_block *block,
+                                                 uint32_t projection_namespace, uint32_t schema_version,
+                                                 uint8_t out_sha256[32]);
+
+/* Thread-safe bounded in-memory content cache. Keys are exact 32-byte content identities.
+ * Values are copied on put/get, so caller lifetimes never cross the cache boundary. */
+void mosaic_cache_config_default(mosaic_cache_config *out_config);
+mosaic_status mosaic_cache_create(const mosaic_cache_config *config, mosaic_cache **out_cache);
+mosaic_status mosaic_cache_put(mosaic_cache *cache, const uint8_t key[32], const uint8_t *value, size_t value_len);
+mosaic_status mosaic_cache_get(mosaic_cache *cache, const uint8_t key[32], uint8_t **out_value, size_t *out_len);
+mosaic_status mosaic_cache_remove(mosaic_cache *cache, const uint8_t key[32]);
+mosaic_status mosaic_cache_clear(mosaic_cache *cache);
+mosaic_status mosaic_cache_get_stats(mosaic_cache *cache, mosaic_cache_stats *out_stats);
+void mosaic_cache_free(mosaic_cache *cache);
+
 
 /* Canonical compact model-projection serialization. IDs are fixed-bit packed and token lengths
  * are ULEB128 encoded; a SHA-256 payload checksum makes corruption fail closed. */
