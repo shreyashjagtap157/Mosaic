@@ -94,6 +94,20 @@ int main(int argc, char **argv) {
     unsigned char semantic_after[32] = {0};
     if (mosaic_tokenizer_fingerprint(t, semantic_after) != MOSAIC_OK || memcmp(semantic_id, semantic_after, 32)) return 51;
 
+    mosaic_executor_config ecfg = {0}; mosaic_executor_config_default(&ecfg);
+    ecfg.worker_count = 2; ecfg.queue_capacity = 2; ecfg.max_batch_items = 16; ecfg.max_total_input_bytes = 1024;
+    mosaic_executor *executor = 0;
+    if (mosaic_executor_create(&ecfg, &executor) != MOSAIC_OK) return 58;
+    const unsigned char batch_a[] = "tokenizer", batch_b[] = "hello", batch_c[] = "world";
+    mosaic_batch_input batch_inputs[3] = {{batch_a, 9}, {batch_b, 5}, {batch_c, 5}};
+    mosaic_batch_result *batch_results = 0;
+    if (mosaic_executor_encode_batch(executor, t, batch_inputs, 3, &batch_results) != MOSAIC_OK || !batch_results) return 59;
+    for (size_t bi = 0; bi < 3; ++bi) if (batch_results[bi].status != MOSAIC_OK || !batch_results[bi].count) return 60;
+    mosaic_batch_results_free(batch_results, 3);
+    mosaic_executor_metrics em = {0};
+    if (mosaic_executor_get_metrics(executor, &em) != MOSAIC_OK || em.batches != 1 || em.items != 3 || em.failed_items) return 61;
+    mosaic_executor_free(executor);
+
     const unsigned char in[] = "tokenizer";
     unsigned int *ids = 0;
     size_t n = 0;
@@ -234,7 +248,7 @@ int main(int argc, char **argv) {
     return ok ? 0 : 7;
 }
 ''')
-        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-o',temp/'client'],check=True)
+        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-pthread','-o',temp/'client'],check=True)
         subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True)
         # Trust authoring is offline-only and must regenerate the deterministic conformance record.
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

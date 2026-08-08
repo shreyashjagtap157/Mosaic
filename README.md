@@ -183,6 +183,8 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 
 0.22 adds a canonical cold TokenDocument format for durable caches, IPC, and reproducible preprocessing artifacts. The record is endian-defined rather than native-struct serialization, preserves only requested public projections (plus hidden lexical dependencies required by semantic components), binds source/tokenizer identities, rejects noncanonical or re-authenticated malformed records, and offers caller-configurable deserialization ceilings. See `docs/implementation/TOKEN_DOCUMENT_SERIALIZATION_v1.md`.
 
+0.23 adds a bounded reusable worker pool for independent-input tokenization. Batches require a sealed tokenizer, use explicit queue/item/input ceilings, preserve input order, isolate per-item failures, and share the exact normal tokenizer path. See `docs/implementation/PARALLEL_EXECUTOR_0.23.md`.
+
 ## Pack trust
 
 0.20 ships optional `libmosaic_trust` static/shared libraries. Trust verification authenticates exact SHA-256 pack identities with Ed25519 publisher keys and explicit revocation, after ordinary structural pack validation. The core tokenizer remains free of OpenSSL. See `docs/implementation/TRUST_v1.md`.

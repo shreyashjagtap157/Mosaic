@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 19
+#define MOSAIC_C_API_VERSION_MINOR 20
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -46,6 +46,7 @@ typedef struct mosaic_token_document mosaic_token_document;
 typedef struct mosaic_lexer mosaic_lexer;
 typedef struct mosaic_block_plan mosaic_block_plan;
 typedef struct mosaic_cache mosaic_cache;
+typedef struct mosaic_executor mosaic_executor;
 
 typedef struct mosaic_token {
     uint32_t id;
@@ -90,7 +91,8 @@ enum {
     MOSAIC_CAP_CONTENT_CACHE = 1ull << 17,
     MOSAIC_CAP_CACHE_BACKEND = 1ull << 18,
     MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19,
-    MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20
+    MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20,
+    MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21
 };
 
 typedef struct mosaic_range {
@@ -277,6 +279,34 @@ typedef struct mosaic_runtime_metrics {
     uint64_t failures;
     uint64_t resource_rejections;
 } mosaic_runtime_metrics;
+
+typedef struct mosaic_batch_input {
+    const uint8_t *data;
+    size_t length;
+} mosaic_batch_input;
+
+typedef struct mosaic_batch_result {
+    mosaic_status status;
+    uint32_t *ids;
+    size_t count;
+} mosaic_batch_result;
+
+typedef struct mosaic_executor_config {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t worker_count;
+    uint32_t queue_capacity;
+    uint64_t max_batch_items;
+    uint64_t max_total_input_bytes;
+} mosaic_executor_config;
+
+typedef struct mosaic_executor_metrics {
+    uint64_t batches;
+    uint64_t items;
+    uint64_t succeeded_items;
+    uint64_t failed_items;
+    uint64_t input_bytes;
+} mosaic_executor_metrics;
 
 typedef struct mosaic_cache_config {
     uint32_t struct_size;
@@ -510,6 +540,19 @@ mosaic_status mosaic_token_document_semantic_components(const mosaic_token_docum
                                                                mosaic_semantic_component **out_components, size_t *out_count);
 mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_t source_len,
                                          mosaic_subbyte_span span, uint64_t *out_value);
+
+/* Reusable bounded parallel executor. The tokenizer must be sealed before submission.
+ * Batch calls may execute concurrently on one executor; result order always matches input order.
+ * The caller must not free the executor while a batch call is active. */
+void mosaic_executor_config_default(mosaic_executor_config *out_config);
+mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosaic_executor **out_executor);
+mosaic_status mosaic_executor_encode_batch(mosaic_executor *executor, const mosaic_tokenizer *tokenizer,
+                                           const mosaic_batch_input *inputs, size_t input_count,
+                                           mosaic_batch_result **out_results);
+void mosaic_batch_results_free(mosaic_batch_result *results, size_t count);
+mosaic_status mosaic_executor_get_metrics(const mosaic_executor *executor, mosaic_executor_metrics *out_metrics);
+mosaic_status mosaic_executor_reset_metrics(mosaic_executor *executor);
+void mosaic_executor_free(mosaic_executor *executor);
 
 /* Enterprise multiscale processing plan. Blocks are model-token aligned and never split a token.
  * Default policy: 16 KiB minimum, 64 KiB preferred, 256 KiB maximum, 4 MiB macroblocks. */

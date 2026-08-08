@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.23.0 — 2026-08-08
+
+Enterprise bounded parallel batch-execution release.
+
+- reusable fixed worker pool with bounded FIFO queue;
+- concurrent batch submissions and deterministic result ordering;
+- sealed-tokenizer sharing contract;
+- per-batch item/input ceilings and per-item failure isolation;
+- executor throughput/error metrics and sanitizer concurrency qualification.
+
 ## 0.22.0 — 2026-08-08
 
 Enterprise cold TokenDocument serialization release.

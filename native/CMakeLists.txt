@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.22.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.23.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
-set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_cache.c)
+set(MOSAIC_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic.c ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_cache.c ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_executor.c)
 set(MOSAIC_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 function(mosaic_warnings target)
@@ -209,6 +209,12 @@ if(BUILD_TESTING)
   mosaic_warnings(mosaic-runtime-policy-smoke)
   add_test(NAME runtime-policy COMMAND mosaic-runtime-policy-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack)
+
+  add_executable(mosaic-executor-smoke ${MOSAIC_TEST_DIR}/executor_smoke.c)
+  target_include_directories(mosaic-executor-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-executor-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-executor-smoke)
+  add_test(NAME executor COMMAND mosaic-executor-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
 
   add_executable(mosaic-trust-smoke ${MOSAIC_TEST_DIR}/trust_smoke.c)
   target_include_directories(mosaic-trust-smoke PRIVATE ${MOSAIC_INCLUDE})

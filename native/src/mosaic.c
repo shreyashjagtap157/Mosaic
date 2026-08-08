@@ -1748,7 +1748,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.22.0"; }
+const char *mosaic_version_string(void) { return "0.23.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -3471,7 +3471,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY | MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND | MOSAIC_CAP_RUNTIME_POLICY | MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION | MOSAIC_CAP_PARALLEL_BATCH;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
