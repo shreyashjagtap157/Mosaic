@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.29.0 — 2026-08-08
+
+Enterprise 1.0 release-candidate ABI, format, compatibility, and threat-model freeze.
+
+- explicit cross-platform public symbol visibility instead of automatic shared-library export;
+- machine-readable additive C ABI baseline covering 167 core and 9 trust functions;
+- normalized frozen function signatures, public structs/enums, and stable constants;
+- machine-checked MOSPACK/TokenDocument/packed-model/cache/signature/registry/semantics format contract;
+- 1.x compatibility and deprecation policies;
+- enterprise threat model across source bytes, packs, serialized records, caches, registry, FFI, concurrency, observers, and supply chain;
+- CI release gates for ABI and binary-format drift.
+
 ## 0.28.0 — 2026-08-08
 
 Enterprise deterministic reliability and recovery qualification release.
