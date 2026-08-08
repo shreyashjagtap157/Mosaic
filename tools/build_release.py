@@ -47,7 +47,10 @@ def deterministic_tgz(src_dir:Path,out:Path):
     finally:tar_path.unlink(missing_ok=True)
 
 def main()->int:
-    ap=argparse.ArgumentParser();ap.add_argument('--no-build',action='store_true');args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--no-build',action='store_true');ap.add_argument('--allow-dirty',action='store_true',help='permit a preflight release from a dirty Git worktree');args=ap.parse_args()
+    dirty=subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()
+    if dirty and not args.allow_dirty:
+        raise SystemExit('refusing official release build from dirty Git worktree; commit changes or use --allow-dirty for preflight qualification')
     if not args.no_build:subprocess.run(['make','-C','native','all'],cwd=ROOT,check=True)
     subprocess.run([str(ROOT/'tools/build_python_binding.py')],cwd=ROOT,check=True)
     machine=platform.machine().lower().replace('amd64','x86_64');osname='linux' if platform.system()=='Linux' else platform.system().lower();tag=f'{osname}-{machine}'
@@ -77,6 +80,8 @@ def main()->int:
     if observability_doc.exists(): shutil.copy2(observability_doc,stage/'docs/OBSERVABILITY.md')
     python_doc=ROOT/'docs/implementation/PYTHON_BINDING_0.25.md'
     if python_doc.exists(): shutil.copy2(python_doc,stage/'docs/PYTHON_BINDING.md')
+    for src,doc_name in [(ROOT/'SECURITY.md','SECURITY.md'),(ROOT/'SUPPORT.md','SUPPORT.md'),(ROOT/'docs/implementation/RELEASE_ENGINEERING_v1.md','RELEASE_ENGINEERING.md')]:
+        if src.exists(): shutil.copy2(src,stage/'docs'/doc_name)
     (stage/'bin/mosaic-author').chmod(0o755);(stage/'bin/mosaic-registry').chmod(0o755)
     release_notes=ROOT/f'docs/release/RELEASE_NOTES_{VERSION}.md'
     if release_notes.exists():shutil.copy2(release_notes,stage/'docs/RELEASE_NOTES.md')
@@ -93,10 +98,15 @@ def main()->int:
     manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':c_api_version(),'tokenizer_semantics_version':2,'tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'reference_security_fingerprint_sha256':security_fingerprint,'reference_normalization_fingerprint_sha256':normalization_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'security_pack':{'file':'security17-v1.mpack','sha256':sha(SECURITY),'unicode_version':'17.0.0'},'normalization_pack':{'file':'normalization16-v1.mpack','sha256':sha(NORMALIZATION),'unicode_version':'16.0.0','icu_generator_version':'76.1'},'trust':{'library':'libmosaic_trust','signature_algorithm':'Ed25519','conformance_public_key_sha256':sha(ROOT/'fixtures/trust/conformance-ed25519.pub'),'model_signature_sha256':sha(ROOT/'fixtures/packs/model-v2.mpack.sig')},'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'lexer_packs':{t:{'file':f'lexer/{t}-v1.mpack','sha256':sha(p),'tokenizer_fingerprint_sha256':lexer_fingerprints[t]} for t,p in LEXERS.items()},'python_binding':{'file':f'mosaic_tokenizer-{VERSION}-py3-none-any.whl','sha256':sha(py_wheel)},'artifacts':{}}
     for rel in ['bin/mosaic-tokenizer','bin/mosaic-author','bin/mosaic-registry','lib/libmosaic.so','lib/libmosaic.a','lib/libmosaic_trust.so','lib/libmosaic_trust.a','include/mosaic.h','include/mosaic_trust.h']:manifest['artifacts'][rel]=sha(stage/rel)
     (stage/'share/mosaic/release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+    subprocess.run([str(ROOT/'tools/generate_sbom.py'),str(stage),'--version',VERSION,'--output',str(stage/'share/mosaic/sbom.spdx.json')],cwd=ROOT,check=True)
+    subprocess.run([str(ROOT/'tools/generate_provenance.py'),str(stage),'--version',VERSION,'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256'),'--output',str(stage/'share/mosaic/provenance.intoto.json')],cwd=ROOT,check=True)
     sums=[]
     for p in sorted(stage.rglob('*')):
         if p.is_file() and p.name!='SHA256SUMS':sums.append(f'{sha(p)}  {p.relative_to(stage).as_posix()}')
     (stage/'SHA256SUMS').write_text('\n'.join(sums)+'\n')
-    archive=dist/f'{name}.tar.gz';deterministic_tgz(stage,archive)
+    archive=dist/f'{name}.tar.gz'
+    if archive.name != f'mosaic-tokenizer-{VERSION}-{tag}.tar.gz':
+        raise RuntimeError(f'unexpected release archive name: {archive.name}')
+    deterministic_tgz(stage,archive)
     print(json.dumps({'stage':str(stage),'archive':str(archive),'archive_sha256':sha(archive),'fingerprint':fingerprint,'language_fingerprint':language_fingerprint,'auto_fingerprint':auto_fingerprint,'security_fingerprint':security_fingerprint,'normalization_fingerprint':normalization_fingerprint,'lexer_fingerprints':lexer_fingerprints},indent=2));return 0
 if __name__=='__main__':raise SystemExit(main())

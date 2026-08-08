@@ -296,5 +296,9 @@ int main(int argc, char **argv) {
         subprocess.run([registry,'audit',regdir],check=True)
         locked=json.loads(lock.read_text())
         if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
-    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, authoring, compatibility, trust signing/verification, registry lock/audit, and external static-client smoke');return 0
+        subprocess.run([sys.executable,str(ROOT/'tools/validate_supply_chain.py'),str(d),'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256')],check=True,cwd=ROOT)
+    expected_archive=f'mosaic-tokenizer-{VERSION}-linux-x86_64.tar.gz'
+    if archive.name != expected_archive:
+        raise SystemExit(f'unexpected archive name: {archive.name} != {expected_archive}')
+    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, SBOM/provenance, authoring, compatibility, trust signing/verification, registry lock/audit, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())
