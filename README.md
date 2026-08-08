@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.27.1
+## Stable tokenizer: 0.28.0
 
-Mosaic Tokenizer 0.27.1 is the current stable enterprise tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
+Mosaic Tokenizer 0.28.0 is the current stable enterprise tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;

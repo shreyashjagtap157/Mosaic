@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.28.0 — 2026-08-08
+
+Enterprise deterministic reliability and recovery qualification release.
+
+- replayable arbitrary-byte, online-streaming, incremental-edit, cold-TokenDocument, lifecycle, and executor reliability campaign;
+- PR smoke, nightly release, and extended soak reliability tiers;
+- 25,000-iteration release campaign repeated with identical semantic replay digest;
+- concurrent content-addressed registry install chaos and deterministic lock verification;
+- deliberate registry object corruption detection followed by exact-hash atomic repair;
+- SQLite integrity/schema audit hardening and orphan-object garbage-collection verification;
+- reliability campaign reports designed for seed-based failure replay rather than wall-clock anecdotes.
+
 ## 0.27.1 — 2026-08-08
 
 Cross-platform conformance patch.

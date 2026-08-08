@@ -49,7 +49,7 @@ def main()->int:
     lib.mosaic_document_encode.argtypes=[C.c_void_p,C.POINTER(P32),C.POINTER(C.c_size_t)];lib.mosaic_document_encode.restype=C.c_int
     lib.mosaic_document_copy_bytes.argtypes=[C.c_void_p,C.POINTER(P8),C.POINTER(C.c_size_t)];lib.mosaic_document_copy_bytes.restype=C.c_int
     lib.mosaic_document_free.argtypes=[C.c_void_p]
-    assert lib.mosaic_version_string()==b'0.27.1'
+    assert lib.mosaic_version_string()==b'0.28.0'
     assert lib.mosaic_tokenizer_semantics_version()==2
     assert lib.mosaic_model_load_file(os.fsencode(MODEL),C.byref(model))==0
     assert lib.mosaic_unicode_load_file(os.fsencode(UNICODE),C.byref(uni))==0
