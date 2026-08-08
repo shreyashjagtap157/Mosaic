@@ -1,0 +1,18 @@
+{
+  "min_margin": 20,
+  "profiles": {
+    "en": {
+      "min_score": 100,
+      "features": [
+        {"text": "tokenizer", "weight": 120},
+        {"text": "hello", "weight": 80}
+      ]
+    },
+    "hi": {
+      "min_score": 100,
+      "features": [
+        {"text": "नमस्ते", "weight": 120}
+      ]
+    }
+  }
+}

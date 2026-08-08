@@ -12,8 +12,9 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack'
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack'
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
+        if run([author,'--version'])!='mosaic-author 0.5.0':raise SystemExit('packaged author version mismatch')
         manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
         if run([cli,'fingerprint',model,uni])!=manifest['tokenizer_fingerprint_sha256']:raise SystemExit('packaged base fingerprint mismatch')
         lf=run([cli,'fingerprint-languages',model,uni,langs['ja'],langs['en'],langs['hi']])
@@ -31,6 +32,13 @@ def main():
         en_sample=temp/'english.txt';en_sample.write_bytes(b'tokenizer')
         detected=run([cli,'roundtrip-auto',model,uni,det,en_sample,langs['en'],langs['hi'],langs['ja']])
         if 'route=en' not in detected or 'tokens=1' not in detected:raise SystemExit('packaged auto-routing specialization failed')
+
+        # Packaged authoring tool must produce a deterministic usable model outside the source tree.
+        corpus=temp/'author-corpus.txt';corpus.write_text('tokenizer tokenizer hello world\nनमस्ते दुनिया नमस्ते दुनिया\n',encoding='utf-8')
+        authored=temp/'authored.mpack'
+        subprocess.run([author,'train-model',corpus,'-o',authored,'--vocab-size','272','--min-frequency','1'],check=True)
+        authored_sample=temp/'authored-sample.txt';authored_sample.write_bytes(b'tokenizer '+ 'नमस्ते दुनिया'.encode())
+        if 'OK' not in run([cli,'roundtrip',authored,authored_sample]):raise SystemExit('packaged author/native integration failed')
         client=temp/'client.c';client.write_text('''#include <mosaic.h>
 #include <stddef.h>
 #include <string.h>

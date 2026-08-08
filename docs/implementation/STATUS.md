@@ -4,9 +4,9 @@ Date: 2026-08-08
 
 ## Stable release state
 
-**Mosaic Tokenizer 0.4.0 native tokenizer: STABLE NATIVE RELEASE QUALIFIED LOCALLY.**
+**Mosaic Tokenizer 0.5.0: STABLE NATIVE + AUTHORING RELEASE QUALIFIED LOCALLY.**
 
-Version 0.4 extends the qualified byte/Unicode/model/language/detector core so automatic routing is semantically consistent across one-shot, stream-at-EOF, and editable-document APIs. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
+Version 0.5 adds a supported deterministic pack-authoring/training path on top of the qualified 0.4 execution core. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
 
 ### Implemented tokenizer path
 
@@ -42,6 +42,13 @@ The 0.2 hot-path language lookup defect remains fixed through attach-time vocabu
 - **M2:** implemented and independently exercised natively; Rust qualification pending external CI.
 - **M3:** stable native Unicode/static tokenizer substrate implemented. Production-scale vocabulary training and semantics-equivalent external baseline benchmarking remain research gates.
 - **M4 Wedge Tournament:** not run and not silently bypassed.
+
+## Pack production
+
+- supported deterministic explicit model compiler;
+- deterministic compression-first corpus trainer;
+- supported language/detector compilers;
+- pack inspection and author/runtime release integration.
 
 ## Remaining tokenizer work
 

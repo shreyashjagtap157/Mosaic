@@ -1,0 +1,7 @@
+{
+  "language": "en",
+  "adjustments": [
+    {"text": "tokenizer", "delta": -40},
+    {"text": " hello", "delta": -20}
+  ]
+}

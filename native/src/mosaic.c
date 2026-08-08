@@ -619,7 +619,7 @@ static size_t build_path_back(const Vocab *v, const uint32_t *back, size_t base_
     while (cursor) {
         uint32_t entry_index = back[cursor];
         VocabEntry e; Slice surf;
-        if (!vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor || !pos) return SIZE_MAX;
+        if (entry_index == UINT32_MAX || !vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor || !pos) return SIZE_MAX;
         size_t previous = cursor - surf.len;
         out[--pos] = (PathToken){previous, cursor, entry_index};
         cursor = previous;
@@ -648,7 +648,7 @@ static int tokenize_with_adjustments(const Vocab *v, Slice input, const int64_t 
     if (input.len == SIZE_MAX || input.len > SIZE_MAX / sizeof(uint32_t) - 1) return fail("input too large");
     uint32_t *back = (uint32_t *)malloc((input.len + 1) * sizeof *back);
     if (!back) return fail("out of memory");
-    back[0] = UINT32_MAX;
+    memset(back, 0xff, (input.len + 1) * sizeof *back);
     size_t ring_size = (size_t)v->max_surface_len + 1;
     if (!ring_size || ring_size > SIZE_MAX / sizeof(RingState)) { free(back); return fail("token window too large"); }
     RingState *ring = (RingState *)calloc(ring_size, sizeof *ring);
@@ -702,7 +702,7 @@ static int roundtrip(const Vocab *v, Slice input, const Tokenization *result) {
     while (cursor) {
         uint32_t entry_index = result->back[cursor];
         VocabEntry e; Slice surf;
-        if (!vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor) return 0;
+        if (entry_index == UINT32_MAX || !vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor) return 0;
         size_t start = cursor - surf.len;
         if (memcmp(input.bytes + start, surf.bytes, surf.len) != 0) return 0;
         cursor = start; ++count;
@@ -719,7 +719,7 @@ static int reconstruct_entry_indices(const Vocab *v, const Tokenization *result,
     while (cursor) {
         uint32_t entry_index = result->back[cursor];
         VocabEntry e; Slice surf;
-        if (!pos || !vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor) { free(indices); return 0; }
+        if (!pos || entry_index == UINT32_MAX || !vocab_entry(v, entry_index, &e, &surf) || surf.len > cursor) { free(indices); return 0; }
         indices[--pos] = entry_index;
         cursor -= surf.len;
     }
@@ -961,7 +961,7 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.4.0"; }
+const char *mosaic_version_string(void) { return "0.5.0"; }
 
 const char *mosaic_status_string(mosaic_status status) {
     switch (status) {

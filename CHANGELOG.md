@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-08-08
+
+Stable deterministic pack-authoring and baseline-training release.
+
+- supported `mosaic-author` CLI shipped in release bundles;
+- deterministic explicit model compilation with mandatory 256-byte fallback;
+- deterministic compression-first corpus training with bounded candidate growth;
+- corpus-order-independent model builds and machine-readable training reports;
+- supported language-specialization and detector-pack compilers;
+- pack inspection and clean-extraction author/runtime integration tests;
+- native C API remains compatible with 0.4.0.
+
 ## 0.4.0 — 2026-08-08
 
 Stable automatic stream/document routing release.

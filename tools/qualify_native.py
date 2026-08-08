@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-qualify the executable native Mosaic v0.4 tokenizer on this host."""
+"""Release-qualify the executable native Mosaic v0.5 tokenizer on this host."""
 from __future__ import annotations
 import os, shutil, subprocess, sys, tempfile, statistics
 from pathlib import Path
@@ -28,7 +28,7 @@ def main()->int:
         ['tools/validate_m3_model.py'],['tools/validate_unicode17.py'],['tools/validate_repo.py']]
     for g in gates: run(py+g)
     run(['make','-C','native','clean','all','test'])
-    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','validate_detector.py','benchmark_language_packs.py','benchmark_detector.py']:
+    for script in ['validate_c_reference.py','validate_c_malformed.py','validate_c_unicode.py','validate_c_unicode_malformed.py','validate_c_api.py','validate_language_packs.py','validate_detector.py','validate_authoring.py','benchmark_language_packs.py','benchmark_detector.py']:
         run(py+['tools/'+script])
     # Sanitizer stress and all malformed classes run inside long-lived C processes above.
     # Clang is a genuinely independent compiler gate.
@@ -56,7 +56,7 @@ def main()->int:
     if rss_kb > 131072: raise SystemExit(f'FAIL: RSS ceiling: {rss_kb:.0f} KiB > 131072')
     if (ROOT/'build/mosaic-tokenizer').stat().st_size > 1024*1024: raise SystemExit('FAIL: native CLI exceeds 1 MiB')
     print(f'PASS benchmark: {throughput:.1f} MiB/s, maxrss={rss_kb/1024:.1f} MiB')
-    print('PASS: Mosaic native v0.4 release qualification completed')
+    print('PASS: Mosaic native v0.5 release qualification completed')
     print('NOTE: Stable Rust reference remains separately blocked by unavailable rustc/cargo on this host')
     return 0
 if __name__=='__main__':raise SystemExit(main())

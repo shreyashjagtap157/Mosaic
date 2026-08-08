@@ -27,6 +27,7 @@ test: fixtures
 	$(PYTHON) tools/validate_c_api.py
 	$(PYTHON) tools/validate_language_packs.py
 	$(PYTHON) tools/validate_detector.py
+	$(PYTHON) tools/validate_authoring.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py
 
