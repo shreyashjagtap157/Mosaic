@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 1.0.3
+## Candidate tokenizer: 0.1.0.3
 
-Mosaic Tokenizer 1.0.3 is the current stable enterprise tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
+Mosaic Tokenizer 0.1.0.3 is the current pre-stable enterprise candidate tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -47,14 +47,14 @@ Mosaic Tokenizer 1.0.3 is the current stable enterprise tokenizer and token-proc
 - supported deterministic Python wheel with ownership-safe wrappers over the same native C ABI.
 - cross-platform dependency-minimal root CMake build, portable Windows/POSIX threading internals, deterministic SPDX SBOM, SLSA-shaped provenance, and release checksum inventory.
 
-All prior releases remain preserved by Git tags. The 0.13–0.24 line adds rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 added Unicode-17 script/security evidence. Version 0.8.0 added a separately pinned Unicode-16 normalization shadow-view pack. Version 0.9.0 added exact bounded online Viterbi streaming and bounded-output security visitors. Version 0.10.0 added transactional exact incremental Viterbi documents with safe-prefix reuse. Version 0.11.0 added checkpoint-state forward resynchronization and compact incremental caching. Version 0.12.0 adds the first immutable TokenDocument/Core IR and advances the backward-compatible C API surface to 0.10.0. Canonical tokenization semantics remain version 2. The 1.0 release freezes C ABI 1.0.0, optional trust ABI 1.0.0, and the stable binary-format contracts documented under `abi/`.
+All prior releases remain preserved by Git tags. The old three-component tags are historical milestone/release identifiers; the canonical product version now follows the four-part `S.M.N.P` policy in `docs/VERSIONING_POLICY.md`. The 0.13–0.24 historical line added rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Canonical tokenization semantics remain version 2. The enterprise freeze established C ABI 1.0.0, optional trust ABI 1.0.0, and the binary-format contracts under `abi/`; those contract versions remain independent of the product release number.
 
-Mosaic 1.0 is the stable **universal tokenization and token-native processing platform** baseline. The qualified production artifact is the native C runtime; exact ABI/format compatibility is frozen for 1.x. Adaptive byte-patch LLMs, GPU acceleration, learned span-level routing, very large community pack catalogs, and any scanner VM remain post-1.0 research rather than hidden blockers.
+Mosaic `0.1.0.3` is the current **universal tokenization and token-native processing platform candidate**. The native C runtime is the qualified implementation on the platforms already exercised, while Windows/macOS/Rust qualification evidence is completed before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period. Adaptive byte-patch LLMs, GPU acceleration, learned span-level routing, very large community pack catalogs, and any scanner VM remain post-baseline research rather than hidden stabilization blockers.
 
 ## Repository layout
 
 ```text
-native/                 stable native C runtime, public header, Make/CMake builds
+native/                 native C runtime, public header, Make/CMake builds
 conformance/            independent C/C++ clients and malformed-input tests
 crates/                 intended primary Rust implementation and reference/engine crates
 fixtures/packs/          deterministic model, Unicode, language, detector, and adversarial pack fixtures
@@ -215,7 +215,7 @@ Stable Rust remains the intended primary implementation language. Rust source ex
 
 ## Current project boundary
 
-The tokenizer itself now has a stable native byte/Unicode/model/language-pack execution path. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
+The tokenizer itself has a mature native byte/Unicode/model/language-pack execution path, but product stability is intentionally evidence-gated under `docs/VERSIONING_POLICY.md`. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
 See `docs/implementation/STATUS.md`, `docs/implementation/COMPATIBILITY_0.6.md`, and the latest release qualification evidence for the exact implemented/not-implemented boundary.
 

@@ -27,6 +27,10 @@ REQUIRED = [
     "docs/implementation/PACK_FIXTURE.md",
     "docs/implementation/REPOSITORY_LAYOUT.md",
     "docs/implementation/STATUS.md",
+    "docs/VERSIONING_POLICY.md",
+    "docs/COMPATIBILITY_POLICY.md",
+    "docs/DEPRECATION_POLICY.md",
+    "VERSION",
     "docs/implementation/M0_IMPLEMENTATION_REPORT.md",
     "docs/adr/ADR-001-byte-coordinate-system.md",
     "docs/adr/ADR-002-canonical-byte-leaves.md",
@@ -138,14 +142,23 @@ def check_convergence_requirements() -> None:
             fail(f"missing converged requirement {req}")
 
 
+def check_product_versioning() -> None:
+    for command in [
+        [sys.executable, str(ROOT / "tools/set_version.py"), "--check"],
+        [sys.executable, str(ROOT / "tools/generate_artifact_checksums.py"), "--check"],
+    ]:
+        subprocess.run(command, check=True, cwd=ROOT, stdout=subprocess.DEVNULL)
+
+
 def main() -> int:
     check_files()
     check_toml()
     check_fixture()
     check_m2_fixture()
     check_convergence_requirements()
+    check_product_versioning()
     digest = hashlib.sha256((ROOT / "fixtures/packs/empty-v0.mpack").read_bytes()).hexdigest()
-    print("OK: M0 repository structure validated")
+    print("OK: M0 repository structure and four-part product versioning validated")
     print(f"OK: empty fixture SHA-256 {digest}")
     print("NOTE: Rust compile/test gates were not executed by this validator")
     return 0

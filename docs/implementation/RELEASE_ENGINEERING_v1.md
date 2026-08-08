@@ -5,3 +5,5 @@ Mosaic distributions are deterministic tar.gz archives with normalized timestamp
 Cross-platform core qualification deliberately disables optional OpenSSL/ICU-dependent features so the tokenizer core proves it has no hidden dependency on them. Full Linux qualification enables all available optional trust and Unicode differential tests.
 
 Canonical pack identity remains content-addressed and independent of the release bundle. Release provenance authenticates what was built; pack trust authenticates publisher/content relationships. These are separate security layers.
+
+Product release artifacts use the canonical four-part `S.M.N.P` version from the repository `VERSION` file. Release qualification runs `tools/set_version.py --check` and the cross-platform source checksum validator before packaging so CMake metadata, headers, CLI tools, Python package metadata, manifests, SBOM/provenance, and archive names cannot drift independently. Pack registry SemVer and frozen ABI/format versions remain separate contracts.

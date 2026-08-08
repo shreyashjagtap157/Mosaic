@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 1.0.3 LANGUAGES C CXX)
+project(mosaic VERSION 0.1.0.3 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)

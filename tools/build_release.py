@@ -85,9 +85,18 @@ def main()->int:
     (stage/'bin/mosaic-author').chmod(0o755);(stage/'bin/mosaic-registry').chmod(0o755)
     release_notes=ROOT/f'docs/release/RELEASE_NOTES_{VERSION}.md'
     if release_notes.exists():shutil.copy2(release_notes,stage/'docs/RELEASE_NOTES.md')
-    api_doc=ROOT/f'docs/implementation/API_C_{VERSION.rsplit(".",1)[0]}.md'
-    if not api_doc.exists():api_doc=ROOT/'docs/implementation/API_C_0.1.md'
+    api_version=c_api_version()
+    api_major_minor='.'.join(api_version.split('.')[:2])
+    api_doc=ROOT/f'docs/implementation/API_C_{api_major_minor}.md'
+    if not api_doc.exists():
+        raise RuntimeError(f'missing C API documentation for ABI {api_version}: {api_doc.relative_to(ROOT)}')
     shutil.copy2(api_doc,stage/'docs/API_C.md')
+    for policy_src,policy_name in [
+        (ROOT/'docs/VERSIONING_POLICY.md','VERSIONING_POLICY.md'),
+        (ROOT/'docs/COMPATIBILITY_POLICY.md','COMPATIBILITY_POLICY.md'),
+        (ROOT/'docs/DEPRECATION_POLICY.md','DEPRECATION_POLICY.md'),
+    ]:
+        shutil.copy2(policy_src,stage/'docs'/policy_name)
     pc=f'''prefix=/usr/local\nexec_prefix=${{prefix}}\nlibdir=${{exec_prefix}}/lib\nincludedir=${{prefix}}/include\n\nName: mosaic\nDescription: Mosaic exact byte tokenizer core\nVersion: {VERSION}\nLibs: -L${{libdir}} -lmosaic\nCflags: -I${{includedir}}\n''';(stage/'share/pkgconfig/mosaic.pc').write_text(pc, encoding="utf-8")
     fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint',str(MODEL),str(UNICODE))
     language_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-languages',str(MODEL),str(UNICODE),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))

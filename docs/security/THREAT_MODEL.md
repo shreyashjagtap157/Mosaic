@@ -1,6 +1,6 @@
 # Mosaic Enterprise Threat Model
 
-Status: 1.0 release-candidate baseline.
+Status: frozen enterprise candidate baseline; current product release 0.1.0.3.
 
 ## Security objectives
 
@@ -85,7 +85,7 @@ Controls: clean-tree official release rule, deterministic archive and wheel buil
 - ordinary packs execute no native code;
 - failure to authenticate/validate/fit resource policy fails closed and never silently falls back to a different canonical segmentation.
 
-## Residual risks before/after 1.0
+## Residual risks before/after stable-generation graduation
 
 - platform-specific compiler/runtime defects;
 - third-party OpenSSL/ICU/Python vulnerabilities when optional features use them;

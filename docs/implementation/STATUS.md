@@ -2,11 +2,13 @@
 
 Date: 2026-08-08
 
-## Stable enterprise release
+## Current enterprise candidate
 
-**1.0.1 — universal tokenization and token-native processing platform.**
+**0.1.0.3 — universal tokenization and token-native processing platform candidate.**
 
-The qualified production implementation is the native C runtime. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
+Mosaic now uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` is deliberate: Linux qualification is strong, but real Windows qualification exposed portability defects that are still being closed before the project is permitted to claim `1.0.0.0` stable.
+
+The qualified production implementation is the native C runtime on the platforms for which evidence exists. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
 
 ## Implemented platform surface
 
@@ -28,9 +30,9 @@ The qualified production implementation is the native C runtime. The supported r
 - cross-platform root CMake build topology and Windows/POSIX threading abstraction;
 - deterministic SBOM/provenance/checksum release artifacts;
 - replayable reliability/chaos campaign including registry corruption/repair;
-- frozen 1.x C/trust ABI and binary-format contracts.
+- frozen C/trust ABI and binary-format contracts independent of product-version maturity.
 
-## Local qualification completed
+## Qualification completed on available hosts
 
 - strict GCC builds and full ASan/UBSan inherited native suite;
 - independent Clang CMake/CTest suite;
@@ -43,19 +45,20 @@ The qualified production implementation is the native C runtime. The supported r
 - ABI/export and stable-format contract checks;
 - clean Git provenance and SPDX/in-toto release metadata.
 
-## External qualification gates
+## Stable-generation qualification gates still open
 
-The current Linux qualification environment cannot execute these gates and does not fabricate them:
+The following gates are not fabricated as passes and keep the first product-version component at `0` until completed:
 
-- Windows and macOS native CI execution;
-- stable Rust workspace build/clippy/tests;
+- Windows native build/test completion after the portability patches discovered during real-device qualification;
+- macOS native CI execution;
+- stable Rust workspace build/Clippy/tests;
 - Miri and cargo-fuzz jobs;
 - ThreadSanitizer or platform-specific race detectors where supported;
-- non-x86-64/ARM64 hardware qualification beyond available CI runners.
+- non-x86-64/ARM64 qualification required by the final support matrix.
 
-These gates remain declared in CI and should be executed when the repository is run on GitHub/your future Windows environment. A failure is a 1.0.x defect to fix without changing frozen canonical semantics unless a major-version process is explicitly invoked.
+A failure during this candidate period increments only the fourth product-version component when the fix is compatibility-preserving, e.g. `0.1.0.3` → `0.1.0.4`.
 
-## Post-1.0 research, not 1.0 blockers
+## Research beyond stabilization
 
 - native adaptive byte-patch LLM architecture;
 - GPU tokenizer/offline corpus acceleration;

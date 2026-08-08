@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.0.3 — 2026-08-08
+
+Four-part product-version re-baseline and stability-label correction.
+
+- define canonical `S.M.N.P` product versions: stability generation, major release, minor release, patch;
+- move the current cumulative enterprise build to pre-stable candidate `0.1.0.3`;
+- reserve `1.0.0.0` for the first build that actually satisfies the declared stable cross-platform qualification gates;
+- retain old three-component Git tags as immutable legacy history and document their migration mapping;
+- keep C ABI 1.0.0, trust ABI 1.0.0, tokenizer semantics 2, pack SemVer, and all binary-format contracts independently versioned and unchanged;
+- update release tooling, package metadata, support/security/compatibility documentation, and release evidence to use the four-part product version.
+
+### Legacy mapping
+
+- `v1.0.0` → conceptual `0.1.0.0`;
+- `v1.0.1` → conceptual `0.1.0.1`;
+- `v1.0.2` → conceptual `0.1.0.2`;
+- `v1.0.3` → conceptual `0.1.0.3`.
+
+The canonical four-part tag is created on the migration commit; legacy tags are not rewritten.
+
 ## 1.0.3 — 2026-08-08
 
 Windows UCRT strict-warning portability patch.
