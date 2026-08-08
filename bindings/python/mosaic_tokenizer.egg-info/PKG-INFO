@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: mosaic-tokenizer
+Version: 0.25.0
+Summary: Python binding for the Mosaic exact-byte tokenizer runtime
+Author: Mosaic Project
+License: Apache-2.0
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: C
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse,base64,hashlib,json,subprocess,tarfile,tempfile
+import argparse,base64,hashlib,json,os,subprocess,sys,tarfile,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];VERSION=(ROOT/'VERSION').read_text().strip()
 def run(cmd,cwd=None):return subprocess.check_output([str(x) for x in cmd],cwd=cwd,text=True).strip()
@@ -15,6 +15,13 @@ def main():
         d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
+        py_wheel=d/'python'/f'mosaic_tokenizer-{VERSION}-py3-none-any.whl'
+        if not py_wheel.exists(): raise SystemExit('packaged Python wheel missing')
+        py_target=temp/'python-install';py_target.mkdir()
+        subprocess.run([sys.executable,'-m','pip','install','--no-deps','--no-index','--target',str(py_target),str(py_wheel)],check=True,stdout=subprocess.DEVNULL)
+        py_script=temp/'python-smoke.py';py_script.write_text("from mosaic import Tokenizer, BatchExecutor\nimport sys\nroot=sys.argv[1]\nwith Tokenizer(root+'/share/mosaic/packs/model-v2.mpack',root+'/share/mosaic/packs/unicode17-v1.mpack',library_path=root+'/lib/libmosaic.so') as t:\n    data=bytes(range(256))*2\n    ids=t.encode(data)\n    assert t.decode(ids)==data\n    t.seal()\n    with BatchExecutor(worker_count=2,queue_capacity=2,max_batch_items=8,max_total_input_bytes=1024,library_path=root+'/lib/libmosaic.so') as ex:\n        rs=ex.encode(t,[b'hello',b'world'])\n        assert len(rs)==2 and all(r.status==0 and r.ids for r in rs)\n")
+        py_env=os.environ.copy();py_env['PYTHONPATH']=str(py_target);py_env['MOSAIC_LIBRARY']=str(d/'lib/libmosaic.so')
+        subprocess.run([sys.executable,str(py_script),str(d)],check=True,env=py_env)
         manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
         if run([cli,'fingerprint',model,uni])!=manifest['tokenizer_fingerprint_sha256']:raise SystemExit('packaged base fingerprint mismatch')
         lf=run([cli,'fingerprint-languages',model,uni,langs['ja'],langs['en'],langs['hi']])

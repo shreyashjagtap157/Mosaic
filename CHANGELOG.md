@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.0 — 2026-08-08
+
+Supported Python binding release.
+
+- deterministic pure-Python wheel over the stable C ABI;
+- ownership-safe tokenizer/TokenDocument/executor context managers;
+- exact arbitrary-byte, rich-view, batch, runtime-policy, and observer APIs;
+- clean-wheel lifecycle and package qualification.
+
 ## 0.24.0 — 2026-08-08
 
 Enterprise privacy-preserving observability release.
