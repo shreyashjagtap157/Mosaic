@@ -586,7 +586,7 @@ def cmd_inspect(args) -> None:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mosaic-author", description="Deterministic Mosaic pack authoring")
-    p.add_argument("--version", action="version", version="mosaic-author 0.17.0")
+    p.add_argument("--version", action="version", version="mosaic-author 0.18.0")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("model", help="compile model vocabulary from JSON")
     m.add_argument("config", type=Path); m.add_argument("output", type=Path); m.set_defaults(func=cmd_model)

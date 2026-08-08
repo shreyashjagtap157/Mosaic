@@ -1,4 +1,5 @@
 #include <mosaic.h>
+#include "mosaic_internal.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -269,4 +270,177 @@ void mosaic_cache_free(mosaic_cache *cache) {
     mtx_destroy(&cache->mutex);
     free(cache->buckets);
     free(cache);
+}
+
+#define MOSAIC_CACHE_RECORD_HEADER 128u
+static const uint8_t CACHE_RECORD_MAGIC[8] = {'M','S','C','A','C','H','R','1'};
+
+static void cache_wr16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+}
+static void cache_wr32(uint8_t *p, uint32_t v) {
+    for (unsigned i = 0; i < 4u; ++i) p[i] = (uint8_t)(v >> (8u * i));
+}
+static void cache_wr64(uint8_t *p, uint64_t v) {
+    for (unsigned i = 0; i < 8u; ++i) p[i] = (uint8_t)(v >> (8u * i));
+}
+static uint16_t cache_rd16(const uint8_t *p) {
+    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+static uint32_t cache_rd32(const uint8_t *p) {
+    uint32_t v = 0;
+    for (unsigned i = 0; i < 4u; ++i) v |= (uint32_t)p[i] << (8u * i);
+    return v;
+}
+static uint64_t cache_rd64(const uint8_t *p) {
+    uint64_t v = 0;
+    for (unsigned i = 0; i < 8u; ++i) v |= (uint64_t)p[i] << (8u * i);
+    return v;
+}
+static int cache_record_hash(const uint8_t *record, size_t len, uint8_t out[32]) {
+    return mosaic_internal_sha256_zero_range(record, len, 88u, 32u, out);
+}
+
+mosaic_status mosaic_cache_record_encode(const uint8_t key[32], const uint8_t *value, size_t value_len,
+                                         uint8_t **out_record, size_t *out_record_len) {
+    if (!key || (value_len && !value) || !out_record || !out_record_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_record = NULL;
+    *out_record_len = 0;
+    if (value_len > SIZE_MAX - MOSAIC_CACHE_RECORD_HEADER) return MOSAIC_ERROR_OVERFLOW;
+    size_t total = MOSAIC_CACHE_RECORD_HEADER + value_len;
+    uint8_t *record = (uint8_t *)calloc(total ? total : 1u, 1u);
+    if (!record) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    memcpy(record, CACHE_RECORD_MAGIC, 8u);
+    cache_wr16(record + 8u, 1u);
+    cache_wr16(record + 10u, MOSAIC_CACHE_RECORD_HEADER);
+    cache_wr32(record + 12u, 0u);
+    cache_wr64(record + 16u, (uint64_t)value_len);
+    memcpy(record + 24u, key, 32u);
+    if (!mosaic_internal_sha256(value, value_len, record + 56u)) {
+        free(record);
+        return MOSAIC_ERROR_INTERNAL;
+    }
+    if (value_len) memcpy(record + MOSAIC_CACHE_RECORD_HEADER, value, value_len);
+    if (!cache_record_hash(record, total, record + 88u)) {
+        free(record);
+        return MOSAIC_ERROR_INTERNAL;
+    }
+    *out_record = record;
+    *out_record_len = total;
+    return MOSAIC_OK;
+}
+
+static mosaic_status cache_record_validate(const uint8_t *record, size_t record_len,
+                                           mosaic_cache_record_info *info) {
+    if (!record || record_len < MOSAIC_CACHE_RECORD_HEADER) return MOSAIC_ERROR_INTEGRITY;
+    if (memcmp(record, CACHE_RECORD_MAGIC, 8u) || cache_rd16(record + 8u) != 1u ||
+        cache_rd16(record + 10u) != MOSAIC_CACHE_RECORD_HEADER || cache_rd32(record + 12u) != 0u)
+        return MOSAIC_ERROR_INTEGRITY;
+    for (size_t i = 120u; i < 128u; ++i) if (record[i]) return MOSAIC_ERROR_INTEGRITY;
+    uint64_t vlen64 = cache_rd64(record + 16u);
+    if (vlen64 > SIZE_MAX) return MOSAIC_ERROR_OVERFLOW;
+    size_t vlen = (size_t)vlen64;
+    if (vlen > SIZE_MAX - MOSAIC_CACHE_RECORD_HEADER || MOSAIC_CACHE_RECORD_HEADER + vlen != record_len)
+        return MOSAIC_ERROR_INTEGRITY;
+    uint8_t value_hash[32], record_hash[32];
+    if (!mosaic_internal_sha256(record + MOSAIC_CACHE_RECORD_HEADER, vlen, value_hash) ||
+        memcmp(value_hash, record + 56u, 32u)) return MOSAIC_ERROR_INTEGRITY;
+    if (!cache_record_hash(record, record_len, record_hash) || memcmp(record_hash, record + 88u, 32u))
+        return MOSAIC_ERROR_INTEGRITY;
+    if (info) {
+        memset(info, 0, sizeof *info);
+        info->format_version = 1u;
+        info->value_length = vlen64;
+        memcpy(info->key, record + 24u, 32u);
+        memcpy(info->value_sha256, record + 56u, 32u);
+        memcpy(info->record_sha256, record + 88u, 32u);
+    }
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_cache_record_inspect(const uint8_t *record, size_t record_len,
+                                          mosaic_cache_record_info *out_info) {
+    if (!out_info) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return cache_record_validate(record, record_len, out_info);
+}
+
+mosaic_status mosaic_cache_record_decode(const uint8_t expected_key[32], const uint8_t *record,
+                                         size_t record_len, uint8_t **out_value, size_t *out_value_len) {
+    if (!expected_key || !out_value || !out_value_len) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_value = NULL;
+    *out_value_len = 0;
+    mosaic_cache_record_info info;
+    mosaic_status st = cache_record_validate(record, record_len, &info);
+    if (st != MOSAIC_OK) return st;
+    if (memcmp(expected_key, info.key, 32u)) return MOSAIC_ERROR_INTEGRITY;
+    size_t n = (size_t)info.value_length;
+    uint8_t *copy = n ? (uint8_t *)malloc(n) : NULL;
+    if (n && !copy) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    if (n) memcpy(copy, record + MOSAIC_CACHE_RECORD_HEADER, n);
+    *out_value = copy;
+    *out_value_len = n;
+    return MOSAIC_OK;
+}
+
+static mosaic_status validate_backend(const mosaic_cache_backend *backend) {
+    if (!backend || backend->struct_size < sizeof *backend || backend->flags ||
+        !backend->get || !backend->put) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_cache_backend_get_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+                                              size_t max_record_bytes, uint8_t **out_value,
+                                              size_t *out_value_len) {
+    if (!key || !out_value || !out_value_len || !max_record_bytes) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_value = NULL;
+    *out_value_len = 0;
+    mosaic_status st = validate_backend(backend);
+    if (st != MOSAIC_OK) return st;
+    size_t required = 0;
+    st = backend->get(backend->context, key, NULL, 0, &required);
+    if (st != MOSAIC_OK) return st;
+    if (required < MOSAIC_CACHE_RECORD_HEADER || required > max_record_bytes) return MOSAIC_ERROR_RESOURCE_LIMIT;
+    uint8_t *record = (uint8_t *)malloc(required);
+    if (!record) return MOSAIC_ERROR_OUT_OF_MEMORY;
+    size_t actual = required;
+    st = backend->get(backend->context, key, record, required, &actual);
+    if (st != MOSAIC_OK) {
+        free(record);
+        return st;
+    }
+    if (actual != required) {
+        free(record);
+        return MOSAIC_ERROR_INTEGRITY;
+    }
+    st = mosaic_cache_record_decode(key, record, actual, out_value, out_value_len);
+    free(record);
+    return st;
+}
+
+mosaic_status mosaic_cache_backend_put_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+                                              const uint8_t *value, size_t value_len,
+                                              size_t max_record_bytes) {
+    if (!key || (value_len && !value) || !max_record_bytes) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status st = validate_backend(backend);
+    if (st != MOSAIC_OK) return st;
+    uint8_t *record = NULL;
+    size_t n = 0;
+    st = mosaic_cache_record_encode(key, value, value_len, &record, &n);
+    if (st != MOSAIC_OK) return st;
+    if (n > max_record_bytes) {
+        free(record);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    st = backend->put(backend->context, key, record, n);
+    free(record);
+    return st;
+}
+
+mosaic_status mosaic_cache_backend_remove_value(const mosaic_cache_backend *backend, const uint8_t key[32]) {
+    if (!key) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    mosaic_status st = validate_backend(backend);
+    if (st != MOSAIC_OK) return st;
+    if (!backend->remove) return MOSAIC_ERROR_UNSUPPORTED;
+    return backend->remove(backend->context, key);
 }

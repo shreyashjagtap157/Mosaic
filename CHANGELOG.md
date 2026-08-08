@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0 — 2026-08-08
+
+Authenticated persistent/distributed cache-backend protocol.
+
+- backend-neutral immutable record callbacks;
+- whole-record and payload SHA-256 integrity;
+- wrong-key replay and corrupt-backend fail-closed behavior;
+- explicit integrity error and capability.
+
 ## 0.17.0 — 2026-08-08
 
 Enterprise bounded content-cache release.

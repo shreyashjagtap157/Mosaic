@@ -177,6 +177,13 @@ int main(int argc, char **argv) {
     mosaic_cache_stats cstats = {0};
     if (mosaic_cache_get_stats(cache, &cstats) != MOSAIC_OK || cstats.hits != 1 || cstats.entries != 1) return 45;
     mosaic_cache_free(cache);
+    unsigned char *crecord = 0; size_t crecord_n = 0;
+    if (mosaic_cache_record_encode(ckey, cval, sizeof cval, &crecord, &crecord_n) != MOSAIC_OK) return 46;
+    mosaic_cache_record_info crinfo = {0};
+    if (mosaic_cache_record_inspect(crecord, crecord_n, &crinfo) != MOSAIC_OK || crinfo.value_length != sizeof cval) return 47;
+    unsigned char *cdecoded = 0; size_t cdecoded_n = 0;
+    if (mosaic_cache_record_decode(ckey, crecord, crecord_n, &cdecoded, &cdecoded_n) != MOSAIC_OK || cdecoded_n != sizeof cval || memcmp(cdecoded, cval, sizeof cval)) return 48;
+    mosaic_free(cdecoded); mosaic_free(crecord);
     const unsigned char packed = 0xad; uint64_t nibble = 0;
     mosaic_subbyte_span ss = {0, 0, 4, MOSAIC_BIT_MSB0, 0};
     if (mosaic_subbyte_extract_u64(&packed, 1, ss, &nibble) != MOSAIC_OK || nibble != 0xa) return 35;

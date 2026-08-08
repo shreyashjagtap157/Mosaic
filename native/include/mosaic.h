@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 15
+#define MOSAIC_C_API_VERSION_MINOR 16
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -24,7 +24,8 @@ typedef enum mosaic_status {
     MOSAIC_ERROR_CONFLICT = 8,
     MOSAIC_ERROR_RESOURCE_LIMIT = 9,
     MOSAIC_ERROR_UNSUPPORTED = 10,
-    MOSAIC_ERROR_NOT_FOUND = 11
+    MOSAIC_ERROR_NOT_FOUND = 11,
+    MOSAIC_ERROR_INTEGRITY = 12
 } mosaic_status;
 
 typedef struct mosaic_model mosaic_model;
@@ -83,7 +84,8 @@ enum {
     MOSAIC_CAP_SUBBYTE = 1ull << 14,
     MOSAIC_CAP_BLOCK_PLAN = 1ull << 15,
     MOSAIC_CAP_PACKED_MODEL = 1ull << 16,
-    MOSAIC_CAP_CONTENT_CACHE = 1ull << 17
+    MOSAIC_CAP_CONTENT_CACHE = 1ull << 17,
+    MOSAIC_CAP_CACHE_BACKEND = 1ull << 18
 };
 
 typedef struct mosaic_range {
@@ -266,6 +268,31 @@ typedef struct mosaic_cache_stats {
     uint64_t clears;
     uint64_t cleared_entries;
 } mosaic_cache_stats;
+
+
+typedef mosaic_status (*mosaic_cache_backend_get_fn)(void *context, const uint8_t key[32],
+                                                      uint8_t *buffer, size_t capacity, size_t *out_required);
+typedef mosaic_status (*mosaic_cache_backend_put_fn)(void *context, const uint8_t key[32],
+                                                      const uint8_t *record, size_t record_len);
+typedef mosaic_status (*mosaic_cache_backend_remove_fn)(void *context, const uint8_t key[32]);
+
+typedef struct mosaic_cache_backend {
+    uint32_t struct_size;
+    uint32_t flags;
+    void *context;
+    mosaic_cache_backend_get_fn get;
+    mosaic_cache_backend_put_fn put;
+    mosaic_cache_backend_remove_fn remove;
+} mosaic_cache_backend;
+
+typedef struct mosaic_cache_record_info {
+    uint32_t format_version;
+    uint32_t flags;
+    uint64_t value_length;
+    uint8_t key[32];
+    uint8_t value_sha256[32];
+    uint8_t record_sha256[32];
+} mosaic_cache_record_info;
 
 typedef struct mosaic_packed_model_info {
     uint32_t format_version;
@@ -453,6 +480,21 @@ void mosaic_block_plan_free(mosaic_block_plan *plan);
 mosaic_status mosaic_processing_block_cache_key(const mosaic_processing_block *block,
                                                  uint32_t projection_namespace, uint32_t schema_version,
                                                  uint8_t out_sha256[32]);
+
+
+/* Authenticated immutable cache-record protocol for persistent/distributed backends. */
+mosaic_status mosaic_cache_record_encode(const uint8_t key[32], const uint8_t *value, size_t value_len,
+                                         uint8_t **out_record, size_t *out_record_len);
+mosaic_status mosaic_cache_record_inspect(const uint8_t *record, size_t record_len,
+                                          mosaic_cache_record_info *out_info);
+mosaic_status mosaic_cache_record_decode(const uint8_t expected_key[32], const uint8_t *record, size_t record_len,
+                                         uint8_t **out_value, size_t *out_value_len);
+/* Backend get is a two-call size/fill protocol. Records are verified before values are returned. */
+mosaic_status mosaic_cache_backend_get_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+                                              size_t max_record_bytes, uint8_t **out_value, size_t *out_value_len);
+mosaic_status mosaic_cache_backend_put_value(const mosaic_cache_backend *backend, const uint8_t key[32],
+                                              const uint8_t *value, size_t value_len, size_t max_record_bytes);
+mosaic_status mosaic_cache_backend_remove_value(const mosaic_cache_backend *backend, const uint8_t key[32]);
 
 /* Thread-safe bounded in-memory content cache. Keys are exact 32-byte content identities.
  * Values are copied on put/get, so caller lifetimes never cross the cache boundary. */

@@ -167,7 +167,16 @@ static int sha256_final(Sha256Ctx*c,uint8_t out[32]){
     for (size_t i = 0; i < 8; ++i) wr32be(out + i * 4, c->state[i]);
     return 1;
 }
-static int sha256_bytes(const uint8_t*data,size_t len,uint8_t out[32]){Sha256Ctx c;sha256_init(&c);return sha256_update(&c,data,len)&&sha256_final(&c,out);}
+int mosaic_internal_sha256(const uint8_t*data,size_t len,uint8_t out[32]){Sha256Ctx c;sha256_init(&c);return sha256_update(&c,data,len)&&sha256_final(&c,out);}
+int mosaic_internal_sha256_zero_range(const uint8_t *data,size_t len,size_t zero_offset,size_t zero_length,uint8_t out[32]){
+    static const uint8_t zeros[64]={0};
+    if(!data||!out||zero_offset>len||zero_length>len-zero_offset)return 0;
+    Sha256Ctx c;sha256_init(&c);
+    if(!sha256_update(&c,data,zero_offset))return 0;
+    size_t remaining=zero_length;while(remaining){size_t n=remaining>sizeof zeros?sizeof zeros:remaining;if(!sha256_update(&c,zeros,n))return 0;remaining-=n;}
+    return sha256_update(&c,data+zero_offset+zero_length,len-zero_offset-zero_length)&&sha256_final(&c,out);
+}
+static int sha256_bytes(const uint8_t*data,size_t len,uint8_t out[32]){return mosaic_internal_sha256(data,len,out);}
 
 static uint16_t rd16(const uint8_t *p) {
     return (uint16_t)((uint16_t)p[0] | (uint16_t)((uint16_t)p[1] << 8));
@@ -1719,7 +1728,7 @@ struct mosaic_block_plan {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.17.0"; }
+const char *mosaic_version_string(void) { return "0.18.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1736,6 +1745,7 @@ const char *mosaic_status_string(mosaic_status status) {
         case MOSAIC_ERROR_RESOURCE_LIMIT: return "resource limit";
         case MOSAIC_ERROR_UNSUPPORTED: return "unsupported";
         case MOSAIC_ERROR_NOT_FOUND: return "not found";
+        case MOSAIC_ERROR_INTEGRITY: return "integrity check failed";
         default: return "unknown status";
     }
 }
@@ -3268,7 +3278,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
-    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE;
+    caps |= MOSAIC_CAP_SUBBYTE | MOSAIC_CAP_BLOCK_PLAN | MOSAIC_CAP_PACKED_MODEL | MOSAIC_CAP_CONTENT_CACHE | MOSAIC_CAP_CACHE_BACKEND;
     out_capabilities->available = caps; out_capabilities->reserved = 0u;
     return MOSAIC_OK;
 }
