@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.6.0
+## Stable tokenizer: 0.7.0
 
-Mosaic Tokenizer 0.6.0 is a stable native tokenizer, deterministic pack-authoring, and raw-BPE compatibility release with:
+Mosaic Tokenizer 0.7.0 is a stable native tokenizer, deterministic pack-authoring, compatibility, and Unicode-security release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -22,6 +22,7 @@ Mosaic Tokenizer 0.6.0 is a stable native tokenizer, deterministic pack-authorin
 - language-pack projection performed once at attachment time, leaving the encode hot path with one indexed adjustment per candidate;
 - deterministic order-independent tokenizer fingerprint for the exact set of loaded language packs;
 - reference English, Hindi, and Japanese specialization packs demonstrating mixed-language composition;
+- Unicode 17 script spans and security evidence for bidi controls, default-ignorables, noncharacters, deprecated characters, and mixed-script text;
 - static/shared C libraries and C++-compatible public header;
 - streaming/full semantic equivalence and editable-document/full-tokenization equivalence;
 - deterministic release packaging;
@@ -31,7 +32,7 @@ Mosaic Tokenizer 0.6.0 is a stable native tokenizer, deterministic pack-authorin
 - byte fallback is surface-based, so existing model token IDs need not equal byte values;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 adds an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange without changing the stable 0.4 C ABI.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 added an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange. Version 0.7.0 adds Unicode-17 script/security evidence and advances the backward-compatible C API surface to 0.5.0.
 
 This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
@@ -157,7 +158,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.6.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.7.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 

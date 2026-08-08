@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define MOSAIC_C_API_VERSION_MAJOR 0
-#define MOSAIC_C_API_VERSION_MINOR 4
+#define MOSAIC_C_API_VERSION_MINOR 5
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -28,6 +28,7 @@ typedef struct mosaic_model mosaic_model;
 typedef struct mosaic_unicode mosaic_unicode;
 typedef struct mosaic_tokenizer mosaic_tokenizer;
 typedef struct mosaic_detector mosaic_detector;
+typedef struct mosaic_security mosaic_security;
 typedef struct mosaic_stream mosaic_stream;
 typedef struct mosaic_document mosaic_document;
 
@@ -42,6 +43,30 @@ typedef struct mosaic_range {
     uint64_t start;
     uint64_t length;
 } mosaic_range;
+
+
+typedef struct mosaic_script_span {
+    uint64_t start;
+    uint64_t length;
+    uint16_t script_id;
+    uint16_t reserved;
+} mosaic_script_span;
+
+typedef enum mosaic_security_kind {
+    MOSAIC_SECURITY_BIDI_CONTROL = 1,
+    MOSAIC_SECURITY_DEFAULT_IGNORABLE = 2,
+    MOSAIC_SECURITY_NONCHARACTER = 3,
+    MOSAIC_SECURITY_DEPRECATED = 4,
+    MOSAIC_SECURITY_MIXED_SCRIPT = 5
+} mosaic_security_kind;
+
+typedef struct mosaic_security_finding {
+    uint32_t kind;
+    uint16_t script_id;
+    uint16_t reserved;
+    uint64_t start;
+    uint64_t length;
+} mosaic_security_finding;
 
 typedef struct mosaic_detection {
     uint32_t matched;
@@ -80,6 +105,14 @@ mosaic_status mosaic_tokenizer_language_tag(const mosaic_tokenizer *tokenizer, s
 mosaic_status mosaic_tokenizer_set_detector_memory(mosaic_tokenizer *tokenizer,
                                                    const uint8_t *detector_pack, size_t detector_pack_len);
 mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, const char *path);
+/* Optional Unicode-17 security/script evidence pack. Findings are evidence, never source rewriting. */
+mosaic_status mosaic_tokenizer_set_security_memory(mosaic_tokenizer *tokenizer,
+                                                   const uint8_t *security_pack, size_t security_pack_len);
+mosaic_status mosaic_tokenizer_set_security_file(mosaic_tokenizer *tokenizer, const char *path);
+int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer);
+mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer,
+                                              const uint8_t *input, size_t input_len,
+                                              mosaic_security_finding **out_findings, size_t *out_count);
 int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer);
 mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
@@ -159,6 +192,17 @@ mosaic_status mosaic_detector_detect(const mosaic_detector *detector, const uint
 mosaic_status mosaic_unicode_load_memory(const uint8_t *pack, size_t pack_len, mosaic_unicode **out_unicode);
 mosaic_status mosaic_unicode_load_file(const char *path, mosaic_unicode **out_unicode);
 void mosaic_unicode_free(mosaic_unicode *unicode_data);
+
+/* Script/security pack APIs. The pack is independent of the Unicode segmentation pack. */
+mosaic_status mosaic_security_load_memory(const uint8_t *pack, size_t pack_len, mosaic_security **out_security);
+mosaic_status mosaic_security_load_file(const char *path, mosaic_security **out_security);
+void mosaic_security_free(mosaic_security *security);
+mosaic_status mosaic_security_script_ranges(const mosaic_security *security, const uint8_t *input, size_t input_len,
+                                            mosaic_script_span **out_ranges, size_t *out_count);
+mosaic_status mosaic_security_script_name(const mosaic_security *security, uint16_t script_id,
+                                          char *buffer, size_t capacity, size_t *out_required);
+mosaic_status mosaic_security_scan(const mosaic_security *security, const uint8_t *input, size_t input_len,
+                                   mosaic_security_finding **out_findings, size_t *out_count);
 
 /* Invalid UTF-8 bytes are returned as one-byte opaque grapheme ranges. */
 mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data,

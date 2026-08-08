@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 — 2026-08-08
+
+Stable Unicode-17 script/security evidence release.
+
+- standalone declarative Unicode-17 security pack;
+- all 176 Script values and exact byte-mapped script spans;
+- bidi-control, default-ignorable, noncharacter, deprecated-character evidence;
+- deterministic mixed-script evidence with Common/Inherited/Unknown excluded from script counting;
+- security-aware tokenizer fingerprint and high-level attachment API;
+- 11 malformed security-pack regression fixtures plus ASan/UBSan coverage;
+- backward-compatible C API surface advanced to 0.5.0.
+
 ## 0.6.0 — 2026-08-08
 
 Stable raw-BPE compatibility release.

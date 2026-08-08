@@ -12,15 +12,17 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack'
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack'
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
-        if run([author,'--version'])!='mosaic-author 0.6.0':raise SystemExit('packaged author version mismatch')
+        if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
         manifest=json.loads((d/'share/mosaic/release-manifest.json').read_text())
         if run([cli,'fingerprint',model,uni])!=manifest['tokenizer_fingerprint_sha256']:raise SystemExit('packaged base fingerprint mismatch')
         lf=run([cli,'fingerprint-languages',model,uni,langs['ja'],langs['en'],langs['hi']])
         if lf!=manifest['reference_language_fingerprint_sha256']:raise SystemExit('packaged language fingerprint mismatch/order instability')
         af=run([cli,'fingerprint-auto',model,uni,det,langs['hi'],langs['ja'],langs['en']])
         if af!=manifest['reference_auto_fingerprint_sha256']:raise SystemExit('packaged auto fingerprint mismatch/order instability')
+        sf=run([cli,'fingerprint-security',model,uni,security])
+        if sf!=manifest['reference_security_fingerprint_sha256']:raise SystemExit('packaged security fingerprint mismatch')
         for line in (d/'SHA256SUMS').read_text().splitlines():
             expected,rel=line.split('  ',1);actual=hashlib.sha256((d/rel).read_bytes()).hexdigest()
             if actual!=expected:raise SystemExit(f'checksum mismatch: {rel}')
@@ -32,6 +34,9 @@ def main():
         en_sample=temp/'english.txt';en_sample.write_bytes(b'tokenizer')
         detected=run([cli,'roundtrip-auto',model,uni,det,en_sample,langs['en'],langs['hi'],langs['ja']])
         if 'route=en' not in detected or 'tokens=1' not in detected:raise SystemExit('packaged auto-routing specialization failed')
+        security_sample=temp/'security.txt';security_sample.write_bytes('AЖ\u202e'.encode())
+        security_out=run([cli,'security',security,security_sample])
+        if 'findings=' not in security_out or 'CYRILLIC' not in security_out:raise SystemExit('packaged security CLI smoke failed')
 
         # Packaged authoring tool must produce a deterministic usable model outside the source tree.
         corpus=temp/'author-corpus.txt';corpus.write_text('tokenizer tokenizer hello world\nनमस्ते दुनिया नमस्ते दुनिया\n',encoding='utf-8')
@@ -50,9 +55,9 @@ def main():
         client=temp/'client.c';client.write_text('''#include <mosaic.h>
 #include <stddef.h>
 #include <string.h>
-int main(int argc,char**argv){if(argc!=5)return 2;mosaic_tokenizer*t=0;if(mosaic_tokenizer_load_files(argv[1],argv[2],&t)!=MOSAIC_OK)return 3;if(mosaic_tokenizer_add_language_file(t,argv[3])!=MOSAIC_OK)return 4;if(mosaic_tokenizer_set_detector_file(t,argv[4])!=MOSAIC_OK)return 5;const unsigned char in[]="tokenizer";unsigned int*ids=0;size_t n=0;mosaic_detection d={0};if(mosaic_tokenizer_encode_auto(t,in,9,&ids,&n,&d)!=MOSAIC_OK)return 6;int ok=n==1&&ids[0]==271&&d.matched&&d.available&&!strcmp(d.language,"en");mosaic_free(ids);mosaic_tokenizer_free(t);return ok?0:7;}
+int main(int argc,char**argv){if(argc!=6)return 2;mosaic_tokenizer*t=0;if(mosaic_tokenizer_load_files(argv[1],argv[2],&t)!=MOSAIC_OK)return 3;if(mosaic_tokenizer_add_language_file(t,argv[3])!=MOSAIC_OK)return 4;if(mosaic_tokenizer_set_detector_file(t,argv[4])!=MOSAIC_OK)return 5;if(mosaic_tokenizer_set_security_file(t,argv[5])!=MOSAIC_OK)return 8;const unsigned char in[]="tokenizer";unsigned int*ids=0;size_t n=0;mosaic_detection d={0};if(mosaic_tokenizer_encode_auto(t,in,9,&ids,&n,&d)!=MOSAIC_OK)return 6;int ok=n==1&&ids[0]==271&&d.matched&&d.available&&!strcmp(d.language,"en");mosaic_security_finding*f=0;size_t fn=0;if(mosaic_tokenizer_security_scan(t,in,9,&f,&fn)!=MOSAIC_OK)return 9;mosaic_free(f);mosaic_free(ids);mosaic_tokenizer_free(t);return ok?0:7;}
 ''')
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-o',temp/'client'],check=True)
-        subprocess.run([temp/'client',model,uni,langs['en'],det],check=True)
+        subprocess.run([temp/'client',model,uni,langs['en'],det,security],check=True)
     print(f'OK: packaged release {archive.name} passes CLI, detector/language packs, manifest, checksums, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())

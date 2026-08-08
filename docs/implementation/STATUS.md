@@ -2,69 +2,50 @@
 
 Date: 2026-08-08
 
-## Stable release state
+## Current release
 
-**Mosaic Tokenizer 0.6.0: STABLE RAW-BPE COMPATIBILITY RELEASE.**
+**Mosaic Tokenizer 0.7.0: qualified Unicode-17 security-evidence release.**
 
-Version 0.6 adds qualified raw-byte BPE execution and `.tiktoken` mergeable-rank interchange on top of the stable 0.5 native + authoring release. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
-
-### Implemented tokenizer path
-
-- exact arbitrary bytes and complete 256-byte fallback;
-- raw-byte BPE model algorithm alongside deterministic weighted Viterbi;
-- `.tiktoken` mergeable-rank import/export with exact raw-piece differential tests;
-- deterministic static integer-cost Viterbi;
-- exact token byte spans;
-- Unicode 17 grapheme view with malformed-byte preservation;
-- model pack and Unicode pack validation;
-- external language packs loaded from files or memory;
-- English/Hindi/Japanese reference language packs;
-- mixed-pack composition;
-- duplicate-tag rejection;
-- order-independent pack-set fingerprint;
-- attach-time projection of pack costs onto model vocabulary;
-- language-specialized streams and editable-document snapshots;
-- deterministic detector packs and document-level automatic routing;
-- automatic stream snapshots with EOF detection and parent-lifetime independence;
-- automatic editable documents with re-detection after edits;
-- fallback to base model on ambiguous, low-confidence, or unavailable language results;
-- CLI, C ABI, static/shared libraries, CMake and Make builds;
-- deterministic release bundle.
+The stable native tokenizer now provides exact arbitrary-byte model tokenization, deterministic Viterbi and raw-BPE execution, Unicode-17 grapheme views, composable language packs, fail-soft document routing, deterministic authoring/training tools, raw `.tiktoken` rank interchange, and a separately versioned Unicode-17 script/security evidence pack. Security evidence never mutates source bytes or model IDs.
 
 ## Architectural direction audit
 
-The implementation remains aligned with the converged design. Language packs do not define representability and cannot introduce model IDs. They only specialize deterministic costs over model surfaces. Bytes remain authoritative, Unicode remains a mapped interpretation, and attaching/removing specialization never changes whether source data can be represented exactly.
+The implementation remains aligned with the converged design:
 
-The 0.2 hot-path language lookup defect remains fixed through attach-time vocabulary projection. The 0.3 detector adds a first-byte index and is benchmarked separately against explicit specialization.
+- source bytes remain authoritative and every byte remains representable without unknown tokens;
+- canonical runtime decisions use deterministic integer semantics;
+- Unicode/language/security information is derived and byte-mapped;
+- language packs specialize costs over existing model surfaces and cannot add hidden model IDs;
+- automatic detection is advisory and fail-soft;
+- pack generation is offline while the runtime only validates/executes packs;
+- tokenizer fingerprints bind semantic runtime identity and exact pack hashes;
+- optimized paths remain differential-tested against independent/reference behavior.
 
-## Milestones
+The rejected 0.2 per-candidate language-pack lookup and rejected 0.7 per-byte security scratch-array designs are retained in release evidence as examples of performance gates changing implementation choices before release.
 
-- **M0:** implemented.
-- **M1:** semantic/native behavior implemented; Rust qualification pending external CI.
-- **M2:** implemented and independently exercised natively; Rust qualification pending external CI.
-- **M3:** stable native Unicode/static tokenizer substrate implemented. Production-scale vocabulary training and semantics-equivalent external baseline benchmarking remain research gates.
-- **M4 Wedge Tournament:** not run and not silently bypassed.
+## Milestone state
 
-## Pack production
+- **M0 engineering substrate:** implemented.
+- **M1 exact byte/source semantics:** native implementation complete; Rust qualification pending external Rust-capable CI.
+- **M2 deterministic pack executor:** implemented and independently exercised natively.
+- **M3 Unicode/static tokenizer substrate:** stable native implementation with weighted Viterbi and raw-BPE compatibility profile.
+- **Pack specialization:** external language and detector packs implemented.
+- **Authoring:** deterministic model/language/detector authoring and baseline corpus training implemented.
+- **Unicode security evidence:** Unicode-17 script/property pack implemented.
+- **M4 Wedge Tournament:** not yet run and not silently bypassed.
 
-- supported deterministic explicit model compiler;
-- deterministic compression-first corpus trainer;
-- supported language/detector compilers;
-- pack inspection and author/runtime release integration.
+## Remaining tokenizer work before the broader platform
 
-## Remaining tokenizer work
+1. mapped Unicode normalization with explicitly pinned data/version provenance;
+2. richer existing-tokenizer compatibility profiles including pre-tokenization semantics;
+3. bounded-memory streaming while preserving exact EOF equality;
+4. genuine local incremental retokenization equivalent to full processing;
+5. callback/visitor security evidence for bounded output memory;
+6. production-scale vocabulary/language/detector training and quality evaluation;
+7. Wedge Tournament after the common tokenizer benchmark substrate is representative.
 
-The next tokenizer-specific capabilities, before broader consumer projections, are:
+After that, the broader Mosaic platform still requires TokenDocument/Token IR, consumer projections/capability negotiation, structured/compiler profiles, semantic enrichment, sub-byte views, multiscale blocks, caching/packed serialization, trust/signature/registry infrastructure, cross-platform qualification, bindings, reliability campaigns, and a 1.0 compatibility freeze.
 
-1. production-scale vocabulary/language/detector training and evaluation;
-2. span-level mixed-language routing only if document-level evidence proves insufficient;
-3. bounded-memory streaming that remains exactly equal at EOF;
-4. local incremental retokenization equivalent to full processing;
-5. hot matcher/SIMD work only after profiling;
-6. Wedge Tournament once the benchmark substrate is representative enough.
+## Environment limitations
 
-Compiler/search/IDE/security branches remain outside the stable tokenizer surface until evidence selects a product wedge.
-
-## Environment limitation
-
-This host still lacks `rustc`, `cargo`, GitHub CLI, and outbound DNS. Native GCC/Clang builds are locally qualified. Rust and cross-platform jobs are present in repository CI but cannot execute here until the commits reach a connected GitHub environment.
+This host still lacks `rustc`, `cargo`, GitHub CLI, and outbound DNS. Native GCC/Clang builds are locally qualified. The configured Git remote remains `https://github.com/shreyashjagtap157/Mosaic.git`, but pushes cannot succeed from this sandbox.

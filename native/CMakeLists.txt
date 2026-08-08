@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.6.0 LANGUAGES C CXX)
+project(mosaic VERSION 0.7.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -77,6 +77,13 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack)
 
+  add_executable(mosaic-security-smoke ${MOSAIC_TEST_DIR}/security_smoke.c)
+  target_include_directories(mosaic-security-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-security-smoke PRIVATE mosaic_static)
+  mosaic_warnings(mosaic-security-smoke)
+  add_test(NAME security COMMAND mosaic-security-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack)
+
   add_executable(mosaic-malformed-smoke ${MOSAIC_TEST_DIR}/malformed_smoke.c)
   target_include_directories(mosaic-malformed-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-malformed-smoke PRIVATE mosaic_static)
@@ -92,6 +99,7 @@ install(FILES ${MOSAIC_INCLUDE}/mosaic.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/model-v2.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/unicode17-v1.mpack
+        ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/security17-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs)
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/detector/reference-v1.mpack

@@ -18,6 +18,8 @@ fixtures:
 	$(PYTHON) tools/generate_language_malformed.py --check
 	$(PYTHON) tools/generate_detector_malformed.py --check
 	$(PYTHON) tools/build_unicode17_pack.py --check
+	$(PYTHON) tools/build_security17_pack.py --check
+	$(PYTHON) tools/generate_security17_malformed.py --check
 
 test: fixtures
 	$(MAKE) -C native test
@@ -30,6 +32,7 @@ test: fixtures
 	$(PYTHON) tools/validate_detector.py
 	$(PYTHON) tools/validate_authoring.py
 	$(PYTHON) tools/validate_tiktoken_compat.py
+	$(PYTHON) tools/validate_security17.py
 	$(PYTHON) tools/benchmark_language_packs.py
 	$(PYTHON) tools/benchmark_detector.py
 

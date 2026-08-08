@@ -898,6 +898,60 @@ static void print_encoding(const Vocab *v, Slice input, const Tokenization *resu
 typedef struct {
     const uint8_t *section;
     size_t section_len;
+    uint32_t script_count, script_range_count, bidi_count, ignorable_count, nonchar_count, deprecated_count;
+    uint32_t script_meta_offset, script_range_offset, bidi_offset, ignorable_offset, nonchar_offset, deprecated_offset, blob_offset;
+    uint16_t common_id, inherited_id, unknown_id;
+} SecurityView;
+
+typedef struct { uint32_t start, end; uint16_t script_id; } SecurityScriptRange;
+
+static int security_script_meta(const SecurityView *v, uint32_t index, Slice *name, uint16_t *id) {
+    if (index >= v->script_count) return 0;
+    const uint8_t *p = v->section + v->script_meta_offset + (size_t)index * 8u;
+    uint32_t off = rd32(p); uint16_t len = rd16(p + 4); uint16_t sid = rd16(p + 6);
+    size_t blob_len = v->section_len - v->blob_offset;
+    if ((uint64_t)off + len > blob_len || !len || !sid) return 0;
+    name->bytes = v->section + v->blob_offset + off; name->len = len; *id = sid; return 1;
+}
+static int security_script_range_at(const SecurityView *v, uint32_t index, SecurityScriptRange *out) {
+    if (index >= v->script_range_count) return 0;
+    const uint8_t *p = v->section + v->script_range_offset + (size_t)index * 12u;
+    out->start = rd32(p); out->end = rd32(p + 4); out->script_id = rd16(p + 8);
+    return p[10] == 0 && p[11] == 0;
+}
+static int security_bool_range_at(const SecurityView *v, uint32_t offset, uint32_t count, uint32_t index,
+                                  uint32_t *start, uint32_t *end) {
+    if (index >= count) return 0;
+    const uint8_t *p = v->section + offset + (size_t)index * 8u;
+    *start = rd32(p); *end = rd32(p + 4); return 1;
+}
+static int security_bool_lookup(const SecurityView *v, uint32_t offset, uint32_t count, uint32_t cp) {
+    uint32_t lo=0,hi=count; while(lo<hi){uint32_t mid=lo+(hi-lo)/2,a,b;if(!security_bool_range_at(v,offset,count,mid,&a,&b))return 0;if(cp<a)hi=mid;else if(cp>=b)lo=mid+1;else return 1;}return 0;
+}
+static uint16_t security_script_lookup(const SecurityView *v, uint32_t cp) {
+    uint32_t lo=0,hi=v->script_range_count; while(lo<hi){uint32_t mid=lo+(hi-lo)/2;SecurityScriptRange r;if(!security_script_range_at(v,mid,&r))return 0;if(cp<r.start)hi=mid;else if(cp>=r.end)lo=mid+1;else return r.script_id;}return 0;
+}
+static int parse_security_section(Slice s, SecurityView *v) {
+    if (s.len < 72 || memcmp(s.bytes,"MSSC",4)!=0 || rd16(s.bytes+4)!=1 || rd16(s.bytes+6)!=72) return fail("invalid security header");
+    if (rd16(s.bytes+8)!=17 || rd16(s.bytes+10)!=0 || rd16(s.bytes+12)!=0 || rd16(s.bytes+14)!=0) return fail("unsupported security Unicode version");
+    uint32_t sc=rd32(s.bytes+16),src=rd32(s.bytes+20),bc=rd32(s.bytes+24),ic=rd32(s.bytes+28),nc=rd32(s.bytes+32),dc=rd32(s.bytes+36);
+    uint32_t mo=rd32(s.bytes+40),ro=rd32(s.bytes+44),bo=rd32(s.bytes+48),io=rd32(s.bytes+52),no=rd32(s.bytes+56),doff=rd32(s.bytes+60),blob=rd32(s.bytes+64);
+    if (rd32(s.bytes+68)!=0 || !sc || sc>1024 || src>200000 || bc>10000 || ic>10000 || nc>10000 || dc>10000 || mo!=72) return fail("security limits/header");
+    uint64_t me=(uint64_t)mo+(uint64_t)sc*8u,re=(uint64_t)ro+(uint64_t)src*12u,be=(uint64_t)bo+(uint64_t)bc*8u,ie=(uint64_t)io+(uint64_t)ic*8u,ne=(uint64_t)no+(uint64_t)nc*8u,de=(uint64_t)doff+(uint64_t)dc*8u;
+    if (!(me<=ro && re<=bo && be<=io && ie<=no && ne<=doff && de<=blob && blob<=s.len)) return fail("security section layout");
+    if (!all_zero(s.bytes+(size_t)me,(size_t)ro-(size_t)me)||!all_zero(s.bytes+(size_t)re,(size_t)bo-(size_t)re)||!all_zero(s.bytes+(size_t)be,(size_t)io-(size_t)be)||!all_zero(s.bytes+(size_t)ie,(size_t)no-(size_t)ie)||!all_zero(s.bytes+(size_t)ne,(size_t)doff-(size_t)ne)||!all_zero(s.bytes+(size_t)de,(size_t)blob-(size_t)de)) return fail("security padding nonzero");
+    *v=(SecurityView){s.bytes,s.len,sc,src,bc,ic,nc,dc,mo,ro,bo,io,no,doff,blob,0,0,0};
+    for(uint32_t i=0;i<sc;++i){Slice name;uint16_t sid;if(!security_script_meta(v,i,&name,&sid)||sid!=i+1u)return fail("invalid security script metadata");for(size_t j=0;j<name.len;++j)if(name.bytes[j]<'A'||name.bytes[j]>'Z')return fail("invalid security script name");if(name.len==6&&memcmp(name.bytes,"COMMON",6)==0)v->common_id=sid;else if(name.len==9&&memcmp(name.bytes,"INHERITED",9)==0)v->inherited_id=sid;else if(name.len==7&&memcmp(name.bytes,"UNKNOWN",7)==0)v->unknown_id=sid;}
+    uint32_t prev=0;for(uint32_t i=0;i<src;++i){SecurityScriptRange r;if(!security_script_range_at(v,i,&r)||r.start>=r.end||r.end>0x110000u||(i&&r.start<prev)||!r.script_id||r.script_id>sc)return fail("invalid security script range");prev=r.end;}
+    const uint32_t offs[4]={bo,io,no,doff},counts[4]={bc,ic,nc,dc};for(int t=0;t<4;++t){prev=0;for(uint32_t i=0;i<counts[t];++i){uint32_t a,b;if(!security_bool_range_at(v,offs[t],counts[t],i,&a,&b)||a>=b||b>0x110000u||(i&&a<prev))return fail("invalid security boolean range");prev=b;}}
+    if(!v->common_id||!v->inherited_id||!v->unknown_id)return fail("required security script IDs missing");
+    return 1;
+}
+static int load_security_pack(const uint8_t *data,size_t len,SecurityView *v){Section*sections=NULL;uint32_t count=0,mi=0,li=0;if(!parse_outer(data,len,&sections,&count,&mi,&li))return 0;int n=0;Section ss={0};for(uint32_t i=0;i<count;++i)if(sections[i].kind==7){++n;ss=sections[i];}if(n!=1){free(sections);return fail("expected exactly one security section");}int ok=validate_manifest_lock(sec_slice(data,&sections[mi]),sec_slice(data,&sections[li]))&&parse_security_section(sec_slice(data,&ss),v);free(sections);return ok;}
+
+typedef struct {
+    const uint8_t *section;
+    size_t section_len;
     uint32_t gcb_count;
     uint32_t incb_count;
     uint32_t ep_count;
@@ -960,16 +1014,80 @@ static int load_unicode_pack(const uint8_t *data,size_t len,UnicodeView *u){
     int ok=validate_manifest_lock(sec_slice(data,&sections[mi]),sec_slice(data,&sections[li]))&&parse_unicode_section(sec_slice(data,&us),u);free(sections);return ok;
 }
 static int is_cont_byte(uint8_t b){return b>=0x80&&b<=0xbf;}
+static ScalarUnit decode_one_unit(Slice input,size_t i){
+    uint8_t b0=input.bytes[i];ScalarUnit unit={i,i+1,0,0};
+    if(b0<=0x7f){unit.cp=b0;unit.valid=1;}
+    else if(b0>=0xc2&&b0<=0xdf&&i+1<input.len&&is_cont_byte(input.bytes[i+1])){unit.end=i+2;unit.cp=((uint32_t)(b0&0x1f)<<6)|(input.bytes[i+1]&0x3f);unit.valid=1;}
+    else if(b0>=0xe0&&b0<=0xef&&i+2<input.len){uint8_t b1=input.bytes[i+1],b2=input.bytes[i+2];int vb1=b0==0xe0?(b1>=0xa0&&b1<=0xbf):b0==0xed?(b1>=0x80&&b1<=0x9f):is_cont_byte(b1);if(vb1&&is_cont_byte(b2)){unit.end=i+3;unit.cp=((uint32_t)(b0&0x0f)<<12)|((uint32_t)(b1&0x3f)<<6)|(b2&0x3f);unit.valid=1;}}
+    else if(b0>=0xf0&&b0<=0xf4&&i+3<input.len){uint8_t b1=input.bytes[i+1],b2=input.bytes[i+2],b3=input.bytes[i+3];int vb1=b0==0xf0?(b1>=0x90&&b1<=0xbf):b0==0xf4?(b1>=0x80&&b1<=0x8f):is_cont_byte(b1);if(vb1&&is_cont_byte(b2)&&is_cont_byte(b3)){unit.end=i+4;unit.cp=((uint32_t)(b0&7)<<18)|((uint32_t)(b1&0x3f)<<12)|((uint32_t)(b2&0x3f)<<6)|(b3&0x3f);unit.valid=1;}}
+    return unit;
+}
 static int decode_units(Slice input,ScalarUnit **out,size_t *count_out){
     ScalarUnit *units=input.len?(ScalarUnit*)malloc(input.len*sizeof *units):NULL;if(input.len&&!units)return 0;size_t count=0,i=0;
-    while(i<input.len){uint8_t b0=input.bytes[i];ScalarUnit unit={i,i+1,0,0};
-        if(b0<=0x7f){unit.cp=b0;unit.valid=1;}
-        else if(b0>=0xc2&&b0<=0xdf&&i+1<input.len&&is_cont_byte(input.bytes[i+1])){unit.end=i+2;unit.cp=((uint32_t)(b0&0x1f)<<6)|(input.bytes[i+1]&0x3f);unit.valid=1;}
-        else if(b0>=0xe0&&b0<=0xef&&i+2<input.len){uint8_t b1=input.bytes[i+1],b2=input.bytes[i+2];int vb1=b0==0xe0?(b1>=0xa0&&b1<=0xbf):b0==0xed?(b1>=0x80&&b1<=0x9f):is_cont_byte(b1);if(vb1&&is_cont_byte(b2)){unit.end=i+3;unit.cp=((uint32_t)(b0&0x0f)<<12)|((uint32_t)(b1&0x3f)<<6)|(b2&0x3f);unit.valid=1;}}
-        else if(b0>=0xf0&&b0<=0xf4&&i+3<input.len){uint8_t b1=input.bytes[i+1],b2=input.bytes[i+2],b3=input.bytes[i+3];int vb1=b0==0xf0?(b1>=0x90&&b1<=0xbf):b0==0xf4?(b1>=0x80&&b1<=0x8f):is_cont_byte(b1);if(vb1&&is_cont_byte(b2)&&is_cont_byte(b3)){unit.end=i+4;unit.cp=((uint32_t)(b0&7)<<18)|((uint32_t)(b1&0x3f)<<12)|((uint32_t)(b2&0x3f)<<6)|(b3&0x3f);unit.valid=1;}}
-        units[count++]=unit;i=unit.end;
-    }*out=units;*count_out=count;return 1;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);units[count++]=unit;i=unit.end;}
+    *out=units;*count_out=count;return 1;
 }
+static int security_script_ranges_internal(const SecurityView *v, Slice input, mosaic_script_span **out_ranges, size_t *out_count) {
+    *out_ranges=NULL;*out_count=0;
+    if(!input.len)return 1;
+    size_t span_count=0,i=0,end=0;uint16_t current=0;int have=0;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);uint16_t sid=unit.valid?security_script_lookup(v,unit.cp):0;
+        if(!have){current=sid;end=unit.end;have=1;}
+        else if(sid==current&&unit.start==end)end=unit.end;
+        else{if(span_count==SIZE_MAX)return 0;++span_count;current=sid;end=unit.end;}
+        i=unit.end;
+    }
+    if(have){if(span_count==SIZE_MAX)return 0;++span_count;}
+    if(span_count>SIZE_MAX/sizeof(mosaic_script_span))return 0;
+    mosaic_script_span *ranges=(mosaic_script_span*)malloc(span_count*sizeof *ranges);if(!ranges)return 0;
+    size_t n=0,start=0;i=0;end=0;current=0;have=0;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);uint16_t sid=unit.valid?security_script_lookup(v,unit.cp):0;
+        if(!have){current=sid;start=unit.start;end=unit.end;have=1;}
+        else if(sid==current&&unit.start==end)end=unit.end;
+        else{ranges[n++]=(mosaic_script_span){(uint64_t)start,(uint64_t)(end-start),current,0};current=sid;start=unit.start;end=unit.end;}
+        i=unit.end;
+    }
+    if(have)ranges[n++]=(mosaic_script_span){(uint64_t)start,(uint64_t)(end-start),current,0};
+    if(n!=span_count){free(ranges);return 0;}
+    *out_ranges=ranges;*out_count=n;return 1;
+}
+static int security_significant_script(const SecurityView *v,uint16_t sid){
+    return sid&&sid<=v->script_count&&sid!=v->common_id&&sid!=v->inherited_id&&sid!=v->unknown_id;
+}
+static size_t security_unit_finding_count(const SecurityView *v,const ScalarUnit *unit,uint16_t primary,size_t active){
+    if(!unit->valid)return 0;
+    uint32_t cp=unit->cp;
+    uint16_t sid=security_script_lookup(v,cp);
+    size_t n=0;
+    n+=(size_t)security_bool_lookup(v,v->bidi_offset,v->bidi_count,cp);
+    n+=(size_t)security_bool_lookup(v,v->ignorable_offset,v->ignorable_count,cp);
+    n+=(size_t)security_bool_lookup(v,v->nonchar_offset,v->nonchar_count,cp);
+    n+=(size_t)security_bool_lookup(v,v->deprecated_offset,v->deprecated_count,cp);
+    if(active>1&&security_significant_script(v,sid)&&sid!=primary)++n;
+    return n;
+}
+static int security_scan_internal(const SecurityView *v, Slice input, mosaic_security_finding **out_findings, size_t *out_count) {
+    *out_findings=NULL;*out_count=0;
+    uint64_t script_counts[1025]={0};size_t i=0;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);if(unit.valid){uint16_t sid=security_script_lookup(v,unit.cp);if(security_significant_script(v,sid)){if(script_counts[sid]==UINT64_MAX)return 0;++script_counts[sid];}}i=unit.end;}
+    uint16_t primary=0;uint64_t best=0;size_t active=0;for(uint32_t sid=1;sid<=v->script_count;++sid){if(script_counts[sid]){++active;if(script_counts[sid]>best||(script_counts[sid]==best&&(!primary||sid<primary))){best=script_counts[sid];primary=(uint16_t)sid;}}}
+    size_t finding_count=0;i=0;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);size_t add=security_unit_finding_count(v,&unit,primary,active);if(add>SIZE_MAX-finding_count)return 0;finding_count+=add;i=unit.end;}
+    if(finding_count>SIZE_MAX/sizeof(mosaic_security_finding))return 0;
+    mosaic_security_finding *findings=finding_count?(mosaic_security_finding*)malloc(finding_count*sizeof *findings):NULL;if(finding_count&&!findings)return 0;
+    size_t n=0;i=0;
+    while(i<input.len){ScalarUnit unit=decode_one_unit(input,i);if(unit.valid){uint32_t cp=unit.cp;uint16_t sid=security_script_lookup(v,cp);uint32_t kinds[4];size_t kn=0;
+        if(security_bool_lookup(v,v->bidi_offset,v->bidi_count,cp))kinds[kn++]=MOSAIC_SECURITY_BIDI_CONTROL;
+        if(security_bool_lookup(v,v->ignorable_offset,v->ignorable_count,cp))kinds[kn++]=MOSAIC_SECURITY_DEFAULT_IGNORABLE;
+        if(security_bool_lookup(v,v->nonchar_offset,v->nonchar_count,cp))kinds[kn++]=MOSAIC_SECURITY_NONCHARACTER;
+        if(security_bool_lookup(v,v->deprecated_offset,v->deprecated_count,cp))kinds[kn++]=MOSAIC_SECURITY_DEPRECATED;
+        for(size_t k=0;k<kn;++k){if(n>=finding_count){free(findings);return 0;}findings[n++]=(mosaic_security_finding){kinds[k],sid,0,(uint64_t)unit.start,(uint64_t)(unit.end-unit.start)};}
+        if(active>1&&security_significant_script(v,sid)&&sid!=primary){if(n>=finding_count){free(findings);return 0;}findings[n++]=(mosaic_security_finding){MOSAIC_SECURITY_MIXED_SCRIPT,sid,0,(uint64_t)unit.start,(uint64_t)(unit.end-unit.start)};}
+    }i=unit.end;}
+    if(n!=finding_count){free(findings);return 0;}
+    *out_findings=findings;*out_count=n;return 1;
+}
+
 static uint8_t ugcb(const UnicodeView*u,const ScalarUnit*x){return x->valid?unicode_prop_lookup(u,u->gcb_offset,u->gcb_count,x->cp):0;}
 static uint8_t uincb(const UnicodeView*u,const ScalarUnit*x){return x->valid?unicode_prop_lookup(u,u->incb_offset,u->incb_count,x->cp):0;}
 static int uep(const UnicodeView*u,const ScalarUnit*x){return x->valid&&unicode_ep_lookup(u,x->cp);}
@@ -1076,6 +1194,13 @@ struct mosaic_detector {
     uint8_t hash[32];
 };
 
+struct mosaic_security {
+    uint8_t *pack;
+    size_t pack_len;
+    SecurityView view;
+    uint8_t hash[32];
+};
+
 struct mosaic_tokenizer {
     mosaic_model *model;
     mosaic_unicode *unicode_data;
@@ -1084,6 +1209,7 @@ struct mosaic_tokenizer {
     size_t language_capacity;
     int64_t *adjustments;
     mosaic_detector *detector;
+    mosaic_security *security;
     uint8_t fingerprint[32];
 };
 
@@ -1109,7 +1235,7 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.6.0"; }
+const char *mosaic_version_string(void) { return "0.7.0"; }
 uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
@@ -1581,6 +1707,19 @@ void mosaic_unicode_free(mosaic_unicode *unicode_data) {
     free(unicode_data);
 }
 
+mosaic_status mosaic_security_load_memory(const uint8_t *pack, size_t pack_len, mosaic_security **out_security) {
+    if (!out_security || (!pack && pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_security = NULL; mosaic_security *security=(mosaic_security*)calloc(1,sizeof *security); if(!security)return MOSAIC_ERROR_OUT_OF_MEMORY;
+    mosaic_status status=copy_bytes(pack,pack_len,&security->pack);if(status!=MOSAIC_OK){free(security);return status;}security->pack_len=pack_len;
+    if(!load_security_pack(security->pack,security->pack_len,&security->view)||!sha256_bytes(security->pack,security->pack_len,security->hash)){free(security->pack);free(security);return MOSAIC_ERROR_INVALID_PACK;}
+    *out_security=security;return MOSAIC_OK;
+}
+mosaic_status mosaic_security_load_file(const char *path,mosaic_security **out_security){if(!path||!out_security)return MOSAIC_ERROR_INVALID_ARGUMENT;uint8_t*data=NULL;size_t len=0;if(!read_file(path,&data,&len))return MOSAIC_ERROR_IO;mosaic_status status=mosaic_security_load_memory(data,len,out_security);free(data);return status;}
+void mosaic_security_free(mosaic_security *security){if(!security)return;free(security->pack);free(security);}
+mosaic_status mosaic_security_script_name(const mosaic_security *security,uint16_t script_id,char *buffer,size_t capacity,size_t *out_required){if(!security||!script_id||script_id>security->view.script_count||!out_required)return MOSAIC_ERROR_INVALID_ARGUMENT;Slice name;uint16_t sid;if(!security_script_meta(&security->view,(uint32_t)script_id-1u,&name,&sid)||sid!=script_id)return MOSAIC_ERROR_INTERNAL;*out_required=name.len+1u;if(!buffer)return capacity==0?MOSAIC_OK:MOSAIC_ERROR_INVALID_ARGUMENT;if(capacity<name.len+1u)return MOSAIC_ERROR_OVERFLOW;memcpy(buffer,name.bytes,name.len);buffer[name.len]='\0';return MOSAIC_OK;}
+mosaic_status mosaic_security_script_ranges(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_script_span **out_ranges,size_t *out_count){if(!security||(!input&&input_len)||!out_ranges||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_ranges=NULL;*out_count=0;if(!security_script_ranges_internal(&security->view,(Slice){input,input_len},out_ranges,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
+mosaic_status mosaic_security_scan(const mosaic_security *security,const uint8_t *input,size_t input_len,mosaic_security_finding **out_findings,size_t *out_count){if(!security||(!input&&input_len)||!out_findings||!out_count)return MOSAIC_ERROR_INVALID_ARGUMENT;*out_findings=NULL;*out_count=0;if(!security_scan_internal(&security->view,(Slice){input,input_len},out_findings,out_count))return MOSAIC_ERROR_OUT_OF_MEMORY;return MOSAIC_OK;}
+
 mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const uint8_t *input, size_t input_len,
                                      mosaic_range **out_ranges, size_t *out_count) {
     if (!unicode_data || (!input && input_len) || !out_ranges || !out_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
@@ -1620,6 +1759,11 @@ static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
     uint8_t detector_present = tokenizer->detector ? 1u : 0u;
     (void)sha256_update(&ctx, &detector_present, 1u);
     if (tokenizer->detector) (void)sha256_update(&ctx, tokenizer->detector->hash, 32u);
+    if (tokenizer->security) {
+        static const uint8_t security_domain[] = "SECURITY\0";
+        (void)sha256_update(&ctx, security_domain, sizeof security_domain - 1u);
+        (void)sha256_update(&ctx, tokenizer->security->hash, 32u);
+    }
     (void)sha256_final(&ctx, tokenizer->fingerprint);
 }
 
@@ -1668,18 +1812,18 @@ mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer,
             return MOSAIC_ERROR_CONFLICT;
         }
     }
+    size_t vocab_count = (size_t)tokenizer->model->vocab.count;
+    if (!vocab_count) { language_pack_release(&candidate); return MOSAIC_ERROR_INTERNAL; }
     size_t adjustment_bytes;
-    if (!mul_size((size_t)tokenizer->model->vocab.count, sizeof(int64_t), &adjustment_bytes)) {
+    if (!mul_size(vocab_count, sizeof(int64_t), &adjustment_bytes)) {
         language_pack_release(&candidate); return MOSAIC_ERROR_OVERFLOW;
     }
-    int64_t *next_adjustments = adjustment_bytes ? (int64_t *)malloc(adjustment_bytes) : NULL;
-    if (adjustment_bytes && !next_adjustments) { language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
-    candidate.adjustments = adjustment_bytes ? (int64_t *)calloc((size_t)tokenizer->model->vocab.count, sizeof(int64_t)) : NULL;
-    if (adjustment_bytes && !candidate.adjustments) { free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
-    if (adjustment_bytes) {
-        if (tokenizer->adjustments) memcpy(next_adjustments, tokenizer->adjustments, adjustment_bytes);
-        else memset(next_adjustments, 0, adjustment_bytes);
-    }
+    int64_t *next_adjustments = (int64_t *)malloc(adjustment_bytes);
+    if (!next_adjustments) { language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    candidate.adjustments = (int64_t *)calloc(vocab_count, sizeof(int64_t));
+    if (!candidate.adjustments) { free(next_adjustments); language_pack_release(&candidate); return MOSAIC_ERROR_OUT_OF_MEMORY; }
+    if (tokenizer->adjustments) memcpy(next_adjustments, tokenizer->adjustments, adjustment_bytes);
+    else memset(next_adjustments, 0, adjustment_bytes);
     for (uint32_t i = 0; i < tokenizer->model->vocab.count; ++i) {
         VocabEntry entry; Slice surface; int32_t delta = 0;
         if (!vocab_entry(&tokenizer->model->vocab, i, &entry, &surface) ||
@@ -1748,6 +1892,10 @@ static mosaic_status tokenizer_clone(const mosaic_tokenizer *source, mosaic_toke
         status = mosaic_tokenizer_set_detector_memory(copy, source->detector->pack, source->detector->pack_len);
         if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
     }
+    if (source->security) {
+        status = mosaic_tokenizer_set_security_memory(copy, source->security->pack, source->security->pack_len);
+        if (status != MOSAIC_OK) { mosaic_tokenizer_free(copy); return status; }
+    }
     *out_tokenizer = copy;
     return MOSAIC_OK;
 }
@@ -1777,6 +1925,36 @@ mosaic_status mosaic_tokenizer_set_detector_file(mosaic_tokenizer *tokenizer, co
 
 int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenizer) {
     return tokenizer && tokenizer->detector;
+}
+
+mosaic_status mosaic_tokenizer_set_security_memory(mosaic_tokenizer *tokenizer, const uint8_t *security_pack, size_t security_pack_len) {
+    if (!tokenizer || (!security_pack && security_pack_len)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (tokenizer->security) return MOSAIC_ERROR_CONFLICT;
+    mosaic_security *security = NULL;
+    mosaic_status status = mosaic_security_load_memory(security_pack, security_pack_len, &security);
+    if (status != MOSAIC_OK) return status;
+    tokenizer->security = security;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+
+mosaic_status mosaic_tokenizer_set_security_file(mosaic_tokenizer *tokenizer, const char *path) {
+    if (!tokenizer || !path) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (tokenizer->security) return MOSAIC_ERROR_CONFLICT;
+    mosaic_security *security = NULL;
+    mosaic_status status = mosaic_security_load_file(path, &security);
+    if (status != MOSAIC_OK) return status;
+    tokenizer->security = security;
+    tokenizer_compute_fingerprint(tokenizer);
+    return MOSAIC_OK;
+}
+
+int mosaic_tokenizer_security_loaded(const mosaic_tokenizer *tokenizer) { return tokenizer && tokenizer->security; }
+
+mosaic_status mosaic_tokenizer_security_scan(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len,
+                                              mosaic_security_finding **out_findings, size_t *out_count) {
+    if (!tokenizer || !tokenizer->security) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    return mosaic_security_scan(tokenizer->security, input, input_len, out_findings, out_count);
 }
 
 static const LanguagePack *tokenizer_language_for_detection(const mosaic_tokenizer *tokenizer,
@@ -1826,6 +2004,7 @@ void mosaic_tokenizer_free(mosaic_tokenizer *tokenizer) {
     mosaic_unicode_free(tokenizer->unicode_data);
     language_pack_array_free(tokenizer->languages, tokenizer->language_count);
     mosaic_detector_free(tokenizer->detector);
+    mosaic_security_free(tokenizer->security);
     free(tokenizer->adjustments);
     free(tokenizer);
 }
@@ -1921,9 +2100,12 @@ static void usage(const char *argv0) {
             "       %s detect DETECTOR_PACK INPUT\n"
             "       %s fingerprint-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK LANGUAGE_PACK...\n"
             "       %s analyze-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
-            "       %s roundtrip-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n",
+            "       %s roundtrip-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
+            "       %s security SECURITY_PACK INPUT\n"
+            "       %s fingerprint-security MODEL_PACK UNICODE_PACK SECURITY_PACK\n"
+            "       %s analyze-security MODEL_PACK UNICODE_PACK SECURITY_PACK INPUT\n",
             argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
-            argv0, argv0, argv0, argv0);
+            argv0, argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -1995,6 +2177,60 @@ static int integrated_cli(int argc, char **argv) {
     return 1;
 }
 
+static int security_cli(int argc, char **argv) {
+    if (argc != 4) return -1;
+    mosaic_security *security = NULL;
+    if (mosaic_security_load_file(argv[2], &security) != MOSAIC_OK) return 0;
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[3], &input, &input_len)) { mosaic_security_free(security); return 0; }
+    mosaic_script_span *spans = NULL; size_t span_count = 0;
+    mosaic_security_finding *findings = NULL; size_t finding_count = 0;
+    mosaic_status sa = mosaic_security_script_ranges(security, input, input_len, &spans, &span_count);
+    mosaic_status sb = mosaic_security_scan(security, input, input_len, &findings, &finding_count);
+    if (sa == MOSAIC_OK && sb == MOSAIC_OK) {
+        printf("bytes=%zu script_spans=%zu findings=%zu\n", input_len, span_count, finding_count);
+        for (size_t i = 0; i < span_count; ++i) {
+            char name[64] = "INVALID"; size_t need = 0;
+            if (spans[i].script_id == 0) strcpy(name, "OPAQUE");
+            else if (mosaic_security_script_name(security, spans[i].script_id, name, sizeof name, &need) != MOSAIC_OK) strcpy(name, "UNKNOWN");
+            printf("script start=%" PRIu64 " length=%" PRIu64 " id=%u name=%s\n",
+                   spans[i].start, spans[i].length, (unsigned)spans[i].script_id, name);
+        }
+        for (size_t i = 0; i < finding_count; ++i)
+            printf("finding kind=%u start=%" PRIu64 " length=%" PRIu64 " script=%u\n",
+                   findings[i].kind, findings[i].start, findings[i].length, (unsigned)findings[i].script_id);
+    }
+    mosaic_free(spans); mosaic_free(findings); free(input); mosaic_security_free(security);
+    return sa == MOSAIC_OK && sb == MOSAIC_OK ? 1 : 0;
+}
+
+static int integrated_security_cli(int argc, char **argv) {
+    int fingerprint_only = !strcmp(argv[1], "fingerprint-security");
+    if ((fingerprint_only && argc != 5) || (!fingerprint_only && argc != 6)) return -1;
+    mosaic_tokenizer *tokenizer = NULL;
+    if (mosaic_tokenizer_load_files(argv[2], argv[3], &tokenizer) != MOSAIC_OK) return 0;
+    if (mosaic_tokenizer_set_security_file(tokenizer, argv[4]) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    uint8_t hash[32];
+    if (mosaic_tokenizer_fingerprint(tokenizer, hash) != MOSAIC_OK) { mosaic_tokenizer_free(tokenizer); return 0; }
+    if (fingerprint_only) { print_hex32(hash); mosaic_tokenizer_free(tokenizer); return 1; }
+    uint8_t *input = NULL; size_t input_len = 0;
+    if (!read_file(argv[5], &input, &input_len)) { mosaic_tokenizer_free(tokenizer); return 0; }
+    mosaic_security_finding *findings = NULL; size_t finding_count = 0;
+    mosaic_token *tokens = NULL; size_t token_count = 0;
+    mosaic_status sa = mosaic_tokenizer_encode_tokens(tokenizer, input, input_len, &tokens, &token_count);
+    mosaic_status sb = mosaic_tokenizer_security_scan(tokenizer, input, input_len, &findings, &finding_count);
+    if (sa == MOSAIC_OK && sb == MOSAIC_OK) {
+        printf("fingerprint="); static const char hex[] = "0123456789abcdef";
+        for (size_t i = 0; i < 32; ++i) printf("%c%c", hex[hash[i] >> 4], hex[hash[i] & 15]);
+        printf(" bytes=%zu tokens=%zu findings=%zu\n", input_len, token_count, finding_count);
+        for (size_t i = 0; i < finding_count; ++i)
+            printf("finding kind=%u start=%" PRIu64 " length=%" PRIu64 " script=%u\n",
+                   findings[i].kind, findings[i].start, findings[i].length, (unsigned)findings[i].script_id);
+    }
+    mosaic_free(tokens); mosaic_free(findings); free(input); mosaic_tokenizer_free(tokenizer);
+    return sa == MOSAIC_OK && sb == MOSAIC_OK ? 1 : 0;
+}
+
 static int detector_cli(int argc, char **argv) {
     if (argc != 4) return -1;
     mosaic_detector *detector = NULL;
@@ -2051,6 +2287,12 @@ int main(int argc, char **argv) {
     if (argc == 2 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "version"))) {
         printf("mosaic-tokenizer %s\n", mosaic_version_string());
         return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "security")) {
+        int result=security_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
+    }
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-security") || !strcmp(argv[1], "analyze-security"))) {
+        int result=integrated_security_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
     if (argc >= 2 && !strcmp(argv[1], "detect")) {
         int result=detector_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
