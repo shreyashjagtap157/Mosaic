@@ -54,6 +54,10 @@ typedef struct mosaic_detection {
 /* Returned buffers are owned by Mosaic and released with mosaic_free(). */
 void mosaic_free(void *pointer);
 const char *mosaic_version_string(void);
+/* Canonical tokenization-semantics version. This changes only when identical packs/input may
+ * have different canonical interpretation under the runtime. It is intentionally independent
+ * from the release and C ABI versions. */
+uint32_t mosaic_tokenizer_semantics_version(void);
 const char *mosaic_status_string(mosaic_status status);
 
 

@@ -45,6 +45,7 @@ def main()->int:
     for ltag,path in LANGUAGES.items():shutil.copy2(path,stage/f'share/mosaic/packs/language/{ltag}-v1.mpack')
     for ex in sorted((ROOT/'examples/authoring').glob('*.json')): shutil.copy2(ex,stage/'examples/authoring'/ex.name)
     shutil.copy2(ROOT/'docs/implementation/AUTHORING_0.5.md',stage/'docs/AUTHORING.md')
+    shutil.copy2(ROOT/'docs/implementation/COMPATIBILITY_0.6.md',stage/'docs/COMPATIBILITY.md')
     (stage/'bin/mosaic-author').chmod(0o755)
     release_notes=ROOT/f'docs/release/RELEASE_NOTES_{VERSION}.md'
     if release_notes.exists():shutil.copy2(release_notes,stage/'docs/RELEASE_NOTES.md')
@@ -55,7 +56,7 @@ def main()->int:
     fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint',str(MODEL),str(UNICODE))
     language_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-languages',str(MODEL),str(UNICODE),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))
     auto_fingerprint=run(str(ROOT/'build/mosaic-tokenizer'),'fingerprint-auto',str(MODEL),str(UNICODE),str(DETECTOR),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))
-    manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':'0.4.0','tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'artifacts':{}}
+    manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':'0.4.0','tokenizer_semantics_version':2,'tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'artifacts':{}}
     for rel in ['bin/mosaic-tokenizer','bin/mosaic-author','lib/libmosaic.so','lib/libmosaic.a','include/mosaic.h']:manifest['artifacts'][rel]=sha(stage/rel)
     (stage/'share/mosaic/release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
     sums=[]

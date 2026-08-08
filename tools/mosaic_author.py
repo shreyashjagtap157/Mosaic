@@ -9,6 +9,7 @@ claim of state-of-the-art statistical Unigram training.
 from __future__ import annotations
 
 import argparse
+import base64
 import collections
 import hashlib
 import json
@@ -117,7 +118,7 @@ def canonical_model_rows(pieces: list[dict], byte_cost: int) -> list[tuple[int, 
     return rows
 
 
-def build_vocab_section(rows: list[tuple[int, int, bytes]]) -> bytes:
+def build_vocab_section(rows: list[tuple[int, int, bytes]], algorithm: int = 0) -> bytes:
     if len(rows) > 2_000_000:
         raise ValueError("vocabulary exceeds authoring safety limit")
     ordered = sorted(rows, key=lambda r: (r[2], r[0]))
@@ -152,8 +153,10 @@ def build_vocab_section(rows: list[tuple[int, int, bytes]]) -> bytes:
     out = bytearray(blob_off + len(blob))
     out[:4] = b"MSVC"
     # Last u32 was reserved in v1; keep it zero. Runtime derives max surface length during validation.
+    if algorithm not in (0, 1):
+        raise ValueError("unsupported model algorithm")
     struct.pack_into("<HHIHHIIIIII", out, 4, 1, 0, len(entries), 16, 0,
-                     entries_off, id_off, first_off, blob_off, len(blob), 0)
+                     entries_off, id_off, first_off, blob_off, len(blob), algorithm)
     for i, entry in enumerate(entries):
         out[entries_off + i * 16:entries_off + (i + 1) * 16] = entry
     for i, idx in enumerate(id_sorted):
@@ -164,8 +167,36 @@ def build_vocab_section(rows: list[tuple[int, int, bytes]]) -> bytes:
     return bytes(out)
 
 
-def build_model_pack(pieces: list[dict], byte_cost: int) -> bytes:
-    return wrap_pack(4, build_vocab_section(canonical_model_rows(pieces, byte_cost)), 2)
+def canonical_bpe_rows(pieces: list[dict]) -> list[tuple[int, int, bytes]]:
+    rows=[(i,i,bytes([i])) for i in range(256)]
+    seen_surface={bytes([i]) for i in range(256)}; seen_ids=set(range(256)); seen_ranks=set(range(256))
+    parsed=[]
+    for obj in pieces:
+        surface=surface_from_obj(obj)
+        if not surface or len(surface)>65535 or surface in seen_surface:
+            raise ValueError("invalid/duplicate BPE surface")
+        seen_surface.add(surface)
+        rank=obj.get("rank",obj.get("cost")); tid=obj.get("id")
+        parsed.append((surface,rank,tid))
+    next_rank=256
+    for surface,rank,tid in sorted(parsed,key=lambda x:x[0]):
+        if rank is None:
+            while next_rank in seen_ranks: next_rank+=1
+            rank=next_rank;next_rank+=1
+        rank=int(rank)
+        if rank<0 or rank>2_000_000_000 or rank in seen_ranks: raise ValueError("invalid/duplicate BPE rank")
+        if tid is None: tid=rank
+        tid=int(tid)
+        if tid<0 or tid>0xffffffff or tid in seen_ids: raise ValueError("invalid/duplicate BPE token id")
+        seen_ranks.add(rank);seen_ids.add(tid);rows.append((tid,rank,surface))
+    return rows
+
+def build_model_pack(pieces: list[dict], byte_cost: int, algorithm: int = 0) -> bytes:
+    rows=canonical_bpe_rows(pieces) if algorithm==1 else canonical_model_rows(pieces, byte_cost)
+    return wrap_pack(4, build_vocab_section(rows, algorithm), 2)
+
+def build_model_pack_rows(rows: list[tuple[int, int, bytes]], algorithm: int) -> bytes:
+    return wrap_pack(4, build_vocab_section(rows, algorithm), 2)
 
 
 def text_segments(data: bytes) -> list[bytes]:
@@ -399,7 +430,61 @@ def load_json(path: Path) -> dict:
 
 def cmd_model(args) -> None:
     cfg = load_json(args.config)
-    write_pack(args.output, build_model_pack(cfg.get("pieces", []), int(cfg.get("byte_cost", 1000))))
+    algorithm_name = str(cfg.get("algorithm", "viterbi")).lower()
+    algorithm = {"viterbi": 0, "bpe": 1}.get(algorithm_name)
+    if algorithm is None:
+        raise ValueError("algorithm must be viterbi or bpe")
+    write_pack(args.output, build_model_pack(cfg.get("pieces", []), int(cfg.get("byte_cost", 1000)), algorithm))
+
+def parse_tiktoken(path: Path) -> list[tuple[int, int, bytes]]:
+    rows=[]; seen_surface=set(); seen_rank=set()
+    for lineno, raw in enumerate(path.read_bytes().splitlines(), 1):
+        if not raw.strip(): continue
+        parts=raw.split()
+        if len(parts)!=2: raise ValueError(f"invalid .tiktoken line {lineno}")
+        try:
+            surface=base64.b64decode(parts[0],validate=True);rank=int(parts[1])
+        except Exception as exc:
+            raise ValueError(f"invalid .tiktoken line {lineno}") from exc
+        if not surface or len(surface)>65535 or rank<0 or rank>2_000_000_000:
+            raise ValueError(f"invalid .tiktoken token at line {lineno}")
+        if surface in seen_surface or rank in seen_rank:
+            raise ValueError(f"duplicate .tiktoken surface/rank at line {lineno}")
+        seen_surface.add(surface);seen_rank.add(rank);rows.append((rank,rank,surface))
+    for byte in range(256):
+        if bytes([byte]) not in seen_surface: raise ValueError(f".tiktoken vocabulary missing byte fallback 0x{byte:02x}")
+    return rows
+
+def model_rows_from_pack(path: Path) -> tuple[int,list[tuple[int,int,bytes]]]:
+    data=path.read_bytes();info=read_outer(path)
+    vocab=[x for x in info["sections"] if x["kind"]==4]
+    if len(vocab)!=1: raise ValueError("model pack must contain exactly one vocabulary section")
+    sec=vocab[0]; start=sec["offset"]; length=sec["length"]
+    blob=data[start:start+length]
+    if len(blob)<40 or blob[:4]!=b"MSVC" or struct.unpack_from("<H",blob,4)[0]!=1: raise ValueError("unsupported vocabulary section")
+    count=struct.unpack_from("<I",blob,8)[0]; esize=struct.unpack_from("<H",blob,12)[0]
+    entries,id_off,first_off,blob_off,blob_len,algorithm=struct.unpack_from("<IIIIII",blob,16)
+    if esize!=16 or algorithm not in (0,1) or entries!=40 or entries+count*16>len(blob) or blob_off+blob_len!=len(blob): raise ValueError("invalid vocabulary layout")
+    rows=[]
+    for i in range(count):
+        off=entries+i*16;tid,cost,surf_off,surf_len,res=struct.unpack_from("<IiIHH",blob,off)
+        if res or not surf_len or surf_off>blob_len or surf_len>blob_len-surf_off: raise ValueError("invalid vocabulary entry")
+        rows.append((tid,cost,bytes(blob[blob_off+surf_off:blob_off+surf_off+surf_len])))
+    return algorithm,rows
+
+def cmd_import_tiktoken(args) -> None:
+    rows=parse_tiktoken(args.input)
+    write_pack(args.output,build_model_pack_rows(rows,1))
+
+def cmd_export_tiktoken(args) -> None:
+    algorithm,rows=model_rows_from_pack(args.input)
+    if algorithm!=1: raise ValueError("only raw-BPE model packs can be exported as .tiktoken")
+    if any(tid!=rank for tid,rank,_ in rows): raise ValueError(".tiktoken export requires token id == BPE rank for every piece")
+    out=[]
+    for tid,rank,surface in sorted(rows,key=lambda r:r[0]):
+        out.append(base64.b64encode(surface)+b" "+str(rank).encode("ascii")+b"\n")
+    args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_bytes(b"".join(out))
+    print(json.dumps({"output":str(args.output),"tokens":len(rows),"sha256":hashlib.sha256(args.output.read_bytes()).hexdigest()},sort_keys=True))
 
 
 def cmd_train(args) -> None:
@@ -433,12 +518,17 @@ def cmd_detector(args) -> None:
 
 
 def cmd_inspect(args) -> None:
-    print(json.dumps(read_outer(args.pack), indent=2, sort_keys=True))
+    info=read_outer(args.pack)
+    if any(section["kind"]==4 for section in info["sections"]):
+        algorithm,rows=model_rows_from_pack(args.pack)
+        info["model_algorithm"]={0:"viterbi",1:"raw-bpe"}[algorithm]
+        info["vocabulary_size"]=len(rows)
+    print(json.dumps(info, indent=2, sort_keys=True))
 
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mosaic-author", description="Deterministic Mosaic pack authoring")
-    p.add_argument("--version", action="version", version="mosaic-author 0.5.0")
+    p.add_argument("--version", action="version", version="mosaic-author 0.6.0")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("model", help="compile model vocabulary from JSON")
     m.add_argument("config", type=Path); m.add_argument("output", type=Path); m.set_defaults(func=cmd_model)
@@ -448,6 +538,10 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--max-piece-bytes", type=int, default=32); t.add_argument("--min-frequency", type=int, default=2)
     t.add_argument("--byte-cost", type=int, default=1000); t.add_argument("--max-candidates", type=int, default=2_000_000)
     t.set_defaults(func=cmd_train)
+    tk = sub.add_parser("import-tiktoken", help="import a .tiktoken mergeable-ranks file as raw-byte BPE")
+    tk.add_argument("input", type=Path); tk.add_argument("output", type=Path); tk.set_defaults(func=cmd_import_tiktoken)
+    tke = sub.add_parser("export-tiktoken", help="export an exactly rank-compatible raw-BPE model to .tiktoken")
+    tke.add_argument("input", type=Path); tke.add_argument("output", type=Path); tke.set_defaults(func=cmd_export_tiktoken)
     l = sub.add_parser("language", help="compile language specialization JSON")
     l.add_argument("config", type=Path); l.add_argument("output", type=Path); l.set_defaults(func=cmd_language)
     d = sub.add_parser("detector", help="compile detector JSON")

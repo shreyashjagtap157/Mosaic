@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-08-08
+
+Stable raw-BPE compatibility release.
+
+- model packs can declare weighted-Viterbi or raw-byte BPE execution;
+- byte fallback validation is surface-based, allowing arbitrary existing token IDs;
+- `.tiktoken` mergeable-rank import and exact eligible export;
+- independent raw-BPE differential oracle and sanitizer coverage;
+- unsupported algorithms, duplicate surfaces, and duplicate BPE ranks fail closed;
+- full tiktoken regex/special-token pipeline is intentionally not claimed by this profile.
+
 ## 0.5.0 — 2026-08-08
 
 Stable deterministic pack-authoring and baseline-training release.

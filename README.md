@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Stable tokenizer: 0.5.0
+## Stable tokenizer: 0.6.0
 
-Mosaic Tokenizer 0.5.0 is a stable native tokenizer and deterministic pack-authoring release with:
+Mosaic Tokenizer 0.6.0 is a stable native tokenizer, deterministic pack-authoring, and raw-BPE compatibility release with:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -27,9 +27,11 @@ Mosaic Tokenizer 0.5.0 is a stable native tokenizer and deterministic pack-autho
 - deterministic release packaging;
 - supported deterministic `mosaic-author` CLI for model/language/detector packs;
 - deterministic compression-first baseline vocabulary training with bounded candidate growth;
+- raw-byte BPE model execution and deterministic `.tiktoken` mergeable-rank import/export;
+- byte fallback is surface-based, so existing model token IDs need not equal byte values;
 - GCC + Clang qualification, ASan + UBSan, malformed-pack tests, independent Python oracles, and C/C++ client tests.
 
-The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 adds supported deterministic pack authoring and baseline corpus-to-model training without changing the stable 0.4 C ABI.
+The 0.1.0 and 0.2.0 releases remain preserved by Git tags. Version 0.4.0 extended automatic document routing consistently to one-shot, stream-at-EOF, and editable-document APIs. Version 0.5.0 added supported deterministic pack authoring and baseline corpus-to-model training. Version 0.6.0 adds an exact raw/single-piece BPE compatibility profile and `.tiktoken` rank-file interchange without changing the stable 0.4 C ABI.
 
 This is a stable **tokenizer** release, not a claim that the complete future token-native platform is finished. Constrained-Unigram/BPE training quality optimization, production detector/language training, span-level mixed-language routing, bounded-memory streaming, local incremental retokenization, rich compiler/search/IDE projections, SIMD vocabulary matching, and the Wedge Tournament remain later measured work.
 
@@ -112,6 +114,18 @@ Automatic document routing:
 
 Auto mode applies a specialization only when the detector confidence gate passes and the exact language pack is loaded. Otherwise it uses the base model.
 
+## Existing-tokenizer compatibility
+
+0.6 supports raw/single-piece byte BPE and `.tiktoken` mergeable-rank files:
+
+```bash
+./tools/mosaic_author.py import-tiktoken ranks.tiktoken model.mpack
+./build/mosaic-tokenizer roundtrip model.mpack INPUT
+./tools/mosaic_author.py export-tiktoken model.mpack exported.tiktoken
+```
+
+This claim is intentionally narrower than full ordinary tiktoken text encoding: a complete tiktoken `Encoding` also includes its Unicode regex pre-tokenizer and special-token protocol. Mosaic does not approximate those silently. See `docs/implementation/COMPATIBILITY_0.6.md`.
+
 ## Pack authoring
 
 The release ships `mosaic-author`, which can compile explicit model vocabularies, train a deterministic compression-first model from corpora, compile language-specialization packs, compile detector packs, and inspect MOSPACK metadata. Every authored model receives mandatory byte fallback automatically.
@@ -143,7 +157,7 @@ These tiny packs are **conformance/reference packs**, not claims of production l
 make release
 ```
 
-The generated `dist/mosaic-tokenizer-0.5.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
+The generated `dist/mosaic-tokenizer-0.6.0-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
 ## Rust status
 
@@ -153,6 +167,6 @@ Stable Rust remains the intended primary implementation language. Rust source ex
 
 The tokenizer itself now has a stable native byte/Unicode/model/language-pack execution path. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
-See `docs/implementation/STATUS.md` and `docs/implementation/INTEGRATION_AUDIT_0.5.0.md` for the exact implemented/not-implemented boundary.
+See `docs/implementation/STATUS.md`, `docs/implementation/COMPATIBILITY_0.6.md`, and the latest release qualification evidence for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.

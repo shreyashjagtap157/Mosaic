@@ -36,6 +36,7 @@ typedef struct {
     uint32_t blob_offset;
     uint32_t blob_len;
     uint32_t max_surface_len;
+    uint32_t algorithm; /* 0=weighted Viterbi, 1=raw byte BPE */
 } Vocab;
 
 typedef struct {
@@ -312,10 +313,17 @@ static uint32_t vocab_first(const Vocab *v, uint32_t pos) {
     return rd32(v->section + v->first_index_offset + (size_t)pos * 4);
 }
 
+static int compare_i32(const void *a, const void *b) {
+    int32_t av = *(const int32_t *)a, bv = *(const int32_t *)b;
+    return av < bv ? -1 : av > bv ? 1 : 0;
+}
+
 static int parse_vocab(Slice s, Vocab *v) {
     if (s.len < 40 || memcmp(s.bytes, "MSVC", 4) != 0 || rd16(s.bytes + 4) != 1 || rd16(s.bytes + 6) != 0) return fail("invalid vocabulary header");
     uint32_t count = rd32(s.bytes + 8); if (count < 256 || count > 1048576) return fail("vocabulary count outside limits");
-    if (rd16(s.bytes + 12) != 16 || rd16(s.bytes + 14) != 0 || rd32(s.bytes + 16) != 40 || rd32(s.bytes + 36) != 0) return fail("invalid vocabulary layout");
+    if (rd16(s.bytes + 12) != 16 || rd16(s.bytes + 14) != 0 || rd32(s.bytes + 16) != 40) return fail("invalid vocabulary layout");
+    uint32_t algorithm = rd32(s.bytes + 36);
+    if (algorithm > 1u) return fail("unsupported vocabulary algorithm");
     uint32_t entries = rd32(s.bytes + 16), ids = rd32(s.bytes + 20), first = rd32(s.bytes + 24), blob = rd32(s.bytes + 28), blob_len = rd32(s.bytes + 32);
     uint64_t entries_end = (uint64_t)entries + (uint64_t)count * 16;
     uint64_t ids_end = (uint64_t)ids + (uint64_t)count * 4;
@@ -323,7 +331,7 @@ static int parse_vocab(Slice s, Vocab *v) {
     uint64_t blob_end = (uint64_t)blob + blob_len;
     if (!(entries_end <= ids && ids_end <= first && first_end <= blob && blob_end == s.len)) return fail("vocabulary regions overlap/out of bounds");
     if (!all_zero(s.bytes + entries_end, ids - (size_t)entries_end) || !all_zero(s.bytes + ids_end, first - (size_t)ids_end) || !all_zero(s.bytes + first_end, blob - (size_t)first_end)) return fail("vocabulary padding nonzero");
-    *v = (Vocab){s.bytes, s.len, count, entries, ids, first, blob, blob_len, 0};
+    *v = (Vocab){s.bytes, s.len, count, entries, ids, first, blob, blob_len, 0, algorithm};
 
     Slice prev_surface = {0}; uint32_t prev_id_for_surface = 0;
     for (uint32_t i = 0; i < count; ++i) {
@@ -349,11 +357,34 @@ static int parse_vocab(Slice s, Vocab *v) {
         uint32_t a = vocab_first(v, b), z = vocab_first(v, b + 1); if (a > z || z > count) return fail("invalid first-byte index range");
         for (uint32_t i = a; i < z; ++i) { VocabEntry e; Slice surf; if (!vocab_entry(v, i, &e, &surf) || surf.bytes[0] != (uint8_t)b) return fail("first-byte index points to wrong surface"); }
     }
-    for (uint32_t id = 0; id < 256; ++id) {
-        uint32_t lo = 0, hi = count, found = UINT32_MAX;
-        while (lo < hi) { uint32_t mid = lo + (hi - lo) / 2, idx = vocab_id_index(v, mid); VocabEntry e; Slice surf; vocab_entry(v, idx, &e, &surf); if (e.token_id < id) lo = mid + 1; else if (e.token_id > id) hi = mid; else { found = idx; break; } }
-        if (found == UINT32_MAX) return fail("missing byte fallback");
-        VocabEntry e; Slice surf; if (!vocab_entry(v, found, &e, &surf) || surf.len != 1 || surf.bytes[0] != (uint8_t)id) return fail("invalid byte fallback");
+    for (uint32_t byte = 0; byte < 256; ++byte) {
+        uint32_t a = vocab_first(v, byte), z = vocab_first(v, byte + 1), found = 0;
+        for (uint32_t i = a; i < z; ++i) {
+            VocabEntry e; Slice surf;
+            if (!vocab_entry(v, i, &e, &surf)) return fail("invalid byte fallback candidate");
+            if (surf.len == 1 && surf.bytes[0] == (uint8_t)byte) ++found;
+        }
+        if (!found) return fail("missing byte fallback");
+    }
+    if (v->algorithm == 1u) {
+        /* Raw BPE requires one rank per unique byte surface. */
+        Slice previous = {0};
+        for (uint32_t i = 0; i < count; ++i) {
+            VocabEntry e; Slice surf; if (!vocab_entry(v, i, &e, &surf)) return fail("invalid BPE entry");
+            if (i && previous.len == surf.len && memcmp(previous.bytes, surf.bytes, surf.len) == 0) return fail("duplicate BPE surface");
+            previous = surf;
+        }
+        /* Raw BPE ranks must be unique so merge priority is a total order independent of storage order. */
+        int32_t *ranks = (int32_t *)malloc((size_t)count * sizeof *ranks);
+        if (!ranks) return fail("out of memory validating BPE ranks");
+        for (uint32_t i = 0; i < count; ++i) {
+            VocabEntry e; Slice surf;
+            if (!vocab_entry(v, i, &e, &surf) || e.cost < 0) { free(ranks); return fail("invalid BPE rank"); }
+            ranks[i] = e.cost;
+        }
+        qsort(ranks, count, sizeof *ranks, compare_i32);
+        for (uint32_t i = 1; i < count; ++i) if (ranks[i - 1] == ranks[i]) { free(ranks); return fail("BPE ranks must be unique"); }
+        free(ranks);
     }
     return 1;
 }
@@ -643,7 +674,119 @@ static int candidate_better(const Vocab *v, const uint32_t *back, const RingStat
     free(a); free(b); return result;
 }
 
-static int tokenize_with_adjustments(const Vocab *v, Slice input, const int64_t *adjustments, Tokenization *out) {
+
+static int slice_compare_bytes(Slice a, Slice b) {
+    size_t n = a.len < b.len ? a.len : b.len;
+    int cmp = n ? memcmp(a.bytes, b.bytes, n) : 0;
+    if (cmp) return cmp;
+    return a.len < b.len ? -1 : a.len > b.len ? 1 : 0;
+}
+
+static int vocab_find_surface(const Vocab *v, Slice target, uint32_t *out_index) {
+    uint32_t lo = 0, hi = v->count;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        VocabEntry e; Slice surf;
+        if (!vocab_entry(v, mid, &e, &surf)) return 0;
+        int cmp = slice_compare_bytes(surf, target);
+        if (cmp < 0) lo = mid + 1; else hi = mid;
+    }
+    if (lo >= v->count) return 0;
+    VocabEntry e; Slice surf;
+    if (!vocab_entry(v, lo, &e, &surf) || slice_compare_bytes(surf, target) != 0) return 0;
+    *out_index = lo;
+    return 1;
+}
+
+typedef struct {
+    size_t start, end, prev, next;
+    uint32_t entry_index, generation;
+    uint8_t alive;
+} BpeNode;
+
+typedef struct {
+    int64_t rank;
+    size_t left, right;
+    uint32_t left_generation, right_generation, entry_index, token_id;
+} BpePair;
+
+typedef struct { BpePair *items; size_t len, cap; } BpeHeap;
+
+static int bpe_pair_less(const BpePair *a, const BpePair *b) {
+    if (a->rank != b->rank) return a->rank < b->rank;
+    if (a->left != b->left) return a->left < b->left;
+    if (a->token_id != b->token_id) return a->token_id < b->token_id;
+    return a->entry_index < b->entry_index;
+}
+
+static int bpe_heap_push(BpeHeap *h, BpePair value) {
+    if (h->len == h->cap) {
+        size_t cap = h->cap ? h->cap * 2 : 64;
+        if (cap < h->cap || cap > SIZE_MAX / sizeof *h->items) return 0;
+        BpePair *next = (BpePair *)realloc(h->items, cap * sizeof *next);
+        if (!next) return 0;
+        h->items = next; h->cap = cap;
+    }
+    size_t i = h->len++; h->items[i] = value;
+    while (i) { size_t p = (i - 1) / 2; if (!bpe_pair_less(&h->items[i], &h->items[p])) break; BpePair t=h->items[i];h->items[i]=h->items[p];h->items[p]=t;i=p; }
+    return 1;
+}
+
+static int bpe_heap_pop(BpeHeap *h, BpePair *out) {
+    if (!h->len) return 0;
+    *out = h->items[0];
+    h->items[0] = h->items[--h->len];
+    size_t i = 0;
+    for (;;) { size_t l=i*2+1,r=l+1,b=i; if(l<h->len&&bpe_pair_less(&h->items[l],&h->items[b]))b=l;if(r<h->len&&bpe_pair_less(&h->items[r],&h->items[b]))b=r;if(b==i)break;BpePair t=h->items[i];h->items[i]=h->items[b];h->items[b]=t;i=b; }
+    return 1;
+}
+
+static int bpe_push_neighbor(const Vocab *v, Slice input, const int64_t *adjustments,
+                             BpeNode *nodes, size_t left, BpeHeap *heap) {
+    if (left == SIZE_MAX || !nodes[left].alive || nodes[left].next == SIZE_MAX) return 1;
+    size_t right = nodes[left].next;
+    if (!nodes[right].alive || nodes[left].end != nodes[right].start) return 0;
+    size_t len = nodes[right].end - nodes[left].start;
+    if (!len || len > v->max_surface_len) return 1;
+    uint32_t entry_index;
+    if (!vocab_find_surface(v, (Slice){input.bytes + nodes[left].start, len}, &entry_index)) return 1;
+    VocabEntry e; Slice surf; if (!vocab_entry(v, entry_index, &e, &surf)) return 0;
+    int64_t rank = e.cost;
+    if (adjustments && !add_i64(rank, adjustments[entry_index], &rank)) return 0;
+    return bpe_heap_push(heap, (BpePair){rank,left,right,nodes[left].generation,nodes[right].generation,entry_index,e.token_id});
+}
+
+static int tokenize_bpe_with_adjustments(const Vocab *v, Slice input, const int64_t *adjustments, Tokenization *out) {
+    if (input.len == SIZE_MAX || input.len > SIZE_MAX / sizeof(uint32_t) - 1 || input.len > SIZE_MAX / sizeof(BpeNode)) return fail("input too large");
+    uint32_t *back = (uint32_t *)malloc((input.len + 1) * sizeof *back);
+    if (!back) return fail("out of memory");
+    memset(back, 0xff, (input.len + 1) * sizeof *back);
+    if (!input.len) { *out=(Tokenization){back,0,0,0}; return 1; }
+    BpeNode *nodes=(BpeNode *)calloc(input.len,sizeof *nodes); BpeHeap heap={0};
+    if(!nodes){free(back);return fail("out of memory");}
+    for(size_t i=0;i<input.len;++i){
+        uint32_t idx; if(!vocab_find_surface(v,(Slice){input.bytes+i,1},&idx)){free(nodes);free(back);return fail("missing byte fallback");}
+        nodes[i]=(BpeNode){i,i+1,i?i-1:SIZE_MAX,i+1<input.len?i+1:SIZE_MAX,idx,1u,1u};
+    }
+    for(size_t i=0;i+1<input.len;++i) if(!bpe_push_neighbor(v,input,adjustments,nodes,i,&heap)){free(heap.items);free(nodes);free(back);return fail("BPE candidate failure");}
+    BpePair pair;
+    while(bpe_heap_pop(&heap,&pair)){
+        BpeNode *l=&nodes[pair.left],*r=&nodes[pair.right];
+        if(!l->alive||!r->alive||l->generation!=pair.left_generation||r->generation!=pair.right_generation||l->next!=pair.right||r->prev!=pair.left)continue;
+        size_t prev=l->prev,next=r->next;
+        l->end=r->end;l->entry_index=pair.entry_index;++l->generation;l->next=next;
+        r->alive=0;++r->generation;
+        if(next!=SIZE_MAX){nodes[next].prev=pair.left;++nodes[next].generation;}
+        if(prev!=SIZE_MAX&&!bpe_push_neighbor(v,input,adjustments,nodes,prev,&heap)){free(heap.items);free(nodes);free(back);return fail("BPE candidate failure");}
+        if(!bpe_push_neighbor(v,input,adjustments,nodes,pair.left,&heap)){free(heap.items);free(nodes);free(back);return fail("BPE candidate failure");}
+    }
+    free(heap.items);
+    size_t count=0;int64_t total=0;size_t cur=0;
+    while(cur!=SIZE_MAX){BpeNode *n=&nodes[cur];if(!n->alive){free(nodes);free(back);return fail("invalid BPE survivor chain");}back[n->end]=n->entry_index;VocabEntry e;Slice surf;if(!vocab_entry(v,n->entry_index,&e,&surf)){free(nodes);free(back);return fail("invalid BPE result");}int64_t cost=e.cost;if(adjustments&&!add_i64(cost,adjustments[n->entry_index],&cost)){free(nodes);free(back);return fail("BPE cost overflow");}if(!add_i64(total,cost,&total)){free(nodes);free(back);return fail("BPE cost overflow");}++count;cur=n->next;}
+    free(nodes);*out=(Tokenization){back,input.len,total,count};return 1;
+}
+
+static int tokenize_viterbi_with_adjustments(const Vocab *v, Slice input, const int64_t *adjustments, Tokenization *out) {
     if (!v->max_surface_len) return fail("vocabulary has no surfaces");
     if (input.len == SIZE_MAX || input.len > SIZE_MAX / sizeof(uint32_t) - 1) return fail("input too large");
     uint32_t *back = (uint32_t *)malloc((input.len + 1) * sizeof *back);
@@ -687,6 +830,11 @@ static int tokenize_with_adjustments(const Vocab *v, Slice input, const int64_t 
     if (terminal->position != input.len || !terminal->reachable) { free(ring); free(back); return fail("unreachable input despite byte fallback"); }
     *out = (Tokenization){back, input.len, terminal->cost, terminal->count};
     free(ring); return 1;
+}
+
+static int tokenize_with_adjustments(const Vocab *v, Slice input, const int64_t *adjustments, Tokenization *out) {
+    if (v->algorithm == 1u) return tokenize_bpe_with_adjustments(v, input, adjustments, out);
+    return tokenize_viterbi_with_adjustments(v, input, adjustments, out);
 }
 
 static void tokenization_free(Tokenization *result) {
@@ -961,7 +1109,8 @@ struct mosaic_document {
 };
 
 void mosaic_free(void *pointer) { free(pointer); }
-const char *mosaic_version_string(void) { return "0.5.0"; }
+const char *mosaic_version_string(void) { return "0.6.0"; }
+uint32_t mosaic_tokenizer_semantics_version(void) { return 2u; }
 
 const char *mosaic_status_string(mosaic_status status) {
     switch (status) {
@@ -1445,7 +1594,7 @@ mosaic_status mosaic_grapheme_ranges(const mosaic_unicode *unicode_data, const u
 
 
 static void tokenizer_compute_fingerprint(mosaic_tokenizer *tokenizer) {
-    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0v0.3.0\0";
+    static const uint8_t domain[] = "MOSAIC-TOKENIZER-RUNTIME\0semantics-v2\0";
     Sha256Ctx ctx;
     sha256_init(&ctx);
     (void)sha256_update(&ctx, domain, sizeof domain - 1u);

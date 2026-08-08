@@ -23,6 +23,9 @@ SAN_API := $(BUILD)/mosaic-api-smoke-san
 SAN_MALFORMED := $(BUILD)/mosaic-malformed-smoke-san
 SAN_LANGUAGE := $(BUILD)/mosaic-language-smoke-san
 SAN_DETECTOR := $(BUILD)/mosaic-detector-smoke-san
+SAN_BPE := $(BUILD)/mosaic-bpe-smoke-san
+BPE_SMOKE := $(BUILD)/mosaic-bpe-smoke
+BPE_MODEL := $(ROOT)/fixtures/packs/raw-bpe-v1.mpack
 API_STATIC := $(BUILD)/mosaic-api-smoke-static
 API_SHARED := $(BUILD)/mosaic-api-smoke-shared
 API_CPP := $(BUILD)/mosaic-api-smoke-cpp
@@ -61,6 +64,12 @@ $(SAN_LANGUAGE): $(TESTS)/language_smoke.c $(SAN_OBJ)
 $(SAN_DETECTOR): $(TESTS)/detector_smoke.c $(SAN_OBJ)
 	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
 
+$(SAN_BPE): $(TESTS)/bpe_smoke.c $(SAN_OBJ)
+	$(CC) $(SAN_FLAGS) -I$(INC) $< $(SAN_OBJ) -o $@
+
+$(BPE_SMOKE): $(TESTS)/bpe_smoke.c $(STATIC_LIB)
+	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
+
 sanitize-api: $(SAN_API)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_API) $(MODEL) $(UNICODE)
 
@@ -72,6 +81,9 @@ sanitize-language: $(SAN_LANGUAGE)
 
 sanitize-detector: $(SAN_DETECTOR)
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_DETECTOR) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
+
+sanitize-bpe: $(SAN_BPE)
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_BPE) $(BPE_MODEL)
 
 $(API_STATIC): $(TESTS)/api_smoke.c $(STATIC_LIB)
 	$(CC) $(CFLAGS) -I$(INC) $< $(STATIC_LIB) -o $@
@@ -92,12 +104,13 @@ smoke: $(API_STATIC) $(API_SHARED)
 cpp-smoke: $(API_CPP)
 	$(API_CPP)
 
-sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector
+sanitize: sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe
 
-test: all smoke cpp-smoke $(DETECTOR_SMOKE) sanitize
+test: all smoke cpp-smoke $(DETECTOR_SMOKE) $(BPE_SMOKE) sanitize
 	$(DETECTOR_SMOKE) $(MODEL) $(UNICODE) $(DETECTOR) $(ROOT)/fixtures/packs/language/en-v1.mpack $(ROOT)/fixtures/packs/language/hi-v1.mpack $(ROOT)/fixtures/packs/language/ja-v1.mpack
+	$(BPE_SMOKE) $(BPE_MODEL)
 
 clean:
-	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
+	rm -f $(CLI) $(OBJ) $(STATIC_LIB) $(SHARED_LIB) $(SAN_OBJ) $(SAN_API) $(SAN_MALFORMED) $(SAN_LANGUAGE) $(SAN_DETECTOR) $(SAN_BPE) $(BPE_SMOKE) $(API_STATIC) $(API_SHARED) $(API_CPP) $(DETECTOR_SMOKE)
 
-.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector smoke cpp-smoke test
+.PHONY: all clean sanitize sanitize-api sanitize-malformed sanitize-language sanitize-detector sanitize-bpe smoke cpp-smoke test

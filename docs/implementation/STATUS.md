@@ -4,13 +4,15 @@ Date: 2026-08-08
 
 ## Stable release state
 
-**Mosaic Tokenizer 0.5.0: STABLE NATIVE + AUTHORING RELEASE QUALIFIED LOCALLY.**
+**Mosaic Tokenizer 0.6.0: STABLE RAW-BPE COMPATIBILITY RELEASE.**
 
-Version 0.5 adds a supported deterministic pack-authoring/training path on top of the qualified 0.4 execution core. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
+Version 0.6 adds qualified raw-byte BPE execution and `.tiktoken` mergeable-rank interchange on top of the stable 0.5 native + authoring release. A high-level tokenizer owns one model pack, one Unicode pack, zero or more language-specialization packs, and optionally one detector pack.
 
 ### Implemented tokenizer path
 
 - exact arbitrary bytes and complete 256-byte fallback;
+- raw-byte BPE model algorithm alongside deterministic weighted Viterbi;
+- `.tiktoken` mergeable-rank import/export with exact raw-piece differential tests;
 - deterministic static integer-cost Viterbi;
 - exact token byte spans;
 - Unicode 17 grapheme view with malformed-byte preservation;

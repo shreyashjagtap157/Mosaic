@@ -33,6 +33,7 @@ def main()->int:
     lib.mosaic_tokenizer_decode.argtypes=[C.c_void_p,P32,C.c_size_t,C.POINTER(P8),C.POINTER(C.c_size_t)];lib.mosaic_tokenizer_decode.restype=C.c_int
     lib.mosaic_tokenizer_grapheme_ranges.argtypes=[C.c_void_p,P8,C.c_size_t,C.POINTER(C.POINTER(Range)),C.POINTER(C.c_size_t)];lib.mosaic_tokenizer_grapheme_ranges.restype=C.c_int
     lib.mosaic_version_string.restype=C.c_char_p
+    lib.mosaic_tokenizer_semantics_version.restype=C.c_uint32
     lib.mosaic_status_string.argtypes=[C.c_int];lib.mosaic_status_string.restype=C.c_char_p
     lib.mosaic_encode.argtypes=[C.c_void_p,P8,C.c_size_t,C.POINTER(P32),C.POINTER(C.c_size_t)];lib.mosaic_encode.restype=C.c_int
     lib.mosaic_decode.argtypes=[C.c_void_p,P32,C.c_size_t,C.POINTER(P8),C.POINTER(C.c_size_t)];lib.mosaic_decode.restype=C.c_int
@@ -48,12 +49,16 @@ def main()->int:
     lib.mosaic_document_encode.argtypes=[C.c_void_p,C.POINTER(P32),C.POINTER(C.c_size_t)];lib.mosaic_document_encode.restype=C.c_int
     lib.mosaic_document_copy_bytes.argtypes=[C.c_void_p,C.POINTER(P8),C.POINTER(C.c_size_t)];lib.mosaic_document_copy_bytes.restype=C.c_int
     lib.mosaic_document_free.argtypes=[C.c_void_p]
-    assert lib.mosaic_version_string()==b'0.5.0'
+    assert lib.mosaic_version_string()==b'0.6.0'
+    assert lib.mosaic_tokenizer_semantics_version()==2
     assert lib.mosaic_model_load_file(os.fsencode(MODEL),C.byref(model))==0
     assert lib.mosaic_unicode_load_file(os.fsencode(UNICODE),C.byref(uni))==0
     assert lib.mosaic_tokenizer_load_files(os.fsencode(MODEL),os.fsencode(UNICODE),C.byref(tokenizer))==0
     fingerprint=(C.c_uint8*32)(); assert lib.mosaic_tokenizer_fingerprint(tokenizer,fingerprint)==0
     assert any(fingerprint); stable_fingerprint=bytes(fingerprint)
+    # v0.3-v0.5 used semantics-v1. Raw BPE support changes canonical runtime semantics,
+    # so v0.6 must not retain the old base fingerprint for the same v2 model/Unicode packs.
+    assert stable_fingerprint.hex() != '9e542a728d94b98fed083d61247a554e22a0f4dceb23f39c7106a41f4d1341ba'
     rng=random.Random(0x4D4F53414943)
     cases=[b'',bytes(range(256)),b'hello world\xff', 'नमस्ते 世界 こんにちは'.encode()]
     cases += [bytes(rng.randrange(256) for _ in range(rng.randrange(0,300))) for _ in range(1000)]

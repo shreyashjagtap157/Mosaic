@@ -20,6 +20,7 @@ static int exact_case(mosaic_model *model, const uint8_t *input, size_t len) {
 }
 
 int main(int argc, char **argv) {
+    if (mosaic_tokenizer_semantics_version() != 2u) return 60;
     if (argc != 3) return 2;
     mosaic_model *model = NULL; mosaic_unicode *unicode_data = NULL;
     mosaic_tokenizer *tokenizer = NULL;
