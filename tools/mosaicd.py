@@ -73,6 +73,36 @@ class ServiceState:
         native = asdict(self.tokenizer.metrics)
         return {"service": service, "native": native}
 
+    def prometheus(self) -> bytes:
+        snapshot = self.snapshot()
+        lines = [
+            "# HELP mosaic_service_requests_total HTTP requests admitted by mosaicd.",
+            "# TYPE mosaic_service_requests_total counter",
+            f"mosaic_service_requests_total {snapshot['service']['requests']}",
+            "# HELP mosaic_service_failures_total HTTP requests that completed with an error.",
+            "# TYPE mosaic_service_failures_total counter",
+            f"mosaic_service_failures_total {snapshot['service']['failures']}",
+            "# HELP mosaic_service_busy_rejections_total Requests rejected by the concurrency admission limit.",
+            "# TYPE mosaic_service_busy_rejections_total counter",
+            f"mosaic_service_busy_rejections_total {snapshot['service']['busy_rejections']}",
+            "# HELP mosaic_service_auth_rejections_total Requests rejected by bearer authentication.",
+            "# TYPE mosaic_service_auth_rejections_total counter",
+            f"mosaic_service_auth_rejections_total {snapshot['service']['auth_rejections']}",
+            "# HELP mosaic_service_bytes_in_total JSON request bytes admitted by the service.",
+            "# TYPE mosaic_service_bytes_in_total counter",
+            f"mosaic_service_bytes_in_total {snapshot['service']['bytes_in']}",
+            "# HELP mosaic_service_bytes_out_total JSON response bytes produced by operations.",
+            "# TYPE mosaic_service_bytes_out_total counter",
+            f"mosaic_service_bytes_out_total {snapshot['service']['bytes_out']}",
+            "# HELP mosaic_service_uptime_seconds Process uptime in seconds.",
+            "# TYPE mosaic_service_uptime_seconds gauge",
+            f"mosaic_service_uptime_seconds {snapshot['service']['uptime_seconds']}",
+        ]
+        for name, value in snapshot["native"].items():
+            metric = "mosaic_native_" + name + ("_total" if name not in {""} else "")
+            lines.extend([f"# TYPE {metric} counter", f"{metric} {value}"])
+        return ("\n".join(lines) + "\n").encode("ascii")
+
 
 class MosaicHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -115,6 +145,15 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_text(self, status: int, content_type: str, payload: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -181,6 +220,9 @@ class Handler(BaseHTTPRequestHandler):
                 "capabilities": t.capabilities,
                 "sealed": t.sealed,
             })
+            return
+        if self.path == "/metrics":
+            self._send_text(HTTPStatus.OK, "text/plain; version=0.0.4; charset=utf-8", self.state.prometheus())
             return
         if self.path == "/v1/metrics":
             self._send_json(HTTPStatus.OK, self.state.snapshot())

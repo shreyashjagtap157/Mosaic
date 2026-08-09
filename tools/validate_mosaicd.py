@@ -84,12 +84,32 @@ def main() -> int:
             status, _ = request(base + "/v1/decode", method="POST", value={"ids": [-1]}, token="secret")
             if status != 400:
                 raise SystemExit("invalid token id did not fail closed")
+            # Saturation is fail-closed and separately counted.
+            if not server.state.admission.acquire(blocking=False):
+                raise SystemExit("could not reserve admission permit for saturation test")
+            permits = []
+            try:
+                for _ in range(server.state.config.max_concurrency - 1):
+                    if not server.state.admission.acquire(blocking=False):
+                        raise SystemExit("could not fill admission permits")
+                    permits.append(1)
+                status, busy = request(base + "/v1/encode", method="POST", value={"data_base64": ""}, token="secret")
+                if status != 503 or busy.get("error", {}).get("code") != "busy":
+                    raise SystemExit("concurrency saturation did not fail closed")
+            finally:
+                for _ in permits: server.state.admission.release()
+                server.state.admission.release()
             status, metrics = request(base + "/v1/metrics", token="secret")
-            if status != 200 or metrics["service"]["requests"] < 8 or "native" not in metrics:
+            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or "native" not in metrics:
                 raise SystemExit("metrics endpoint failed")
+            req = urllib.request.Request(base + "/metrics", headers={"Authorization":"Bearer secret"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                text = r.read().decode("ascii")
+            for metric in ("mosaic_service_requests_total", "mosaic_service_busy_rejections_total", "mosaic_native_encode_calls_total"):
+                if metric not in text: raise SystemExit(f"Prometheus metric missing: {metric}")
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=5)
-    print("OK mosaicd auth=PASS roundtrip=PASS arbitrary-bytes=PASS detect=PASS security=PASS limits=PASS metrics=PASS")
+    print("OK mosaicd auth=PASS roundtrip=PASS arbitrary-bytes=PASS detect=PASS security=PASS limits=PASS saturation=PASS metrics-json=PASS prometheus=PASS")
     return 0
 
 
