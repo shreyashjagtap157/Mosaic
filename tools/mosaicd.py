@@ -18,8 +18,12 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_BINDING = ROOT / "bindings" / "python"
-if str(PYTHON_BINDING) not in sys.path:
+if PYTHON_BINDING.exists():
     sys.path.insert(0, str(PYTHON_BINDING))
+else:
+    wheels = sorted((ROOT / "python").glob("mosaic_tokenizer-*.whl")) if (ROOT / "python").exists() else []
+    if len(wheels) == 1:
+        sys.path.insert(0, str(wheels[0]))
 
 from mosaic import MosaicError, Tokenizer, __version__ as SDK_VERSION  # noqa: E402
 
@@ -322,7 +326,14 @@ def main() -> int:
     a = parse_args()
     if (a.tls_cert is None) != (a.tls_key is None):
         raise SystemExit("mosaicd: --tls-cert and --tls-key must be supplied together")
-    with Tokenizer(a.model, a.unicode, library_path=a.library) as t:
+    library = a.library
+    if library is None:
+        candidates = []
+        for name in ("libmosaic.so", "libmosaic.dylib", "mosaic.dll"):
+            candidate = ROOT / "lib" / name
+            if candidate.exists(): candidates.append(candidate)
+        if len(candidates) == 1: library = candidates[0]
+    with Tokenizer(a.model, a.unicode, library_path=library) as t:
         for language in a.language:
             t.add_language(language)
         if a.detector:

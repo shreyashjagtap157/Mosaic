@@ -48,7 +48,7 @@ def main() -> int:
         for lang in languages:
             t.add_language(lang)
         t.set_detector(detector).set_security(security).seal()
-        server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=4))
+        server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -85,19 +85,18 @@ def main() -> int:
             if status != 400:
                 raise SystemExit("invalid token id did not fail closed")
             # Saturation is fail-closed and separately counted.
-            if not server.state.admission.acquire(blocking=False):
+            import time
+            for _ in range(100):
+                if server.state.admission.acquire(blocking=False):
+                    break
+                time.sleep(0.005)
+            else:
                 raise SystemExit("could not reserve admission permit for saturation test")
-            permits = []
             try:
-                for _ in range(server.state.config.max_concurrency - 1):
-                    if not server.state.admission.acquire(blocking=False):
-                        raise SystemExit("could not fill admission permits")
-                    permits.append(1)
                 status, busy = request(base + "/v1/encode", method="POST", value={"data_base64": ""}, token="secret")
                 if status != 503 or busy.get("error", {}).get("code") != "busy":
                     raise SystemExit("concurrency saturation did not fail closed")
             finally:
-                for _ in permits: server.state.admission.release()
                 server.state.admission.release()
             status, metrics = request(base + "/v1/metrics", token="secret")
             if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or "native" not in metrics:
