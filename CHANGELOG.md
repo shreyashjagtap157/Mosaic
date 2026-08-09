@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1.0 — 2026-08-09
+
+Enterprise deployment and remote distribution minor.
+
+- add bounded `mosaicd` HTTP service over the existing native runtime;
+- add optional bearer authentication and TLS plus explicit request/concurrency limits;
+- add JSON and Prometheus content-free service/native metrics;
+- add read-only authenticated immutable registry HTTP catalog/object distribution;
+- verify CAS objects on the server and SHA-256 downloads on the client before acceptance;
+- wire service and registry transport into CI and packaged-release validation;
+- preserve C ABI 1.0.0, trust ABI 1.0.0, tokenizer semantics 2, and frozen pack formats.
+
 ## 0.1.0.5 — 2026-08-08
 
 Tokenizer hot-path scalability, bounded streaming, and incremental/resynchronizing update remediation.
