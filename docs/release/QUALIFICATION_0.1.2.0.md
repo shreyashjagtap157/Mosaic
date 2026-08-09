@@ -64,7 +64,16 @@ Observed non-sanitized stress/differential gates include 500 arbitrary online-st
 
 ## Packaging
 
-Clean-tree archive/wheel/SBOM/provenance qualification is performed after this evidence layer is committed. Final archive and wheel hashes are appended only after the external package validator passes with `git_dirty=False`.
+Clean-tree archive/wheel/SBOM/provenance qualification: **PASS**.
+
+- package validator reports `git_dirty=False`;
+- Linux x86-64 archive: `mosaic-tokenizer-0.1.2.0-linux-x86_64.tar.gz`;
+- archive SHA-256: `e581e3c220f9e31839c72959c8d844fcda9eb778de912f40270e18302f9339d6`;
+- Python wheel: `mosaic_tokenizer-0.1.2.0-py3-none-any.whl`;
+- wheel SHA-256: `10a6c939ab0644744afc230a4a0c88ca1c39cf0066a50d52084d8a3c54ec6986`;
+- packaged CLI, packs, manifest, checksum inventory, SPDX SBOM, provenance, authoring, compatibility, trust signing/verification, registry lock/audit, and external static C consumer: **PASS**.
+
+The enterprise service and registry tools are shipped in the relocatable package layout validated previously on this branch.
 
 ## External/open gates
 
