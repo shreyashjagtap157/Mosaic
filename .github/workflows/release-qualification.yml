@@ -42,6 +42,7 @@ jobs:
       - run: cmake --build build/cmake --config Release
       - run: ctest --test-dir build/cmake -C Release --output-on-failure
       - run: python tools/validate_mosaicd.py --build-dir build/cmake
+      - run: python tools/validate_registry_http.py
 
   native-linux-deep:
     runs-on: ubuntu-latest

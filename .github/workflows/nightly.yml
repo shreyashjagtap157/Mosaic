@@ -44,6 +44,7 @@ jobs:
       - run: cmake --build build/cmake --config RelWithDebInfo
       - run: ctest --test-dir build/cmake -C RelWithDebInfo --output-on-failure
       - run: python tools/validate_mosaicd.py --build-dir build/cmake
+      - run: python tools/validate_registry_http.py
 
   native-sanitizers:
     runs-on: ubuntu-latest

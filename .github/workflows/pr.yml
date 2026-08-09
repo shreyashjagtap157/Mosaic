@@ -41,6 +41,7 @@ jobs:
       - run: cmake --build build/cmake --config Release
       - run: ctest --test-dir build/cmake -C Release --output-on-failure
       - run: python tools/validate_mosaicd.py --build-dir build/cmake
+      - run: python tools/validate_registry_http.py
       - name: Reliability smoke
         if: runner.os == 'Linux'
         run: python tools/reliability_campaign.py --tier smoke --output build/reliability/pr-smoke.json
