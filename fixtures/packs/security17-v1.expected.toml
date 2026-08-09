@@ -1,0 +1,10 @@
+file_length = 24177
+canonical_content_hash = "14c006559a5ba050cefe853cc0bcd7d090c140db00d8cf85fd93e550c3a4c0e4"
+file_sha256 = "c22e7d438b53ea0cda1d5730a6bd6561eadef44d27e0805171f8723ab5598e71"
+unicode = "17.0.0"
+scripts = 176
+script_ranges = 1717
+bidi_control_ranges = 4
+default_ignorable_ranges = 17
+noncharacter_ranges = 18
+deprecated_ranges = 8

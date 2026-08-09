@@ -1,0 +1,5 @@
+{
+  "name": "json",
+  "strings": [{"delimiter":"\"","escape":"\\"}],
+  "keywords": ["false","null","true"]
+}

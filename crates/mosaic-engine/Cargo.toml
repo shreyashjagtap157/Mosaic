@@ -1,0 +1,18 @@
+[package]
+name = "mosaic-engine"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+mosaic-core = { path = "../mosaic-core" }
+mosaic-ir = { path = "../mosaic-ir" }
+mosaic-pack = { path = "../mosaic-pack" }
+mosaic-model = { path = "../mosaic-model" }
+
+[dev-dependencies]
+mosaic-reference = { path = "../mosaic-reference" }
+
+[lints]
+workspace = true

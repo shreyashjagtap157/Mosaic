@@ -1,0 +1,25 @@
+version = 1
+
+[[case]]
+name = "lower-cost-wins"
+expected = "left"
+left = [[0, 1, 7, 3, 1, 1]]
+right = [[0, 1, 7, 3, 2, 2]]
+
+[[case]]
+name = "fewer-tokens-win-after-cost-tie"
+expected = "left"
+left = [[0, 3, 7, 3, 1, 2]]
+right = [[0, 1, 7, 3, 2, 1], [1, 3, 7, 3, 3, 1]]
+
+[[case]]
+name = "longer-first-span-wins"
+expected = "right"
+left = [[0, 1, 7, 3, 1, 1], [1, 3, 7, 3, 2, 1]]
+right = [[0, 2, 7, 3, 3, 1], [2, 3, 7, 3, 4, 1]]
+
+[[case]]
+name = "smaller-token-id-wins"
+expected = "right"
+left = [[0, 2, 7, 3, 8, 1], [2, 4, 7, 3, 9, 1]]
+right = [[0, 2, 7, 3, 7, 1], [2, 4, 7, 3, 10, 1]]

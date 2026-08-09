@@ -1,0 +1,9 @@
+{
+  "byte_cost": 1000,
+  "pieces": [
+    {"text": "tokenizer", "cost": 120},
+    {"text": " hello", "cost": 180},
+    {"text": "नमस्ते", "cost": 160},
+    {"text": "こんにちは", "cost": 160}
+  ]
+}

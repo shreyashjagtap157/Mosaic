@@ -1,0 +1,9 @@
+{
+  "cache_record": {"header_bytes": 128, "magic": "MSCACHR1", "version": 1},
+  "pack_container": {"directory_entry_bytes": 32, "header_bytes": 96, "magic": "MOSPACK\\u0000", "major": 1},
+  "packed_model": {"header_bytes": 160, "magic": "MSTKPK01", "version": 1},
+  "registry": {"schema": 1},
+  "signature_record": {"algorithm": "Ed25519", "header_bytes": 160, "magic": "MSSIGV01", "version": 1},
+  "token_document": {"directory_entry_bytes": 32, "header_bytes": 256, "magic": "MSTIRD01", "sections": 9, "version": 1},
+  "tokenizer_semantics": 2
+}

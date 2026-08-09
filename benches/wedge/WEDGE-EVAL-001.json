@@ -1,0 +1,80 @@
+{
+  "commit": "ae841c641dfcee0445dfc7687a639ec802b850dd",
+  "packs": {
+    "fixtures/packs/language/en-v1.mpack": "75179427e58eeade21cfa70d5ea1af127a497a849f55d6cb6e915a421c104551",
+    "fixtures/packs/language/hi-v1.mpack": "309fdd7db255d9dd5ba704c095805e7049a08fae0f9bb8655edaab100b142e9e",
+    "fixtures/packs/language/ja-v1.mpack": "7abcebfa000d09583190edd33bb6833245fa79c2c0977ba2743d83f3e83aa9e3",
+    "fixtures/packs/model-v2.mpack": "5295e581cb87faa4c289fb5590c178cb73b56ec7946938fe8f815ceca2b2dffb",
+    "fixtures/packs/unicode17-v1.mpack": "23318e7f1fcb2848208d6560d7b3a0e08e6ff042099dea7f5f10b42127c7a27f"
+  },
+  "platform": {
+    "machine": "x86_64",
+    "python": "3.13.5",
+    "system": "Linux"
+  },
+  "result": "NONE",
+  "schema": "WEDGE-EVAL-001",
+  "selection_reason": "No candidate has complete evidence for every fatal gate. The protocol explicitly permits NONE. Continue platform-neutral substrate work and rerun after representative multilingual/downstream, compiler-shared-pipeline, and cross-platform evidence exist.",
+  "timestamp_utc": "2026-08-08T08:03:20Z",
+  "wedges": {
+    "A_multilingual_llm": {
+      "gates": {
+        "downstream_quality_regression_le_0_5pp": null,
+        "english_regression_le_2": null,
+        "exact_reconstruction": true,
+        "ids_throughput_ge_70pct_strong_baseline": null,
+        "mean_non_english_fertility_gain_ge_8": null,
+        "unknown_input_zero": true,
+        "worst_language_regression_le_2": null
+      },
+      "observed": {
+        "mechanism_benchmark_pass": true,
+        "reference_mixed_token_reduction_pct": 27.3
+      },
+      "qualified": false,
+      "reason": "Reference-pack mechanism is measurable, but representative strong-baseline per-language fertility and controlled downstream model-quality evidence do not exist yet."
+    },
+    "B_compiler_llm": {
+      "gates": {
+        "exact_reconstruction": true,
+        "lexical_compatibility_100": null,
+        "model_id_compatibility_100": true,
+        "shared_cpu_reduction_ge_10": null,
+        "source_offset_disagreement_zero": null,
+        "temporary_memory_reduction_ge_15": null
+      },
+      "qualified": false,
+      "reason": "No compiler lexical projection/thin shared-pipeline adapter exists at this commit; inventing benchmark values would violate the tournament protocol."
+    },
+    "C_assurance_sdk": {
+      "gates": {
+        "arbitrary_byte_reconstruction_100": true,
+        "cross_platform_canonical_divergence_zero": null,
+        "malformed_pack_fail_closed_100": true,
+        "streaming_full_equivalence_100": true,
+        "unbounded_ordinary_pack_execution_zero": true,
+        "user_text_privileged_control_activation_zero": true
+      },
+      "observed": {
+        "api_exactness": {
+          "output": "OK: stable C API round-tripped 1004 cases; 200 stream chunkings; 250 edit/full differentials; Unicode spans",
+          "pass": true
+        },
+        "bounded": {
+          "output": "PASS bounded processing: online=50.0 MiB/s max_pending=54 maxrss=12.6 MiB; security_visit=27.0 MiB/s maxrss=11.6 MiB",
+          "pass": true
+        },
+        "malformed": {
+          "output": "OK: C reference rejects all 12 malformed M3 vocabulary packs",
+          "pass": true
+        },
+        "unicode_malformed": {
+          "output": "OK: C reference rejects all 9 malformed Unicode packs",
+          "pass": true
+        }
+      },
+      "qualified": false,
+      "reason": "All locally executable assurance gates pass, but the mandatory cross-platform canonical-equivalence gate is unverified on this network-isolated single-platform host."
+    }
+  }
+}

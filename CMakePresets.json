@@ -1,0 +1,36 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major": 3, "minor": 20, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "core-release",
+      "displayName": "Core release without optional external dependencies",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/preset-core-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "MOSAIC_BUILD_TRUST": "OFF",
+        "CMAKE_DISABLE_FIND_PACKAGE_ICU": "ON"
+      }
+    },
+    {
+      "name": "full-release",
+      "displayName": "Full release with available trust/ICU qualification",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/preset-full-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "core-release", "configurePreset": "core-release"},
+    {"name": "full-release", "configurePreset": "full-release"}
+  ],
+  "testPresets": [
+    {"name": "core-release", "configurePreset": "core-release", "output": {"outputOnFailure": true}},
+    {"name": "full-release", "configurePreset": "full-release", "output": {"outputOnFailure": true}}
+  ]
+}

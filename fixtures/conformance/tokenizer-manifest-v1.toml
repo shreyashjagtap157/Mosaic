@@ -1,0 +1,19 @@
+runtime_semantics_version = 1
+canonical_leaf_version = 1
+cost_semantics_version = 1
+tie_break_version = 1
+control_protocol_version = 1
+routing_policy_version = 1
+normalization_view_id = 0
+resource_policy_hash = "9da04b5f24e6b0ac264aeb714b3f6aa59633ac4959daf6d1db5c8d9616d52794"
+expected_identity = "c6fc3e217dff6aef17d588a9ed7c12bf4db1b7fcc2938292f0a286719ec62764"
+
+[[pack]]
+role = 1
+ordinal = 0
+content_hash = "e973e5d7e8c522eb89116f21090dfc8b9657a29bc220a3702e87f1bb3251522c"
+
+[[pack]]
+role = 7
+ordinal = 0
+content_hash = "69865af97c99565081f3932f1b35384d828669f3981bb796df11591065c74986"
