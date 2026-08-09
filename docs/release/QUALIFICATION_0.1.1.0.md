@@ -41,7 +41,13 @@ Read-only registry HTTP transport:
 - four-part version synchronizer: PASS;
 - deterministic source checksum inventory: PASS;
 - repository structure validator: PASS;
-- release packaging requires a clean Git worktree by policy.
+- clean-tree Linux x86-64 package build: **PASS** (`git_dirty=false`);
+- packaged CLI/packs/release manifest/checksums: **PASS**;
+- packaged SPDX SBOM and provenance: **PASS**;
+- packaged authoring/compatibility/trust/registry/external static-C consumer validation: **PASS**;
+- packaged `mosaicd --help` and `mosaic-registry-http --help`: **PASS**;
+- release archive SHA-256: `4c25558b6f19b20d3566098edbede1c5cafc163920b780829bc74161257b86ba`;
+- Python wheel SHA-256: `bd03e7cd10562aab7f3bfeb0d3ce1d44961c5cbf462468a488e55cc96165ba9d`.
 
 ## External/open gates
 
