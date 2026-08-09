@@ -19,3 +19,7 @@ Observer callbacks are retained strongly for the tokenizer lifetime. Exceptions 
 ## Distribution
 
 The binding builds as a deterministic pure-Python wheel. The wheel intentionally does not bundle a second native runtime. The Mosaic release tarball ships the wheel beside the qualified `libmosaic` artifact, keeping one native implementation and one ABI.
+
+## Stateful online streaming
+
+`Tokenizer.online_stream(max_pending_bytes)` returns an `OnlineStream` backed directly by `mosaic_online_stream`. `push()` returns `(consumed_bytes, committed_ids)` and therefore preserves native partial-consumption/resource-limit semantics; `finish()` emits the final canonical suffix. `pending_bytes` exposes the current unresolved-source bound. The Python layer performs no segmentation/tokenization logic of its own.

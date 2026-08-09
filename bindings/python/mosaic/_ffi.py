@@ -178,6 +178,11 @@ def configure_library(lib: C.CDLL) -> None:
     lib.mosaic_tokenizer_encode.argtypes = [C.c_void_p, u8p, C.c_size_t, pp_u32, C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_encode.restype = C.c_int
     lib.mosaic_tokenizer_encode_tokens.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.POINTER(CToken)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_encode_tokens.restype = C.c_int
     lib.mosaic_tokenizer_decode.argtypes = [C.c_void_p, u32p, C.c_size_t, pp_u8, C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_decode.restype = C.c_int
+    lib.mosaic_tokenizer_online_stream_create.argtypes = [C.c_void_p, C.c_size_t, C.POINTER(C.c_void_p)]; lib.mosaic_tokenizer_online_stream_create.restype = C.c_int
+    lib.mosaic_online_stream_push.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.c_size_t), pp_u32, C.POINTER(C.c_size_t)]; lib.mosaic_online_stream_push.restype = C.c_int
+    lib.mosaic_online_stream_finish.argtypes = [C.c_void_p, pp_u32, C.POINTER(C.c_size_t)]; lib.mosaic_online_stream_finish.restype = C.c_int
+    lib.mosaic_online_stream_pending_bytes.argtypes = [C.c_void_p]; lib.mosaic_online_stream_pending_bytes.restype = C.c_size_t
+    lib.mosaic_online_stream_free.argtypes = [C.c_void_p]
     lib.mosaic_tokenizer_detect_language.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(CDetection)]; lib.mosaic_tokenizer_detect_language.restype = C.c_int
     lib.mosaic_tokenizer_encode_auto.argtypes = [C.c_void_p, u8p, C.c_size_t, pp_u32, C.POINTER(C.c_size_t), C.POINTER(CDetection)]; lib.mosaic_tokenizer_encode_auto.restype = C.c_int
     lib.mosaic_tokenizer_grapheme_ranges.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.POINTER(CRange)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_grapheme_ranges.restype = C.c_int

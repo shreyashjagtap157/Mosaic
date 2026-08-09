@@ -199,6 +199,45 @@ class TokenDocument(_LibraryBound):
         return cls(lib, handle)
 
 
+class OnlineStream(_LibraryBound):
+    def __init__(self, lib, handle):
+        super().__init__(lib)
+        self._handle = C.c_void_p(handle.value if isinstance(handle, C.c_void_p) else handle)
+        self._finished = False
+
+    def close(self) -> None:
+        if self._handle and self._handle.value:
+            self._lib.mosaic_online_stream_free(self._handle)
+            self._handle = C.c_void_p()
+
+    def __enter__(self): return self
+    def __exit__(self, *_): self.close()
+    def __del__(self):
+        try: self.close()
+        except Exception: pass
+
+    @property
+    def pending_bytes(self) -> int:
+        if not self._handle or not self._handle.value: return 0
+        return int(self._lib.mosaic_online_stream_pending_bytes(self._handle))
+
+    def push(self, data: bytes) -> tuple[int, tuple[int, ...]]:
+        if self._finished: raise RuntimeError("online stream is already finished")
+        raw=bytes(data); owner,ptr=_buffer(raw); consumed=C.c_size_t(); out=C.POINTER(C.c_uint32)(); n=C.c_size_t()
+        status=self._lib.mosaic_online_stream_push(self._handle,ptr,len(raw),C.byref(consumed),C.byref(out),C.byref(n)); del owner
+        try: ids=tuple(int(out[i]) for i in range(n.value))
+        finally: self._lib.mosaic_free(out)
+        if status not in (OK, ERROR_RESOURCE_LIMIT): raise self._error(status,"online_stream.push")
+        return int(consumed.value),ids
+
+    def finish(self) -> tuple[int, ...]:
+        if self._finished: return ()
+        out=C.POINTER(C.c_uint32)(); n=C.c_size_t(); status=self._lib.mosaic_online_stream_finish(self._handle,C.byref(out),C.byref(n))
+        self._check(status,"online_stream.finish"); self._finished=True
+        try: return tuple(int(out[i]) for i in range(n.value))
+        finally: self._lib.mosaic_free(out)
+
+
 class Tokenizer(_LibraryBound):
     def __init__(self, model_path: str | Path, unicode_path: str | Path, *, library_path=None):
         lib = load_library(library_path); super().__init__(lib); handle = C.c_void_p()
@@ -259,6 +298,9 @@ class Tokenizer(_LibraryBound):
         arr=(C.c_uint32*len(ids))(*(int(x) for x in ids)) if ids else None; ptr=C.cast(arr,C.POINTER(C.c_uint32)) if arr is not None else C.POINTER(C.c_uint32)(); out=C.POINTER(C.c_uint8)(); n=C.c_size_t(); self._check(self._lib.mosaic_tokenizer_decode(self._handle,ptr,len(ids),C.byref(out),C.byref(n)),"decode")
         try:return C.string_at(out,n.value) if n.value else b""
         finally:self._lib.mosaic_free(out)
+    def online_stream(self, max_pending_bytes: int = 1 << 20) -> OnlineStream:
+        if max_pending_bytes <= 0: raise ValueError("max_pending_bytes must be positive")
+        handle=C.c_void_p(); self._check(self._lib.mosaic_tokenizer_online_stream_create(self._handle,max_pending_bytes,C.byref(handle)),"online_stream_create"); return OnlineStream(self._lib,handle)
     def detect(self,data:bytes)->Detection:
         owner,ptr=_buffer(bytes(data)); d=CDetection(); status=self._lib.mosaic_tokenizer_detect_language(self._handle,ptr,len(data),C.byref(d));del owner;self._check(status,"detect");return Detection(bool(d.matched),bool(d.available),int(d.score),int(d.margin),bytes(d.language).split(b'\0',1)[0].decode())
     def encode_auto(self,data:bytes):
@@ -323,7 +365,7 @@ class BatchExecutor(_LibraryBound):
 
 
 __all__ = [
-    "Tokenizer", "TokenDocument", "BatchExecutor", "MosaicError", "Token", "Range", "Detection", "SecurityFinding",
+    "Tokenizer", "TokenDocument", "OnlineStream", "BatchExecutor", "MosaicError", "Token", "Range", "Detection", "SecurityFinding",
     "LexToken", "NormalizedView", "RuntimeLimits", "RuntimeMetrics", "Event", "BatchResult",
     "TOKEN_DOCUMENT_MODEL", "TOKEN_DOCUMENT_GRAPHEMES", "TOKEN_DOCUMENT_SECURITY", "TOKEN_DOCUMENT_NORMALIZATION",
     "TOKEN_DOCUMENT_LEXICAL", "TOKEN_DOCUMENT_SEMANTIC", "NORMALIZE_PRESERVE", "NORMALIZE_NFD", "NORMALIZE_NFC",

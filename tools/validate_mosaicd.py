@@ -48,7 +48,7 @@ def main() -> int:
         for lang in languages:
             t.add_language(lang)
         t.set_detector(detector).set_security(security).seal()
-        server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1))
+        server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1, max_batch_items=8, max_batch_bytes=512, executor_workers=2, executor_queue=8, max_stream_sessions=2, stream_pending_bytes=128, stream_idle_seconds=30.0))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -71,6 +71,39 @@ def main() -> int:
                 status, dec = request(base + "/v1/decode", method="POST", value={"ids": enc["ids"]}, token="secret")
                 if status != 200 or base64.b64decode(dec["data_base64"]) != data:
                     raise SystemExit("decode mismatch")
+            batch = [b"batch one", "नमस्ते".encode(), bytes([0, 255, 1]), b""]
+            status, batched = request(base + "/v1/encode-batch", method="POST", value={"items_base64":[base64.b64encode(x).decode() for x in batch]}, token="secret")
+            if status != 200 or len(batched.get("results", [])) != len(batch):
+                raise SystemExit("batch encode endpoint failed")
+            for item, result in zip(batch, batched["results"]):
+                if result["status"] != 0 or tuple(result["ids"]) != t.encode(item):
+                    raise SystemExit("batch encode ordering/result mismatch")
+            streamed = (b"streaming mosaic " * 20) + bytes([0, 255, 128, 1])
+            status, created = request(base + "/v1/streams", method="POST", value={}, token="secret")
+            if status != 200 or not created.get("session_id"):
+                raise SystemExit("stream session creation failed")
+            sid = created["session_id"]; stream_ids=[]
+            for i in range(0, len(streamed), 31):
+                remaining = streamed[i:i+31]
+                while remaining:
+                    status, pushed = request(base + f"/v1/streams/{sid}/push", method="POST", value={"data_base64":base64.b64encode(remaining).decode()}, token="secret")
+                    if status != 200 or pushed["consumed"] <= 0:
+                        raise SystemExit("stream push failed to make progress")
+                    if pushed["pending_bytes"] > server.state.config.stream_pending_bytes:
+                        raise SystemExit("stream pending-byte bound exceeded")
+                    stream_ids.extend(pushed["ids"]); remaining=remaining[pushed["consumed"]:]
+            status, finished = request(base + f"/v1/streams/{sid}/finish", method="POST", value={}, token="secret")
+            if status != 200 or not finished.get("finished"):
+                raise SystemExit("stream finish failed")
+            stream_ids.extend(finished["ids"])
+            if tuple(stream_ids) != t.encode(streamed):
+                raise SystemExit("service stream/full tokenization mismatch")
+            # Cancellation is explicit and subsequent use fails closed.
+            status, created = request(base + "/v1/streams", method="POST", value={}, token="secret"); cancel_id=created["session_id"]
+            status, cancelled = request(base + f"/v1/streams/{cancel_id}", method="DELETE", token="secret")
+            if status != 200 or cancelled != {"cancelled": True}: raise SystemExit("stream cancellation failed")
+            status, _ = request(base + f"/v1/streams/{cancel_id}/finish", method="POST", value={}, token="secret")
+            if status != 404: raise SystemExit("cancelled stream remained addressable")
             text = "this is an english sentence".encode()
             status, det = request(base + "/v1/detect", method="POST", value={"data_base64": base64.b64encode(text).decode()}, token="secret")
             if status != 200 or det["detection"]["language"] != t.detect(text).language:
@@ -84,6 +117,14 @@ def main() -> int:
             status, _ = request(base + "/v1/decode", method="POST", value={"ids": [-1]}, token="secret")
             if status != 400:
                 raise SystemExit("invalid token id did not fail closed")
+            status, _ = request(base + "/v1/encode-batch", method="POST", value={"items_base64":[""] * (server.state.config.max_batch_items + 1)}, token="secret")
+            if status != 400:
+                raise SystemExit("batch item limit did not fail closed")
+            too_big = base64.b64encode(b"x" * (server.state.config.max_batch_bytes + 1)).decode()
+            # This request can exceed the HTTP body limit first; both are fail-closed 4xx outcomes.
+            status, _ = request(base + "/v1/encode-batch", method="POST", value={"items_base64":[too_big]}, token="secret")
+            if status not in (400, 413):
+                raise SystemExit("batch byte limit did not fail closed")
             # Saturation is fail-closed and separately counted.
             import time
             for _ in range(100):
@@ -99,7 +140,7 @@ def main() -> int:
             finally:
                 server.state.admission.release()
             status, metrics = request(base + "/v1/metrics", token="secret")
-            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or "native" not in metrics:
+            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or "native" not in metrics or "executor" not in metrics:
                 raise SystemExit("metrics endpoint failed")
             req = urllib.request.Request(base + "/metrics", headers={"Authorization":"Bearer secret"})
             with urllib.request.urlopen(req, timeout=5) as r:
@@ -107,8 +148,8 @@ def main() -> int:
             for metric in ("mosaic_service_requests_total", "mosaic_service_busy_rejections_total", "mosaic_native_encode_calls_total"):
                 if metric not in text: raise SystemExit(f"Prometheus metric missing: {metric}")
         finally:
-            server.shutdown(); server.server_close(); thread.join(timeout=5)
-    print("OK mosaicd auth=PASS roundtrip=PASS arbitrary-bytes=PASS detect=PASS security=PASS limits=PASS saturation=PASS metrics-json=PASS prometheus=PASS")
+            server.shutdown(); server.server_close(); server.state.close(); thread.join(timeout=5)
+    print("OK mosaicd auth=PASS roundtrip=PASS arbitrary-bytes=PASS detect=PASS security=PASS limits=PASS saturation=PASS metrics-json=PASS prometheus=PASS batch=PASS resumable-stream=PASS")
     return 0
 
 

@@ -6,6 +6,7 @@ import base64
 import hmac
 import json
 import os
+import secrets
 import ssl
 import sys
 import threading
@@ -25,7 +26,7 @@ else:
     if len(wheels) == 1:
         sys.path.insert(0, str(wheels[0]))
 
-from mosaic import MosaicError, Tokenizer, __version__ as SDK_VERSION  # noqa: E402
+from mosaic import BatchExecutor, MosaicError, Tokenizer, __version__ as SDK_VERSION  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,27 @@ class ServiceConfig:
     max_concurrency: int = 32
     socket_timeout_seconds: float = 30.0
     bearer_token: str | None = None
+    executor_workers: int = 4
+    executor_queue: int = 256
+    max_batch_items: int = 4096
+    max_batch_bytes: int = 64 << 20
+    max_stream_sessions: int = 1024
+    stream_pending_bytes: int = 1 << 20
+    stream_idle_seconds: float = 300.0
+
+
+class StreamSession:
+    def __init__(self, stream):
+        self.stream = stream
+        self.lock = threading.Lock()
+        self.last_access = time.monotonic()
+
+    def close(self) -> None:
+        self.stream.close()
+
+
+class StreamNotFound(LookupError):
+    pass
 
 
 class ServiceState:
@@ -45,7 +67,17 @@ class ServiceState:
         self.config = config
         self.admission = threading.BoundedSemaphore(config.max_concurrency)
         self.native_lock = threading.RLock()
+        self.batch_lock = threading.Lock()
+        self.executor = BatchExecutor(
+            worker_count=config.executor_workers,
+            queue_capacity=config.executor_queue,
+            max_batch_items=config.max_batch_items,
+            max_total_input_bytes=config.max_batch_bytes,
+            library_path=getattr(tokenizer._lib, "_name", None),
+        )
         self.metrics_lock = threading.Lock()
+        self.sessions_lock = threading.Lock()
+        self.sessions: dict[str, StreamSession] = {}
         self.started = time.monotonic()
         self.requests = 0
         self.failures = 0
@@ -73,9 +105,49 @@ class ServiceState:
                 "uptime_seconds": int(time.monotonic() - self.started),
                 "max_concurrency": self.config.max_concurrency,
                 "max_request_bytes": self.config.max_request_bytes,
+                "stream_sessions": len(self.sessions),
+                "max_stream_sessions": self.config.max_stream_sessions,
             }
         native = asdict(self.tokenizer.metrics)
-        return {"service": service, "native": native}
+        executor = self.executor.metrics
+        return {"service": service, "native": native, "executor": executor}
+
+    def _expire_sessions_locked(self) -> None:
+        now = time.monotonic()
+        expired = [sid for sid, session in self.sessions.items() if now - session.last_access > self.config.stream_idle_seconds]
+        for sid in expired:
+            self.sessions.pop(sid).close()
+
+    def create_stream(self) -> tuple[str, StreamSession]:
+        with self.sessions_lock:
+            self._expire_sessions_locked()
+            if len(self.sessions) >= self.config.max_stream_sessions:
+                raise RuntimeError("stream session capacity reached")
+            sid = secrets.token_urlsafe(24)
+            while sid in self.sessions: sid = secrets.token_urlsafe(24)
+            session = StreamSession(self.tokenizer.online_stream(self.config.stream_pending_bytes))
+            self.sessions[sid] = session
+            return sid, session
+
+    def get_stream(self, sid: str) -> StreamSession:
+        with self.sessions_lock:
+            self._expire_sessions_locked()
+            session = self.sessions.get(sid)
+            if session is None: raise StreamNotFound("stream session not found")
+            session.last_access = time.monotonic()
+            return session
+
+    def remove_stream(self, sid: str) -> StreamSession:
+        with self.sessions_lock:
+            session = self.sessions.pop(sid, None)
+            if session is None: raise StreamNotFound("stream session not found")
+            return session
+
+    def close(self) -> None:
+        with self.sessions_lock:
+            sessions = list(self.sessions.values()); self.sessions.clear()
+        for session in sessions: session.close()
+        self.executor.close()
 
     def prometheus(self) -> bytes:
         snapshot = self.snapshot()
@@ -101,6 +173,9 @@ class ServiceState:
             "# HELP mosaic_service_uptime_seconds Process uptime in seconds.",
             "# TYPE mosaic_service_uptime_seconds gauge",
             f"mosaic_service_uptime_seconds {snapshot['service']['uptime_seconds']}",
+            "# HELP mosaic_service_stream_sessions Active resumable online-stream sessions.",
+            "# TYPE mosaic_service_stream_sessions gauge",
+            f"mosaic_service_stream_sessions {snapshot['service']['stream_sessions']}",
         ]
         for name, value in snapshot["native"].items():
             metric = "mosaic_native_" + name + ("_total" if name not in {""} else "")
@@ -255,9 +330,15 @@ class Handler(BaseHTTPRequestHandler):
                     response = self._dispatch(req)
                 output_len = len(json.dumps(response, separators=(",", ":")))
                 self._send_json(HTTPStatus.OK, response)
+            except StreamNotFound as exc:
+                failed = True
+                self._error(HTTPStatus.NOT_FOUND, "stream_not_found", str(exc))
             except ValueError as exc:
                 failed = True
                 self._error(HTTPStatus.BAD_REQUEST, "invalid_argument", str(exc))
+            except RuntimeError as exc:
+                failed = True
+                self._error(HTTPStatus.SERVICE_UNAVAILABLE, "capacity", str(exc))
             except MosaicError as exc:
                 failed = True
                 status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if exc.status == 9 else HTTPStatus.UNPROCESSABLE_ENTITY
@@ -269,11 +350,54 @@ class Handler(BaseHTTPRequestHandler):
             self.state.record(failed=failed, input_bytes=body_len, output_bytes=output_len)
             self.state.admission.release()
 
+    def do_DELETE(self) -> None:
+        if not self._authorized():
+            self._error(HTTPStatus.UNAUTHORIZED, "unauthorized", "valid bearer token required"); return
+        prefix = "/v1/streams/"
+        if not self.path.startswith(prefix):
+            self._error(HTTPStatus.NOT_FOUND, "not_found", "endpoint not found"); return
+        sid = self.path[len(prefix):].strip("/")
+        try:
+            session = self.state.remove_stream(sid); session.close()
+        except StreamNotFound as exc:
+            self._error(HTTPStatus.NOT_FOUND, "stream_not_found", str(exc)); return
+        self._send_json(HTTPStatus.OK, {"cancelled": True})
+
     def _dispatch(self, req: dict[str, Any]) -> dict[str, Any]:
         t = self.state.tokenizer
+        if self.path == "/v1/streams":
+            sid, session = self.state.create_stream()
+            return {"session_id": sid, "pending_bytes": session.stream.pending_bytes}
+        stream_prefix = "/v1/streams/"
+        if self.path.startswith(stream_prefix) and self.path.endswith("/push"):
+            sid = self.path[len(stream_prefix):-len("/push")].strip("/")
+            if not sid: raise ValueError("stream session id required")
+            data = self._decode_bytes(req.get("data_base64"))
+            session = self.state.get_stream(sid)
+            with session.lock:
+                consumed, ids = session.stream.push(data); session.last_access = time.monotonic()
+                return {"consumed": consumed, "ids": list(ids), "pending_bytes": session.stream.pending_bytes}
+        if self.path.startswith(stream_prefix) and self.path.endswith("/finish"):
+            sid = self.path[len(stream_prefix):-len("/finish")].strip("/")
+            if not sid: raise ValueError("stream session id required")
+            session = self.state.remove_stream(sid)
+            try:
+                with session.lock: ids = session.stream.finish()
+            finally: session.close()
+            return {"ids": list(ids), "finished": True}
         if self.path == "/v1/encode":
             data = self._decode_bytes(req.get("data_base64"))
             return {"ids": list(t.encode(data))}
+        if self.path == "/v1/encode-batch":
+            items = req.get("items_base64")
+            if not isinstance(items, list) or len(items) > self.state.config.max_batch_items:
+                raise ValueError("items_base64 must be an array within the configured batch-item limit")
+            decoded = [self._decode_bytes(item) for item in items]
+            if sum(len(item) for item in decoded) > self.state.config.max_batch_bytes:
+                raise ValueError("batch decoded bytes exceed configured batch-byte limit")
+            with self.state.batch_lock:
+                results = self.state.executor.encode(t, decoded)
+            return {"results": [{"status": result.status, "ids": list(result.ids)} for result in results]}
         if self.path == "/v1/decode":
             ids = req.get("ids")
             if not isinstance(ids, list) or len(ids) > self.state.config.max_decode_ids:
@@ -295,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def build_server(tokenizer: Tokenizer, config: ServiceConfig) -> MosaicHTTPServer:
-    if config.max_request_bytes <= 0 or config.max_decode_ids <= 0 or config.max_concurrency <= 0:
+    if any(value <= 0 for value in (config.max_request_bytes, config.max_decode_ids, config.max_concurrency, config.executor_workers, config.executor_queue, config.max_batch_items, config.max_batch_bytes, config.max_stream_sessions, config.stream_pending_bytes)) or config.stream_idle_seconds <= 0:
         raise ValueError("service limits must be positive")
     state = ServiceState(tokenizer, config)
     return MosaicHTTPServer((config.host, config.port), Handler, state)
@@ -316,6 +440,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-decode-ids", type=int, default=4_000_000)
     p.add_argument("--max-concurrency", type=int, default=32)
     p.add_argument("--socket-timeout", type=float, default=30.0)
+    p.add_argument("--executor-workers", type=int, default=4)
+    p.add_argument("--executor-queue", type=int, default=256)
+    p.add_argument("--max-batch-items", type=int, default=4096)
+    p.add_argument("--max-batch-bytes", type=int, default=64 << 20)
+    p.add_argument("--max-stream-sessions", type=int, default=1024)
+    p.add_argument("--stream-pending-bytes", type=int, default=1 << 20)
+    p.add_argument("--stream-idle-seconds", type=float, default=300.0)
     p.add_argument("--bearer-token", default=os.environ.get("MOSAICD_BEARER_TOKEN"))
     p.add_argument("--tls-cert", type=Path)
     p.add_argument("--tls-key", type=Path)
@@ -343,7 +474,12 @@ def main() -> int:
         if a.normalization:
             t.set_normalization(a.normalization)
         t.seal()
-        cfg = ServiceConfig(a.host, a.port, a.max_request_bytes, a.max_decode_ids, a.max_concurrency, a.socket_timeout, a.bearer_token)
+        cfg = ServiceConfig(
+            host=a.host, port=a.port, max_request_bytes=a.max_request_bytes, max_decode_ids=a.max_decode_ids,
+            max_concurrency=a.max_concurrency, socket_timeout_seconds=a.socket_timeout, bearer_token=a.bearer_token,
+            executor_workers=a.executor_workers, executor_queue=a.executor_queue, max_batch_items=a.max_batch_items, max_batch_bytes=a.max_batch_bytes,
+            max_stream_sessions=a.max_stream_sessions, stream_pending_bytes=a.stream_pending_bytes, stream_idle_seconds=a.stream_idle_seconds,
+        )
         server = build_server(t, cfg)
         if a.tls_cert:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -359,6 +495,7 @@ def main() -> int:
         finally:
             server.shutdown()
             server.server_close()
+            server.state.close()
     return 0
 
 

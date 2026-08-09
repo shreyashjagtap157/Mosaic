@@ -23,10 +23,15 @@ Authenticated API endpoints when a bearer token is configured:
 - `GET /v1/version`
 - `GET /v1/metrics`
 - `POST /v1/encode`
+- `POST /v1/encode-batch`
 - `POST /v1/decode`
 - `POST /v1/detect`
 - `POST /v1/encode-auto`
 - `POST /v1/security`
+- `POST /v1/streams` (create resumable native online stream)
+- `POST /v1/streams/<id>/push`
+- `POST /v1/streams/<id>/finish`
+- `DELETE /v1/streams/<id>` (cancel)
 
 Binary input and output use canonical Base64 strings in JSON. Token IDs are unsigned 32-bit JSON integers.
 
@@ -36,6 +41,10 @@ The service enforces:
 
 - maximum HTTP request bytes;
 - maximum decoded-token array length;
+- maximum batch item count and decoded batch bytes;
+- bounded native batch-executor workers/queue;
+- maximum active resumable stream sessions;
+- maximum unresolved bytes per online stream and idle-session expiry;
 - bounded concurrent admitted requests;
 - socket timeout;
 - optional constant-time bearer-token comparison;
@@ -48,4 +57,4 @@ A concurrency admission failure returns HTTP 503. Invalid requests return 400-cl
 
 ## Non-goals of v1
 
-Service API v1 does not claim request cancellation of an already executing native call, distributed scheduling, tenant-specific tokenizer mutation, OAuth/OIDC identity, or HTTP/2/gRPC. Those require a stronger service runtime rather than being approximated in this minimal deterministic deployment surface.
+Service API v1 supports cancellation of idle/resumable stream sessions, but does not claim interruption of an already executing native call, distributed scheduling, tenant-specific tokenizer mutation, OAuth/OIDC identity, or HTTP/2/gRPC. Those require a stronger service runtime rather than being approximated in this minimal deterministic deployment surface.
