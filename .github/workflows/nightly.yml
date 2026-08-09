@@ -43,6 +43,7 @@ jobs:
       - run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMOSAIC_BUILD_TRUST=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ICU=ON
       - run: cmake --build build/cmake --config RelWithDebInfo
       - run: ctest --test-dir build/cmake -C RelWithDebInfo --output-on-failure
+      - run: python tools/validate_mosaicd.py --build-dir build/cmake
 
   native-sanitizers:
     runs-on: ubuntu-latest

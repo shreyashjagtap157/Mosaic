@@ -12,7 +12,7 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';mosaicd=d/'bin/mosaicd';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
         py_wheel=d/'python'/f'mosaic_tokenizer-{VERSION}-py3-none-any.whl'
@@ -286,6 +286,7 @@ int main(int argc, char **argv) {
         subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',trust_client,d/'lib/libmosaic.a',d/'lib/libmosaic_trust.a','-lcrypto','-o',temp/'trust_client'],check=True)
         subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True)
         regdir=temp/'registry'
+        subprocess.run([sys.executable,mosaicd,'--help'],check=True,stdout=subprocess.DEVNULL)
         subprocess.run([registry,'init',regdir],check=True)
         subprocess.run([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature'],check=True)
         subprocess.run([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0'],check=True)

@@ -40,6 +40,7 @@ jobs:
       - run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DMOSAIC_BUILD_TRUST=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ICU=ON
       - run: cmake --build build/cmake --config Release
       - run: ctest --test-dir build/cmake -C Release --output-on-failure
+      - run: python tools/validate_mosaicd.py --build-dir build/cmake
       - name: Reliability smoke
         if: runner.os == 'Linux'
         run: python tools/reliability_campaign.py --tier smoke --output build/reliability/pr-smoke.json

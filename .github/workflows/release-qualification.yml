@@ -41,6 +41,7 @@ jobs:
       - run: cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DMOSAIC_BUILD_TRUST=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ICU=ON
       - run: cmake --build build/cmake --config Release
       - run: ctest --test-dir build/cmake -C Release --output-on-failure
+      - run: python tools/validate_mosaicd.py --build-dir build/cmake
 
   native-linux-deep:
     runs-on: ubuntu-latest
