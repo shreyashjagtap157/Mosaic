@@ -1,15 +1,83 @@
 # Mosaic 0.1.2.0 Qualification
 
-Status: post-version-bump qualification pending.
+Status: local Linux x86-64 qualification complete; external platform/stable-generation gates remain open.
 
-Pre-bump feature evidence:
+## Qualified source
 
-- Python OnlineStream full/stream equivalence across arbitrary chunking: PASS;
-- service batch output/order equivalence to native per-item encoding: PASS;
-- batch item and decoded-byte resource limits: PASS;
-- resumable stream create/push/finish exact equivalence: PASS;
-- stream cancellation and missing-session rejection: PASS;
-- stream pending-byte bound and zero leaked active sessions after lifecycle completion: PASS;
-- service admission saturation, JSON metrics and Prometheus metrics: PASS.
+Product version: `0.1.2.0`.
 
-All native/C API/package gates must be rerun on freshly rebuilt 0.1.2.0 artifacts before freezing this candidate.
+This candidate adds enterprise service batching, resumable native online-stream sessions, and the Python `OnlineStream` wrapper while preserving tokenizer semantics version 2, C ABI 1.0.0, trust ABI 1.0.0, and the existing binary pack/serialization contracts.
+
+## Fresh CMake qualification
+
+Fresh build directories were configured and built from the committed `0.1.2.0` source.
+
+- dependency-minimal `core-release`: **22/22 CTest PASS**;
+- full profile with available ICU/trust dependencies: **24/24 CTest PASS**;
+- C++ API smoke reports product version `0.1.2.0`;
+- stable C API differential validator: **PASS** — 1,004 byte round trips, 200 online-stream chunkings, and 250 incremental-edit/full-retokenization differentials;
+- frozen C ABI contract: **PASS**;
+- frozen binary-format contract: **PASS**.
+
+## Enterprise application surfaces
+
+All tests below used the freshly rebuilt `0.1.2.0` full native library.
+
+- Python native-version identity and arbitrary-byte round trip: **PASS**;
+- Python `OnlineStream` arbitrary-chunk full/stream equivalence: **PASS**;
+- `mosaicd` bearer-authenticated encode/decode, arbitrary-byte, detector, security, request-limit, saturation, JSON metrics, and Prometheus metrics gates: **PASS**;
+- native-backed `POST /v1/encode-batch` ordered output equivalence: **PASS**;
+- service batch item and decoded-byte ceilings: **PASS**;
+- resumable stream create/push/finish exact equivalence to full encode: **PASS**;
+- native pending-byte limit/partial-consumption handling: **PASS**;
+- stream cancellation, missing-session rejection, and zero leaked active sessions: **PASS**;
+- immutable authenticated registry HTTP catalog/object transport with client/server SHA-256 verification: **PASS**.
+
+## Strict Makefile and sanitizer qualification
+
+The native Makefile tree was cleaned and rebuilt at product version `0.1.2.0`. Static/shared C API and strict C++11 smoke clients report `0.1.2.0`.
+
+The native Makefile suite completed successfully, including ASan+UBSan coverage for:
+
+- public API and malformed packs;
+- language routing and detector;
+- raw BPE;
+- Unicode security and ICU normalization differential;
+- bounded online streaming;
+- incremental edits and checkpoint resynchronization;
+- TokenDocument core/rich/serialization projections;
+- lexer and semantic/sub-byte projections;
+- block storage;
+- content cache and cache backend;
+- runtime policy and bounded executor;
+- observability and reliability;
+- optional Ed25519 trust/revocation.
+
+Observed non-sanitized stress/differential gates include 500 arbitrary online-stream chunkings, 1,000 incremental edits, 500 resynchronizing edits, 8,000 threaded runtime-policy encodes, and 1,000 reliability iterations.
+
+## Source identity
+
+- canonical product-version synchronization: **PASS**;
+- repository validator: **PASS**;
+- deterministic tracked-source checksum inventory: **PASS**;
+- tracked release artifacts before packaging evidence update: **453**.
+
+## Packaging
+
+Clean-tree archive/wheel/SBOM/provenance qualification is performed after this evidence layer is committed. Final archive and wheel hashes are appended only after the external package validator passes with `git_dirty=False`.
+
+## External/open gates
+
+The following are not claimed as passes by this local Linux qualification and continue to block stability generation `1`:
+
+- current-source Windows native/service/package execution;
+- current-source macOS execution;
+- Linux/Windows ARM64 and Apple Silicon qualification;
+- Android/iOS/WASM deployment qualification;
+- Rust workspace/MSRV/Miri/cargo-fuzz gates for this reconstructed branch where not re-executed here;
+- ThreadSanitizer/race-detector campaign;
+- long-running multi-platform soak/fault-injection campaign;
+- final cross-tokenizer benchmark campaign on frozen release hardware/corpora;
+- final release signing and remaining stable-generation governance gates.
+
+No `v0.1.2.0` tag and no `1.0.0.0` stability claim are justified until the applicable external gates are completed.
