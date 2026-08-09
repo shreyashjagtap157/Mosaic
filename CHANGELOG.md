@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2.0 — 2026-08-09
+
+Enterprise batching and resumable streaming minor.
+
+- expose native bounded OnlineStream through Python;
+- add native BatchExecutor-backed HTTP batch encoding with explicit item/byte limits;
+- add resumable authenticated stream sessions with bounded pending bytes, session count, idle expiry, finish and cancel;
+- preserve frozen C ABI 1.0.0, trust ABI 1.0.0, tokenizer semantics 2, and existing pack formats.
+
 ## 0.1.1.0 — 2026-08-09
 
 Enterprise deployment and remote distribution minor.
