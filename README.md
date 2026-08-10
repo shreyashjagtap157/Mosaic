@@ -86,6 +86,7 @@ ctest --test-dir build/cmake -C Release --output-on-failure
 python -m pip install -r requirements-dev.txt
 make test
 python tools/qualify_native.py
+python tools/validate_release_readiness.py
 ```
 
 Qualification covers exact bounded streaming and security visitors, deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector/security/normalization packs, Python/native differentials, Unicode 17 grapheme/security conformance, 10,000 ICU-backed Unicode-16 normalization comparisons, exact normalization provenance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, deterministic span routing, and performance/RSS regression floors.
