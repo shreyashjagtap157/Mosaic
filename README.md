@@ -217,7 +217,7 @@ The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the C
 
 ## Rust status
 
-Stable Rust remains the intended primary implementation language. The local Windows workspace is pinned to Rust 1.97.1 and passes rustfmt, strict Clippy, workspace tests, and the `mosaic-core` no-default-features gate. Miri, cargo-fuzz campaigns, macOS, ARM64, and race-detector support-matrix jobs remain separate stable-generation gates.
+Stable Rust remains the intended primary implementation language. The local Windows workspace is pinned to Rust 1.97.1 and passes rustfmt, strict Clippy, workspace tests, and the `mosaic-core` no-default-features gate. A bounded nightly fuzz smoke across the four bundled harnesses also passes on the current Windows host via `tools/validate_fuzz.py`. Miri, full cargo-fuzz campaigns, macOS, ARM64, and race-detector support-matrix jobs remain separate stable-generation gates.
 
 ## Current project boundary
 

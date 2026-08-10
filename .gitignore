@@ -1,7 +1,11 @@
 /target/
 /fuzz/target/
 /fuzz/artifacts/
-/fuzz/corpus/
+/fuzz/corpus/*
+!/fuzz/corpus/fuzz_source_bytes/
+!/fuzz/corpus/fuzz_pack_header/
+!/fuzz/corpus/fuzz_pack_v1/
+!/fuzz/corpus/fuzz_dfa/
 *.profraw
 *.profdata
 .DS_Store

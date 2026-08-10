@@ -47,6 +47,7 @@ The qualified production implementation is the native C runtime on the platforms
 - hostile/malformed pack, TokenDocument, cache-record and trust corpora;
 - deterministic 250,000-iteration reliability soak repeated with identical replay digest;
 - deterministic release archives and Python wheels;
+- bounded Windows nightly cargo-fuzz smoke across `fuzz_source_bytes`, `fuzz_pack_header`, `fuzz_pack_v1`, and `fuzz_dfa` with the matching ASan runtime path;
 - clean-extraction external C consumer and control-plane package tests;
 - ABI/export and stable-format contract checks, including Windows PE/COFF export validation for the native DLL;
 - clean Git provenance and SPDX/in-toto release metadata.
@@ -56,7 +57,7 @@ The qualified production implementation is the native C runtime on the platforms
 The following gates are not fabricated as passes and keep the first product-version component at `0` until completed:
 
 - macOS native CI execution;
-- Miri and cargo-fuzz jobs;
+- Miri and full cargo-fuzz jobs;
 - ThreadSanitizer or platform-specific race detectors where supported;
 - non-x86-64/ARM64 qualification required by the final support matrix.
 

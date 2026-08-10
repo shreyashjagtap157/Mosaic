@@ -1,0 +1,3 @@
+*
+!.gitignore
+!dfa-state-out-of-bounds.mpack
