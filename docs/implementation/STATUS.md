@@ -17,6 +17,7 @@ The qualified production implementation is the native C runtime on the platforms
 - generated Unicode grapheme/security/normalization views with exact source mapping;
 - external language, detector, security, normalization and lexer packs;
 - deterministic document-level and mixed-language span-level detector routing;
+- native CLI span-aware auto analysis for document and span routing;
 - deterministic authoring/training baseline and content-addressed pack registry/lockfiles;
 - exact online streaming, transactional incrementality and checkpoint suffix resynchronization;
 - immutable TokenDocument/Core IR with model, grapheme, security, normalization, lexical and semantic projections;

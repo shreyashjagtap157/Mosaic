@@ -127,6 +127,11 @@ Automatic document routing:
   fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack \
   fixtures/packs/detector/reference-v1.mpack INPUT \
   fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
+
+./build/mosaic-tokenizer analyze-span-auto \
+  fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack \
+  fixtures/packs/detector/reference-v1.mpack INPUT \
+  fixtures/packs/language/en-v1.mpack fixtures/packs/language/hi-v1.mpack fixtures/packs/language/ja-v1.mpack
 ```
 
 Auto mode applies a specialization only when the detector confidence gate passes and the exact language pack is loaded. Otherwise it uses the base model.

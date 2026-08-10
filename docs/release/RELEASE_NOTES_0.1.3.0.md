@@ -8,6 +8,7 @@ Mosaic 0.1.3.0 is a backward-compatible candidate minor release that adds determ
 - `MOSAIC_CAP_SPAN_ROUTING`;
 - `mosaic_tokenizer_detect_spans`;
 - `mosaic_tokenizer_encode_span_auto`;
+- native `mosaic-tokenizer analyze-span-auto` span-routing analysis output;
 - Python `SpanRoute`, `Tokenizer.detect_spans()`, and `Tokenizer.encode_span_auto()`;
 - native and Python regression coverage for gapless en/hi/ja mixed-language routing and exact decode preservation.
 

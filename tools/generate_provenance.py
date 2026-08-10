@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate deterministic, verifiable SLSA-shaped provenance for a staged Mosaic distribution."""
 from __future__ import annotations
-import argparse, hashlib, json, platform, subprocess
+import argparse, hashlib, json, platform, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,9 +23,19 @@ def command_line(cmd: list[str]) -> str:
         return "unavailable"
 
 
+def git_executable() -> str:
+    found = shutil.which("git")
+    if found:
+        return found
+    bundled = Path(sys.executable).resolve().parents[1] / "native" / "git" / "cmd" / "git.exe"
+    if bundled.exists():
+        return str(bundled)
+    return "git"
+
+
 def git_text(*args: str) -> str:
     try:
-        return subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output([git_executable(), "-c", f"safe.directory={ROOT}", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
     except Exception:
         return "unavailable"
 

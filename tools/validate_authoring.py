@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, subprocess, tempfile
+import json, os, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-AUTHOR=ROOT/'tools/mosaic_author.py'; CLI=ROOT/'build/mosaic-tokenizer'; UNICODE=ROOT/'fixtures/packs/unicode17-v1.mpack'
+AUTHOR=Path(os.environ.get('MOSAIC_AUTHOR', str(ROOT/'tools/mosaic_author.py')))
+CLI=Path(os.environ.get('MOSAIC_TOKENIZER', str(ROOT/'build/mosaic-tokenizer')))
+UNICODE=ROOT/'fixtures/packs/unicode17-v1.mpack'
+
+def argv(*args):
+    items=[str(x) for x in args]
+    if items and items[0].lower().endswith('.py'):
+        return [sys.executable, *items]
+    return items
 
 def run(*args):
-    return subprocess.check_output([str(x) for x in args], cwd=ROOT, text=True).strip()
+    return subprocess.check_output(argv(*args), cwd=ROOT, text=True).strip()
 
 def must_fail(*args):
-    proc=subprocess.run([str(x) for x in args],cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    proc=subprocess.run(argv(*args),cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert proc.returncode!=0, f"expected failure: {args}"
     assert "Traceback" not in proc.stderr, proc.stderr
     return proc
@@ -31,8 +39,8 @@ def main():
         assert len(json.loads(report.read_text(encoding="utf-8"))['pieces'])<=64
 
         model_cfg=d/'model.json';explicit=d/'explicit.mpack'
-        model_cfg.write_text(json.dumps({'byte_cost':1000,'pieces':[{'text':'tokenizer','cost':100},{'text':'नमस्ते दुनिया','cost':90}]},ensure_ascii=False))
-        run(AUTHOR,'mo, encoding="utf-8"del',model_cfg,explicit);assert 'OK' in run(CLI,'roundtrip',explicit,sample)
+        model_cfg.write_text(json.dumps({'byte_cost':1000,'pieces':[{'text':'tokenizer','cost':100},{'text':'नमस्ते दुनिया','cost':90}]},ensure_ascii=False), encoding="utf-8")
+        run(AUTHOR,'model',model_cfg,explicit);assert 'OK' in run(CLI,'roundtrip',explicit,sample)
 
         lang_cfg=d/'lang.json';lang=d/'en.mpack'
         lang_cfg.write_text(json.dumps({'language':'en','adjustments':[{'text':'tokenizer','delta':-50}]}), encoding="utf-8")
@@ -44,6 +52,8 @@ def main():
         fp=run(CLI,'fingerprint-auto',explicit,UNICODE,det,lang);assert len(fp)==64
         en=d/'en.txt';en.write_bytes(b'tokenizer')
         auto=run(CLI,'roundtrip-auto',explicit,UNICODE,det,en,lang);assert 'route=en' in auto
+        span_auto=run(CLI,'analyze-span-auto',explicit,UNICODE,det,sample,lang,ROOT/'fixtures/packs/language/hi-v1.mpack',ROOT/'fixtures/packs/language/ja-v1.mpack')
+        assert 'spans=' in span_auto and 'span start=' in span_auto and 'route=en' in span_auto and 'route=none' in span_auto
 
         # Authoring is fail-closed on invalid configs and malformed containers.
         bad=d/'bad.json';badout=d/'bad.mpack'

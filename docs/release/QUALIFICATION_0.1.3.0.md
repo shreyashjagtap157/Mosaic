@@ -7,6 +7,7 @@ Status: local Windows x86-64 native/Python/API qualification complete for the ad
 - dependency-minimal fresh CMake build with Clang 19.1.5: **PASS**;
 - CTest suite: **22/22 PASS**;
 - detector smoke includes gapless mixed en/hi/ja span routing and span-auto exact decode preservation: **PASS**;
+- native CLI `analyze-span-auto` span-routing smoke: **PASS**;
 - Python binding suite against the freshly built `mosaic.dll`: **4/4 PASS**;
 - product version synchronization: **PASS**;
 - deterministic artifact checksum check: **PASS**;

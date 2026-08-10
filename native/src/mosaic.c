@@ -4890,6 +4890,7 @@ static void usage(const char *argv0) {
             "       %s detect DETECTOR_PACK INPUT\n"
             "       %s fingerprint-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK LANGUAGE_PACK...\n"
             "       %s analyze-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
+            "       %s analyze-span-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
             "       %s roundtrip-auto MODEL_PACK UNICODE_PACK DETECTOR_PACK INPUT LANGUAGE_PACK...\n"
             "       %s security SECURITY_PACK INPUT\n"
             "       %s fingerprint-security MODEL_PACK UNICODE_PACK SECURITY_PACK\n"
@@ -4903,7 +4904,7 @@ static void usage(const char *argv0) {
             "       %s analyze-normalization MODEL_PACK UNICODE_PACK NORMALIZATION_PACK MODE INPUT\n",
             argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
             argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0,
-            argv0, argv0);
+            argv0, argv0, argv0);
 }
 
 static void print_hex32(const uint8_t bytes[32]) {
@@ -5048,6 +5049,7 @@ static int detector_cli(int argc, char **argv) {
 static int auto_cli(int argc, char **argv) {
     int fingerprint_only = !strcmp(argv[1], "fingerprint-auto");
     int roundtrip_only = !strcmp(argv[1], "roundtrip-auto");
+    int span_only = !strcmp(argv[1], "analyze-span-auto");
     if ((fingerprint_only && argc < 6) || (!fingerprint_only && argc < 7)) return -1;
     mosaic_tokenizer *tokenizer = NULL;
     if (mosaic_tokenizer_load_files(argv[2], argv[3], &tokenizer) != MOSAIC_OK) return 0;
@@ -5069,6 +5071,29 @@ static int auto_cli(int argc, char **argv) {
         int ok=es==MOSAIC_OK&&ds==MOSAIC_OK&&decoded_len==input_len&&(!input_len||memcmp(decoded,input,input_len)==0);
         if(ok)printf("OK bytes=%zu tokens=%zu route=%s available=%u languages=%zu\n",input_len,id_count,detection.matched?detection.language:"none",detection.available,mosaic_tokenizer_language_count(tokenizer));
         mosaic_free(ids);mosaic_free(decoded);free(input);mosaic_tokenizer_free(tokenizer);return ok?1:0;
+    }
+    if (span_only) {
+        uint32_t *ids = NULL; size_t id_count = 0; mosaic_span_route *routes = NULL; size_t route_count = 0;
+        uint8_t *decoded = NULL; size_t decoded_len = 0;
+        mosaic_status ed = mosaic_tokenizer_detect_language(tokenizer, input, input_len, &detection);
+        mosaic_status es = mosaic_tokenizer_encode_span_auto(tokenizer, input, input_len, &ids, &id_count, &routes, &route_count);
+        mosaic_status ds = es == MOSAIC_OK ? mosaic_tokenizer_decode(tokenizer, ids, id_count, &decoded, &decoded_len) : es;
+        int ok = ed == MOSAIC_OK && es == MOSAIC_OK && ds == MOSAIC_OK && decoded_len == input_len &&
+                 (!input_len || memcmp(decoded, input, input_len) == 0);
+        if (ok) {
+            printf("fingerprint="); static const char hex[]="0123456789abcdef";
+            for(size_t i=0;i<32;++i)printf("%c%c",hex[fingerprint[i]>>4],hex[fingerprint[i]&15]);
+            printf(" bytes=%zu tokens=%zu spans=%zu route=%s available=%u score=%" PRId64 " margin=%" PRId64 " languages=%zu\n",
+                   input_len, id_count, route_count, detection.matched ? detection.language : "none", detection.available,
+                   detection.score, detection.margin, mosaic_tokenizer_language_count(tokenizer));
+            for (size_t i = 0; i < route_count; ++i) {
+                const mosaic_span_route *route = &routes[i];
+                printf("span start=%" PRIu64 " length=%" PRIu64 " route=%s available=%u score=%" PRId64 " margin=%" PRId64 "\n",
+                       route->start, route->length, route->detection.matched ? route->detection.language : "none",
+                       route->detection.available, route->detection.score, route->detection.margin);
+            }
+        }
+        mosaic_free(ids); mosaic_free(routes); mosaic_free(decoded); free(input); mosaic_tokenizer_free(tokenizer); return ok ? 1 : 0;
     }
     mosaic_token *tokens=NULL;size_t token_count=0;mosaic_range*ranges=NULL;size_t range_count=0;
     mosaic_status a=mosaic_tokenizer_encode_tokens_auto(tokenizer,input,input_len,&tokens,&token_count,&detection);
@@ -5201,7 +5226,8 @@ int main(int argc, char **argv) {
     if (argc >= 2 && !strcmp(argv[1], "detect")) {
         int result=detector_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
-    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-auto") || !strcmp(argv[1], "analyze-auto") || !strcmp(argv[1], "roundtrip-auto"))) {
+    if (argc >= 2 && (!strcmp(argv[1], "fingerprint-auto") || !strcmp(argv[1], "analyze-auto") ||
+                      !strcmp(argv[1], "analyze-span-auto") || !strcmp(argv[1], "roundtrip-auto"))) {
         int result=auto_cli(argc,argv);if(result<0){usage(argv[0]);return 2;}return result?0:1;
     }
     if (argc >= 2 && (!strcmp(argv[1], "fingerprint") || !strcmp(argv[1], "analyze") ||

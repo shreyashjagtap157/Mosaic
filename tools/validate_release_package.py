@@ -1,9 +1,41 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse,base64,hashlib,json,os,subprocess,sys,tarfile,tempfile
+import argparse,base64,hashlib,json,os,shutil,subprocess,sys,tarfile,tempfile
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1];VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip()
-def run(cmd,cwd=None):return subprocess.check_output([str(x) for x in cmd],cwd=cwd,text=True).strip()
+ROOT=Path(__file__).resolve().parents[1];VERSION=(ROOT/'VERSION').read_text(encoding="utf-8").strip();BUILD_DIR=Path(os.environ.get('MOSAIC_BUILD_DIR', str(ROOT/'build')))
+def launch(cmd):
+    items=[str(x) for x in cmd]
+    if not items:
+        return items
+    first=Path(items[0])
+    if first.suffix.lower()=='.py':
+        return [sys.executable, *items]
+    try:
+        head=first.read_text(encoding='utf-8', errors='ignore').splitlines()[:1]
+    except Exception:
+        head=[]
+    if head and head[0].startswith('#!') and 'python' in head[0].lower():
+        return [sys.executable, *items]
+    return items
+def run(cmd,cwd=None):return subprocess.check_output(launch(cmd),cwd=cwd,text=True).strip()
+def cmake_cache_value(name:str)->str|None:
+    cache=BUILD_DIR/'CMakeCache.txt'
+    if not cache.exists():
+        return None
+    prefix=f'{name}:'
+    for line in cache.read_text(encoding='utf-8', errors='ignore').splitlines():
+        if line.startswith(prefix):
+            return line.split('=',1)[1]
+    return None
+def compiler()->str:
+    return os.environ.get('CC') or cmake_cache_value('CMAKE_C_COMPILER') or shutil.which('cc') or shutil.which('clang') or shutil.which('clang.exe') or 'cc'
+def toolchain_env()->dict[str,str]:
+    env=os.environ.copy()
+    comp=compiler()
+    comp_dir=Path(comp).parent
+    if comp_dir != Path('.'):
+        env['PATH']=str(comp_dir)+os.pathsep+env.get('PATH','')
+    return env
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('archive',nargs='?',default=str(ROOT/f'dist/mosaic-tokenizer-{VERSION}-linux-x86_64.tar.gz'));a=ap.parse_args();archive=Path(a.archive).resolve()
     if not archive.exists():raise SystemExit(f'missing archive: {archive}')
@@ -49,6 +81,8 @@ def main():
         en_sample=temp/'english.txt';en_sample.write_bytes(b'tokenizer')
         detected=run([cli,'roundtrip-auto',model,uni,det,en_sample,langs['en'],langs['hi'],langs['ja']])
         if 'route=en' not in detected or 'tokens=1' not in detected:raise SystemExit('packaged auto-routing specialization failed')
+        span_auto=run([cli,'analyze-span-auto',model,uni,det,sample,langs['en'],langs['hi'],langs['ja']])
+        if 'spans=' not in span_auto or 'span start=' not in span_auto or 'route=en' not in span_auto or 'route=none' not in span_auto:raise SystemExit('packaged span-routing CLI smoke failed')
         security_sample=temp/'security.txt';security_sample.write_bytes('AЖ\u202e'.encode())
         security_out=run([cli,'security',security,security_sample])
         if 'findings=' not in security_out or 'CYRILLIC' not in security_out:raise SystemExit('packaged security CLI smoke failed')
@@ -57,12 +91,12 @@ def main():
         if norm_out.read_bytes()!=b'e\xcc\x81':raise SystemExit('packaged normalization CLI smoke failed')
 
         corpus=temp/'author-corpus.txt';corpus.write_text('tokenizer tokenizer hello world\nनमस्ते दुनिया नमस्ते दुनिया\n',encoding='utf-8')
-        authored=temp/'authored.mpack';subprocess.run([author,'train-model',corpus,'-o',authored,'--vocab-size','272','--min-frequency','1'],check=True)
+        authored=temp/'authored.mpack';subprocess.run(launch([author,'train-model',corpus,'-o',authored,'--vocab-size','272','--min-frequency','1']),check=True)
         authored_sample=temp/'authored-sample.txt';authored_sample.write_bytes(b'tokenizer '+ 'नमस्ते दुनिया'.encode())
         if 'OK' not in run([cli,'roundtrip',authored,authored_sample]):raise SystemExit('packaged author/native integration failed')
         tik=temp/'compat.tiktoken';tikpack=temp/'compat.mpack';vocab={bytes([b]):(b*73)%256 for b in range(256)};vocab.update({b'ab':256,b'bc':257,b'abc':258})
         tik.write_bytes(b''.join(base64.b64encode(surface)+b' '+str(rank).encode()+b'\n' for surface,rank in sorted(vocab.items(),key=lambda kv:kv[1])))
-        subprocess.run([author,'import-tiktoken',tik,tikpack],check=True);compat_sample=temp/'compat.bin';compat_sample.write_bytes(b'abc');ids=temp/'compat.ids';subprocess.run([cli,'encode-u32',tikpack,compat_sample,ids],check=True)
+        subprocess.run(launch([author,'import-tiktoken',tik,tikpack]),check=True);compat_sample=temp/'compat.bin';compat_sample.write_bytes(b'abc');ids=temp/'compat.ids';subprocess.run([cli,'encode-u32',tikpack,compat_sample,ids],check=True)
         if ids.read_bytes()!=(258).to_bytes(4,'little'):raise SystemExit('packaged raw-BPE compatibility failed')
         client=temp/'client.c';client.write_text(r'''#include <mosaic.h>
 #include <stddef.h>
@@ -268,8 +302,14 @@ int main(int argc, char **argv) {
     return ok ? 0 : 7;
 }
 ''', encoding="utf-8")
-        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',client,d/'lib/libmosaic.a','-pthread','-o',temp/'client'],check=True)
-        subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True)
+        cflags=['-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',f'-L{d/"lib"}']
+        if os.name!='nt':
+            cflags.append('-pthread')
+        else:
+            cflags+=['-O3','-DNDEBUG','-D_CRT_SECURE_NO_WARNINGS','-D_DLL','-D_MT','-Xclang','--dependent-lib=msvcrt','-nostartfiles','-nostdlib','-Xlinker','/subsystem:console','-fuse-ld=lld','-lkernel32','-luser32','-lgdi32','-lwinspool','-lshell32','-lole32','-loleaut32','-luuid','-lcomdlg32','-ladvapi32','-loldnames']
+        subprocess.run([compiler(),*cflags,str(client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'client')],check=True,env=toolchain_env() if os.name=='nt' else None)
+        trust_env=os.environ.copy();trust_env['PATH']=str(d/'bin')+os.pathsep+trust_env.get('PATH','')
+        subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True,env=trust_env)
         # Trust authoring is offline-only and must regenerate the deterministic conformance record.
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, PublicFormat, NoEncryption
@@ -277,25 +317,25 @@ int main(int argc, char **argv) {
         priv_pem=temp/'trust-private.pem'; pub_pem=temp/'trust-public.pem'; generated_sig=temp/'generated.sig'
         priv_pem.write_bytes(tpriv.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
         pub_pem.write_bytes(tpriv.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
-        subprocess.run([author,'sign-pack',model,priv_pem,generated_sig],check=True)
+        subprocess.run(launch([author,'sign-pack',model,priv_pem,generated_sig]),check=True)
         packaged_sig=d/'share/mosaic/trust/model-v2.mpack.sig'
         if generated_sig.read_bytes()!=packaged_sig.read_bytes():raise SystemExit('packaged trust authoring is not deterministic')
         expected_key=hashlib.sha256(tpriv.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)).hexdigest()
         if run([author,'key-id',pub_pem])!=expected_key:raise SystemExit('packaged trust key-id mismatch')
         trust_client=ROOT/'conformance/c/package_trust_client.c'
-        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',trust_client,d/'lib/libmosaic.a',d/'lib/libmosaic_trust.a','-lcrypto','-o',temp/'trust_client'],check=True)
-        subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True)
+        subprocess.run([compiler(),*cflags,str(trust_client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'trust_client')],check=True,env=toolchain_env() if os.name=='nt' else None)
+        subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True,env=trust_env)
         regdir=temp/'registry'
         subprocess.run([sys.executable,mosaicd,'--help'],check=True,stdout=subprocess.DEVNULL)
         subprocess.run([sys.executable,registry_http,'--help'],check=True,stdout=subprocess.DEVNULL)
-        subprocess.run([registry,'init',regdir],check=True)
-        subprocess.run([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature'],check=True)
-        subprocess.run([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0'],check=True)
+        subprocess.run(launch([registry,'init',regdir]),check=True)
+        subprocess.run(launch([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature']),check=True)
+        subprocess.run(launch([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0']),check=True)
         req=temp/'requirements.json'; lock=temp/'mosaic.lock.json'
         req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}), encoding="utf-8")
-        subprocess.run([registry,'resolve',regdir,req,'-o',lock],check=True)
-        subprocess.run([registry,'verify-lock',regdir,lock],check=True)
-        subprocess.run([registry,'audit',regdir],check=True)
+        subprocess.run(launch([registry,'resolve',regdir,req,'-o',lock]),check=True)
+        subprocess.run(launch([registry,'verify-lock',regdir,lock]),check=True)
+        subprocess.run(launch([registry,'audit',regdir]),check=True)
         locked=json.loads(lock.read_text(encoding="utf-8"))
         if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
         subprocess.run([sys.executable,str(ROOT/'tools/validate_supply_chain.py'),str(d),'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256')],check=True,cwd=ROOT)
