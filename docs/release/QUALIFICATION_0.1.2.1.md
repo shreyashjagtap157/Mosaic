@@ -1,6 +1,6 @@
 # Mosaic 0.1.2.1 Qualification
 
-Status: native/application Linux x86-64 qualification complete; Rust source hardening implemented but Rust 1.97.1 execution must be rerun on a host with the pinned toolchain.
+Status: native/application Linux x86-64 qualification complete; Windows x86-64 dependency-minimal qualification complete; Rust 1.97.1 hardening gate complete on Windows.
 
 ## Fresh native qualification
 
@@ -28,7 +28,12 @@ Implemented in source:
 - canonical Unicode 17 fixture grapheme-span regression;
 - invalid/truncated UTF-8 opaque-byte regression.
 
-The fresh execution environment used to create this replacement bundle does not contain Rust/Cargo and cannot download toolchains. Therefore `cargo fmt`, strict Clippy, workspace tests, and `no_std` are **NOT CLAIMED AS PASS** for this exact 0.1.2.1 bundle. Run the commands in `CODEX_HANDOFF.md` locally with Rust 1.97.1 before tagging.
+Executed locally on Windows x86-64 with `rustc 1.97.1 (8bab26f4f 2026-07-14)` and `cargo 1.97.1 (c980f4866 2026-06-30)`:
+
+- `cargo fmt --all -- --check`: **PASS**;
+- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS**;
+- `cargo test --workspace`: **PASS**;
+- `cargo check -p mosaic-core --no-default-features`: **PASS**.
 
 ## Source identity
 
@@ -36,4 +41,4 @@ The fresh execution environment used to create this replacement bundle does not 
 - deterministic artifact checksum generation/check: **PASS**;
 - repository validator: **PASS**, with its explicit note that Rust compile/test gates are separate.
 
-No stable-generation `1.0.0.0` claim is made. Current-source Windows/macOS/ARM64, Miri/fuzz/race and final multi-platform stable-release gates remain open.
+No stable-generation `1.0.0.0` claim is made. Current-source macOS/ARM64, Miri/fuzz/race and final multi-platform stable-release gates remain open.

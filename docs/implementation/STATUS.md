@@ -1,12 +1,12 @@
 # Implementation Status
 
-Date: 2026-08-08
+Date: 2026-08-10
 
 ## Current enterprise candidate
 
 **0.1.2.1 — universal tokenization and token-native processing platform candidate.**
 
-Mosaic uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` remains deliberate: real Windows qualification exposed portability defects, and `0.1.0.4` closes the C++ smoke-client compatibility defect with an explicit strict-C++11 consumer contract. The dependency-minimal Windows Clang preset now passes, but the remaining declared stable-generation gates must complete before the project is permitted to claim `1.0.0.0` stable.
+Mosaic uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` remains deliberate: real Windows qualification exposed portability defects, and `0.1.0.4` closes the C++ smoke-client compatibility defect with an explicit strict-C++11 consumer contract. The dependency-minimal Windows Clang preset and the pinned Rust 1.97.1 workspace gate now pass, but the remaining declared stable-generation gates must complete before the project is permitted to claim `1.0.0.0` stable.
 
 The qualified production implementation is the native C runtime on the platforms for which evidence exists. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
 
@@ -35,6 +35,7 @@ The qualified production implementation is the native C runtime on the platforms
 ## Qualification completed on available hosts
 
 - Windows x86-64 Clang 19.1.5 dependency-minimal `core-release`: 22/22 CTest PASS; optional ICU normalization and trust tests intentionally excluded by preset (`CMAKE_DISABLE_FIND_PACKAGE_ICU=ON`, `MOSAIC_BUILD_TRUST=OFF`);
+- Windows x86-64 Rust 1.97.1: rustfmt check PASS, strict Clippy PASS, workspace tests PASS, `mosaic-core` no-default-features PASS;
 - Linux x86-64 Clang 17.0.0 dependency-minimal `core-release`: 22/22 CTest PASS;
 - Linux x86-64 Clang 17.0.0 `full-release` with available ICU/trust dependencies: 24/24 CTest PASS;
 - strict GCC builds and full ASan/UBSan inherited native suite;
@@ -53,7 +54,6 @@ The qualified production implementation is the native C runtime on the platforms
 The following gates are not fabricated as passes and keep the first product-version component at `0` until completed:
 
 - macOS native CI execution;
-- stable Rust workspace build/Clippy/tests;
 - Miri and cargo-fuzz jobs;
 - ThreadSanitizer or platform-specific race detectors where supported;
 - non-x86-64/ARM64 qualification required by the final support matrix.

@@ -26,8 +26,8 @@ cargo test --workspace
 cargo check -p mosaic-core --no-default-features
 ```
 
-If Rust formatting changes files, review those changes, regenerate `ARTIFACT_CHECKSUMS.sha256`, rerun the gates, and commit them as the continuation of the 0.1.2.1 hardening patch.
+This local checkout now pins Rust 1.97.1 in `rust-toolchain.toml`; rerun these commands after Rust source changes and regenerate `ARTIFACT_CHECKSUMS.sha256` before committing.
 
 ## Do not tag yet
 
-Do not create `v0.1.2.1` until the Rust gate above and Windows current-source native qualification pass. Stable generation `1.0.0.0` additionally requires the remaining multi-platform/Miri/fuzz/race/soak gates documented in the release qualification files.
+Do not graduate to stable generation `1.0.0.0` until the remaining multi-platform/Miri/fuzz/race/soak gates documented in the release qualification files pass. Candidate tagging may proceed only from a clean tree with the Windows native and Rust 1.97.1 gates passing on the exact tagged source.

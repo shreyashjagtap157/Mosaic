@@ -49,7 +49,7 @@ Mosaic Tokenizer 0.1.2.1 is the current pre-stable enterprise candidate tokenize
 
 All prior releases remain preserved by Git tags. The old three-component tags are historical milestone/release identifiers; the canonical product version now follows the four-part `S.M.N.P` policy in `docs/VERSIONING_POLICY.md`. The 0.13–0.24 historical line added rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Canonical tokenization semantics remain version 2. The enterprise freeze established C ABI 1.0.0, optional trust ABI 1.0.0, and the binary-format contracts under `abi/`; those contract versions remain independent of the product release number.
 
-Mosaic `0.1.2.1` is the current **universal tokenization and token-native processing platform candidate**. The native C runtime is the qualified implementation on the platforms already exercised; the dependency-minimal Windows Clang preset now passes, while macOS/Rust and the remaining declared stable-generation gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period. Adaptive byte-patch LLMs, GPU acceleration, learned span-level routing, very large community pack catalogs, and any scanner VM remain post-baseline research rather than hidden stabilization blockers.
+Mosaic `0.1.2.1` is the current **universal tokenization and token-native processing platform candidate**. The native C runtime is the qualified implementation on the platforms already exercised; the dependency-minimal Windows Clang preset and pinned Rust 1.97.1 workspace gate now pass, while macOS/Miri/fuzz/race-detector and remaining support-matrix gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period. Adaptive byte-patch LLMs, GPU acceleration, learned span-level routing, very large community pack catalogs, and any scanner VM remain post-baseline research rather than hidden stabilization blockers.
 
 ## Repository layout
 
@@ -211,7 +211,7 @@ The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the C
 
 ## Rust status
 
-Stable Rust remains the intended primary implementation language. Rust source exists under `crates/`, but the environment that produced the native releases has no `rustc`/`cargo` and no outbound DNS. Consequently the Rust implementation is **not falsely labeled qualified**. Repository CI is configured to compile, Clippy-check, test, and no-std-check it on Rust-capable runners once the GitHub repository receives these commits.
+Stable Rust remains the intended primary implementation language. The local Windows workspace is pinned to Rust 1.97.1 and passes rustfmt, strict Clippy, workspace tests, and the `mosaic-core` no-default-features gate. Miri, cargo-fuzz campaigns, macOS, ARM64, and race-detector support-matrix jobs remain separate stable-generation gates.
 
 ## Current project boundary
 
