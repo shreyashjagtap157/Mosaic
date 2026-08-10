@@ -27,9 +27,12 @@ Date: 2026-08-08
 - Windows native CMake/CTest execution;
 - macOS native CMake/CTest execution;
 - stable Rust workspace build/clippy/tests;
-- Miri;
-- cargo-fuzz campaigns;
 - ThreadSanitizer/platform race detector where supported;
 - additional architecture/hardware runners not present locally.
 
 These gates remain declared in CI. They are not represented as passed. The packaged 1.0 production implementation is the locally qualified native C runtime; Rust remains an independent conformance/reference implementation until its CI executes.
+
+## Local Rust qualification already exercised
+
+- nightly Miri on `mosaic-core` and `mosaic-pack`: PASS via `tools/validate_miri.py`;
+- bounded nightly fuzz smoke on `fuzz_source_bytes`, `fuzz_pack_header`, `fuzz_pack_v1`, and `fuzz_dfa`: PASS via `tools/validate_fuzz.py`.

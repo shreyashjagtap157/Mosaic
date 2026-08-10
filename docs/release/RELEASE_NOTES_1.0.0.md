@@ -22,4 +22,4 @@ The 1.x compatibility/deprecation policy now applies. Existing frozen declaratio
 
 ## Qualification note
 
-The production artifact is the native C runtime. Linux GCC/Clang, sanitizer, static-analysis, differential, reliability, package and reproducibility gates are executed locally. Windows/macOS and Rust/Miri/fuzz CI remain explicit external gates because the current sandbox cannot execute those toolchains/platforms; they are not claimed as passed here.
+The production artifact is the native C runtime. Linux GCC/Clang, sanitizer, static-analysis, differential, reliability, package and reproducibility gates are executed locally. Windows/macOS remain explicit external gates, while Rust Miri and bounded fuzz smoke are now locally exercised through `tools/validate_miri.py` and `tools/validate_fuzz.py`. Full cross-platform Rust qualification still depends on external CI runners.
