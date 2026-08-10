@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2.1 — 2026-08-10
+
+Rust-substrate correctness patch.
+
+- wire the existing Unicode 17 pack parser into `mosaic-pack` and enforce a bounded Unicode-range resource policy;
+- fix incremental SHA-256 updates so manifest/content identities are correct across arbitrarily split input;
+- add SHA-256 and Unicode exactness regressions;
+- preserve C ABI 1.0.0, trust ABI 1.0.0, tokenizer semantics 2, service/registry APIs, and frozen pack formats.
+
 ## 0.1.2.0 — 2026-08-09
 
 Enterprise batching and resumable streaming minor.

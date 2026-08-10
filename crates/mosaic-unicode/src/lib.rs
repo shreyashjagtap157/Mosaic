@@ -172,3 +172,34 @@ fn preceding_ri_count(gcb: &[Option<u8>], i: usize) -> usize {
 }
 
 const fn is_cont(value: u8) -> bool { value >= 0x80 && value <= 0xbf }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_strict_utf8, grapheme_spans, unicode_from_pack};
+    use mosaic_pack::{PackValidationLimits, PackView};
+
+    const UNICODE_PACK: &[u8] = include_bytes!("../../../fixtures/packs/unicode17-v1.mpack");
+
+    #[test]
+    fn canonical_unicode17_fixture_segments_exact_source_bytes() {
+        let limits = PackValidationLimits::DEFAULT;
+        let pack = PackView::parse(UNICODE_PACK, limits).expect("canonical Unicode pack");
+        let unicode = unicode_from_pack(pack, limits).expect("Unicode section");
+
+        let input = "a\u{0301}🇮🇳".as_bytes();
+        let spans = grapheme_spans(unicode, input).expect("grapheme segmentation");
+        assert_eq!(spans.len(), 2);
+        assert_eq!((spans[0].start.0, spans[0].len.0), (0, 3));
+        assert_eq!((spans[1].start.0, spans[1].len.0), (3, 8));
+    }
+
+    #[test]
+    fn invalid_utf8_remains_opaque_authoritative_bytes() {
+        let units = decode_strict_utf8(&[0xff, b'a', 0xc3]);
+        assert_eq!(units.len(), 3);
+        assert_eq!((units[0].start, units[0].end, units[0].scalar), (0, 1, None));
+        assert_eq!((units[1].start, units[1].end, units[1].scalar), (1, 2, Some(0x61)));
+        assert_eq!((units[2].start, units[2].end, units[2].scalar), (2, 3, None));
+    }
+}

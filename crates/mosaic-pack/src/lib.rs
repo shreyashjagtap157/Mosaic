@@ -6,6 +6,7 @@ mod execution_manifest;
 mod hash;
 mod lock;
 mod manifest;
+mod unicode;
 mod v1;
 mod vocab;
 
@@ -14,6 +15,7 @@ pub use execution_manifest::{ManifestPackRef, PackRole, TokenizerManifestV1};
 pub use hash::{PackHash, Sha256, sha256};
 pub use lock::{LockGraphView, ResolvedPackIdentityRef};
 pub use manifest::ManifestV1;
+pub use unicode::{CodepointRange, PropertyRange, UnicodeDataView};
 pub use v1::{HashAlgorithm, PackHeaderV1, PackView, SectionEntry};
 pub use vocab::{VocabularyEntry, VocabularyView};
 
@@ -24,6 +26,7 @@ pub const SECTION_KIND_MANIFEST: u32 = 1;
 pub const SECTION_KIND_LOCK_GRAPH: u32 = 2;
 pub const SECTION_KIND_DFA: u32 = 3;
 pub const SECTION_KIND_VOCABULARY: u32 = 4;
+pub const SECTION_KIND_UNICODE: u32 = 5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PackValidationLimits {
@@ -38,6 +41,7 @@ pub struct PackValidationLimits {
     pub max_manifest_packs: u32,
     pub max_vocab_entries: u32,
     pub max_token_bytes: u32,
+    pub max_unicode_ranges: u32,
 }
 
 impl PackValidationLimits {
@@ -53,6 +57,7 @@ impl PackValidationLimits {
         max_manifest_packs: 4096,
         max_vocab_entries: 1_048_576,
         max_token_bytes: 1 << 20,
+        max_unicode_ranges: 1_000_000,
     };
 }
 
@@ -128,6 +133,11 @@ pub enum PackError {
     VocabularyIndexOutOfBounds,
     InvalidVocabularySectionCount,
     UnknownTokenId,
+    InvalidUnicodeHeader,
+    UnsupportedUnicodeVersion,
+    InvalidUnicodeLayout,
+    InvalidUnicodeRange,
+    UnicodeRangeIndexOutOfBounds,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

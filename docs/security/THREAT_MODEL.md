@@ -1,6 +1,6 @@
 # Mosaic Enterprise Threat Model
 
-Status: frozen enterprise candidate baseline; current product release 0.1.2.0.
+Status: frozen enterprise candidate baseline; current product release 0.1.2.1.
 
 ## Security objectives
 

@@ -73,6 +73,8 @@ impl Sha256 {
                 let block = self.block;
                 self.compress(&block);
                 self.block_len = 0;
+            } else {
+                return;
             }
         }
 
