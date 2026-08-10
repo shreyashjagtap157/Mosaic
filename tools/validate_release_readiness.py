@@ -23,6 +23,7 @@ def python() -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--archive", default=str(DEFAULT_ARCHIVE))
+    parser.add_argument("--build-release", action="store_true")
     parser.add_argument("--skip-package", action="store_true")
     args = parser.parse_args()
 
@@ -31,6 +32,8 @@ def main() -> int:
     run([python(), "tools/validate_fuzz.py", "--runs", "60"])
 
     if not args.skip_package:
+        if args.build_release:
+            run([python(), "tools/build_release.py", "--no-build", "--allow-dirty"])
         archive = Path(args.archive)
         if not archive.exists():
             raise SystemExit(f"missing release archive: {archive}")

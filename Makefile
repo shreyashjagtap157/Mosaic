@@ -51,8 +51,7 @@ qualify:
 	$(PYTHON) tools/qualify_native.py
 
 release: qualify
-	$(PYTHON) tools/build_release.py --no-build
-	$(PYTHON) tools/validate_release_readiness.py --archive dist/mosaic-tokenizer-$(VERSION)-linux-x86_64.tar.gz
+	$(PYTHON) tools/validate_release_readiness.py --build-release --archive dist/mosaic-tokenizer-$(VERSION)-linux-x86_64.tar.gz
 
 release-readiness:
 	$(PYTHON) tools/validate_release_readiness.py --skip-package

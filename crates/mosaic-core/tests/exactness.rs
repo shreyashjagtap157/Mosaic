@@ -36,7 +36,12 @@ fn canonical_leaves_are_gapless_single_bytes() {
 #[test]
 fn generated_buffers_round_trip() {
     let mut state = 0x4d59_5df4_d0f3_3173_u64;
-    for len in 0..2048_usize {
+    #[cfg(miri)]
+    const LIMIT: usize = 256;
+    #[cfg(not(miri))]
+    const LIMIT: usize = 2048;
+
+    for len in 0..LIMIT {
         let mut bytes = vec![0_u8; len];
         for byte in &mut bytes {
             state ^= state << 13;
