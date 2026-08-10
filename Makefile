@@ -1,6 +1,7 @@
 PYTHON ?= python3
+VERSION := $(shell $(PYTHON) -c "print(open('VERSION', encoding='utf-8').read().strip())")
 
-.PHONY: all native test qualify release fixtures clean rust-check status
+.PHONY: all native test qualify release release-readiness fixtures clean rust-check status
 
 all: native
 
@@ -51,7 +52,10 @@ qualify:
 
 release: qualify
 	$(PYTHON) tools/build_release.py --no-build
-	$(PYTHON) tools/validate_release_package.py
+	$(PYTHON) tools/validate_release_readiness.py --archive dist/mosaic-tokenizer-$(VERSION)-linux-x86_64.tar.gz
+
+release-readiness:
+	$(PYTHON) tools/validate_release_readiness.py --skip-package
 
 rust-check:
 	$(PYTHON) tools/qualify.py
