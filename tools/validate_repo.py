@@ -146,6 +146,7 @@ def check_product_versioning() -> None:
     for command in [
         [sys.executable, str(ROOT / "tools/set_version.py"), "--check"],
         [sys.executable, str(ROOT / "tools/generate_artifact_checksums.py"), "--check"],
+        [sys.executable, str(ROOT / "tools/validate_release_matrix.py")],
     ]:
         subprocess.run(command, check=True, cwd=ROOT, stdout=subprocess.DEVNULL)
 
