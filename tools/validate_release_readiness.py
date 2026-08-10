@@ -28,6 +28,8 @@ def main() -> int:
     args = parser.parse_args()
 
     run([python(), "tools/validate_repo.py"])
+    run([python(), "tools/validate_release_matrix.py"])
+    run([python(), "tools/validate_open_gates.py"])
     run([python(), "tools/validate_miri.py"])
     run([python(), "tools/validate_fuzz.py", "--runs", "60"])
 
