@@ -85,3 +85,24 @@ jobs:
       - run: cargo test --workspace
       - run: cargo check -p mosaic-core --no-default-features
       - run: python tools/validate_rust_structure.py
+
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - run: cargo miri test -p mosaic-core
+      - run: cargo miri test -p mosaic-pack
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo fuzz run fuzz_source_bytes -- -max_total_time=60
+      - run: cargo fuzz run fuzz_pack_header -- -max_total_time=60
+      - run: cargo fuzz run fuzz_pack_v1 -- -max_total_time=120
+      - run: cargo fuzz run fuzz_dfa -- -max_total_time=120
