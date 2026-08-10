@@ -26,7 +26,7 @@ This adds rustfmt, Clippy with warnings denied, workspace tests, and the no-defa
 
 Scheduled CI adds:
 
-- Miri on trusted-core/pack crates;
+- Miri on trusted-core/pack crates; the local validator is `tools/validate_miri.py`.
 - cargo-fuzz smoke campaigns;
 - Linux/Windows/macOS canonical fixture rebuilds;
 - broader differential suites as milestones add them.

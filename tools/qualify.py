@@ -63,7 +63,7 @@ def main() -> int:
         run(command)
 
     print("PASS: local stable-Rust qualification gates completed")
-    print("NOTE: nightly/release CI still owns Miri, fuzz, and cross-platform gates")
+    print("NOTE: nightly/release CI still owns cross-platform gates; local validators cover Miri and fuzz smoke")
     return 0
 
 
