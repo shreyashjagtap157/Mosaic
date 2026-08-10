@@ -58,8 +58,7 @@ jobs:
       - run: python tools/abi_contract.py --core build/libmosaic.so --trust build/libmosaic_trust.so
       - name: Reliability release campaign
         run: python tools/reliability_campaign.py --tier release --output build/reliability/release.json
-      - run: python tools/build_release.py --no-build
-      - run: python tools/validate_release_package.py
+      - run: python tools/validate_release_readiness.py --build-release
       - uses: actions/upload-artifact@v4
         with:
           name: mosaic-tokenizer-linux-x86_64
