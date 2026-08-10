@@ -56,6 +56,12 @@ pub struct TokenizerManifestV1<'a> {
 
 impl<'a> TokenizerManifestV1<'a> {
     #[allow(clippy::too_many_arguments)]
+    /// Builds a canonical tokenizer execution manifest view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if pack references exceed configured limits, contain
+    /// zero hashes, or are not in canonical role/ordinal order.
     pub fn new(
         runtime_semantics_version: u32,
         canonical_leaf_version: u32,
@@ -68,7 +74,8 @@ impl<'a> TokenizerManifestV1<'a> {
         packs: &'a [ManifestPackRef],
         limits: PackValidationLimits,
     ) -> Result<Self, PackError> {
-        let pack_count = u32::try_from(packs.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
+        let pack_count =
+            u32::try_from(packs.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
         if pack_count > limits.max_manifest_packs {
             return Err(PackError::ResourceLimitExceeded);
         }
@@ -104,6 +111,11 @@ impl<'a> TokenizerManifestV1<'a> {
         self.packs
     }
 
+    /// Computes the deterministic manifest identity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pack count no longer fits in `u32` after construction.
     #[must_use]
     pub fn identity(self) -> PackHash {
         let mut hash = Sha256::new();
@@ -120,7 +132,8 @@ impl<'a> TokenizerManifestV1<'a> {
             hash.update(&value.to_le_bytes());
         }
         hash.update(&self.resource_policy_hash.0);
-        let count = u32::try_from(self.packs.len()).expect("manifest pack count validated at construction");
+        let count =
+            u32::try_from(self.packs.len()).expect("manifest pack count validated at construction");
         hash.update(&count.to_le_bytes());
         for pack in self.packs {
             hash.update(&pack.role.code().to_le_bytes());

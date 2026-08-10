@@ -5,7 +5,9 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use mosaic_ir::{NamespaceId, ProjectedToken, TokenId, TokenKind};
-use mosaic_pack::{PackError, PackValidationLimits, PackView, VocabularyView, SECTION_KIND_VOCABULARY};
+use mosaic_pack::{
+    PackError, PackValidationLimits, PackView, SECTION_KIND_VOCABULARY, VocabularyView,
+};
 
 pub const MODEL_NAMESPACE: NamespaceId = NamespaceId(1);
 pub const MODEL_KIND: TokenKind = TokenKind(0);
@@ -19,6 +21,12 @@ pub struct EncodedToken {
 }
 
 impl EncodedToken {
+    /// Converts the encoded model token into the shared token projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ModelError` if the token span cannot be represented in Mosaic's
+    /// byte-coordinate types.
     pub fn projected(self) -> Result<ProjectedToken, ModelError> {
         token(self.start, self.end, self.token_id.0)
     }
@@ -39,10 +47,16 @@ impl From<PackError> for ModelError {
     }
 }
 
-pub fn vocabulary_from_pack<'a>(
-    pack: PackView<'a>,
+/// Extracts the single vocabulary section from a pack.
+///
+/// # Errors
+///
+/// Returns `ModelError` if the pack has zero or multiple vocabulary sections,
+/// or if the selected vocabulary section is malformed.
+pub fn vocabulary_from_pack(
+    pack: PackView<'_>,
     limits: PackValidationLimits,
-) -> Result<VocabularyView<'a>, ModelError> {
+) -> Result<VocabularyView<'_>, ModelError> {
     let mut found = None;
     for index in 0..pack.header().section_count {
         if pack.section(index)?.kind == SECTION_KIND_VOCABULARY {
@@ -55,6 +69,11 @@ pub fn vocabulary_from_pack<'a>(
     found.ok_or(ModelError::InvalidVocabularySectionCount)
 }
 
+/// Decodes model token IDs back to source bytes.
+///
+/// # Errors
+///
+/// Returns `ModelError` if any token ID is unknown or a vocabulary lookup fails.
 pub fn decode_ids(vocabulary: VocabularyView<'_>, ids: &[TokenId]) -> Result<Vec<u8>, ModelError> {
     let mut output = Vec::new();
     for id in ids {
@@ -66,11 +85,19 @@ pub fn decode_ids(vocabulary: VocabularyView<'_>, ids: &[TokenId]) -> Result<Vec
     Ok(output)
 }
 
+/// Builds a model-token projection over a source byte span.
+///
+/// # Errors
+///
+/// Returns `ModelError` if the span is inverted or cannot fit Mosaic's
+/// byte-coordinate types.
 pub fn token(start: usize, end: usize, id: u32) -> Result<ProjectedToken, ModelError> {
     let start = u64::try_from(start).map_err(|_| ModelError::InputTooLarge)?;
-    let len = u64::try_from(end.checked_sub(usize::try_from(start).map_err(|_| ModelError::InputTooLarge)?)
-        .ok_or(ModelError::InputTooLarge)?)
-        .map_err(|_| ModelError::InputTooLarge)?;
+    let len = u64::try_from(
+        end.checked_sub(usize::try_from(start).map_err(|_| ModelError::InputTooLarge)?)
+            .ok_or(ModelError::InputTooLarge)?,
+    )
+    .map_err(|_| ModelError::InputTooLarge)?;
     Ok(ProjectedToken {
         source: mosaic_core::ByteRange::new(start, len),
         namespace: MODEL_NAMESPACE,

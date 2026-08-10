@@ -29,6 +29,12 @@ pub struct DfaView<'a> {
 }
 
 impl<'a> DfaView<'a> {
+    /// Parses and validates a canonical DFA section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the section header, layout, limits, state
+    /// references, or canonical ordering are invalid.
     pub fn parse(bytes: &'a [u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         if bytes.len() < HEADER_LEN || bytes[..4] != *b"MSDF" {
             return Err(PackError::InvalidDfaHeader);
@@ -68,7 +74,13 @@ impl<'a> DfaView<'a> {
             return Err(PackError::InvalidDfaLayout);
         }
 
-        let view = Self { bytes, state_count, start_state, transition_count, accept_count };
+        let view = Self {
+            bytes,
+            state_count,
+            start_state,
+            transition_count,
+            accept_count,
+        };
         let mut prior_transition: Option<(u32, u8)> = None;
         for index in 0..transition_count {
             let transition = view.transition(index)?;
@@ -96,16 +108,32 @@ impl<'a> DfaView<'a> {
     }
 
     #[must_use]
-    pub const fn state_count(self) -> u32 { self.state_count }
+    pub const fn state_count(self) -> u32 {
+        self.state_count
+    }
     #[must_use]
-    pub const fn start_state(self) -> u32 { self.start_state }
+    pub const fn start_state(self) -> u32 {
+        self.start_state
+    }
     #[must_use]
-    pub const fn transition_count(self) -> u32 { self.transition_count }
+    pub const fn transition_count(self) -> u32 {
+        self.transition_count
+    }
     #[must_use]
-    pub const fn accept_count(self) -> u32 { self.accept_count }
+    pub const fn accept_count(self) -> u32 {
+        self.accept_count
+    }
 
+    /// Returns the transition at `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the transition bytes
+    /// are not a supported canonical entry.
     pub fn transition(self, index: u32) -> Result<DfaTransition, PackError> {
-        if index >= self.transition_count { return Err(PackError::DfaIndexOutOfBounds); }
+        if index >= self.transition_count {
+            return Err(PackError::DfaIndexOutOfBounds);
+        }
         let index_bytes = usize::try_from(index)
             .map_err(|_| PackError::IntegerOverflow)?
             .checked_mul(TRANSITION_LEN)
@@ -134,8 +162,16 @@ impl<'a> DfaView<'a> {
         })
     }
 
+    /// Returns the accepting-state entry at `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the entry cannot be
+    /// read from the section bytes.
     pub fn accept(self, index: u32) -> Result<DfaAccept, PackError> {
-        if index >= self.accept_count { return Err(PackError::DfaIndexOutOfBounds); }
+        if index >= self.accept_count {
+            return Err(PackError::DfaIndexOutOfBounds);
+        }
         let transitions_bytes = usize::try_from(self.transition_count)
             .map_err(|_| PackError::IntegerOverflow)?
             .checked_mul(TRANSITION_LEN)
@@ -155,7 +191,11 @@ impl<'a> DfaView<'a> {
             .bytes
             .get(base..end)
             .ok_or(PackError::InvalidDfaLayout)?;
-        Ok(DfaAccept { state: read_u32(data, 0)?, token_id: read_u32(data, 4)?, cost: read_i32(data, 8)? })
+        Ok(DfaAccept {
+            state: read_u32(data, 0)?,
+            token_id: read_u32(data, 4)?,
+            cost: read_i32(data, 8)?,
+        })
     }
 }
 

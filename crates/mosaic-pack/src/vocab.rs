@@ -24,6 +24,12 @@ pub struct VocabularyView<'a> {
 }
 
 impl<'a> VocabularyView<'a> {
+    /// Parses and validates a vocabulary section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when the header, layout, canonical ordering, indexes,
+    /// byte-fallback coverage, or configured resource limits are invalid.
     pub fn parse(bytes: &'a [u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         if bytes.len() < VOCAB_HEADER_LEN {
             return Err(PackError::InvalidVocabularyHeader);
@@ -49,30 +55,45 @@ impl<'a> VocabularyView<'a> {
         if flags != 0 || reserved != 0 || reserved2 != 0 {
             return Err(PackError::ReservedNotZero);
         }
-        if usize::from(entry_len) != VOCAB_ENTRY_LEN || usize::try_from(entries_offset).ok() != Some(VOCAB_HEADER_LEN) {
+        if usize::from(entry_len) != VOCAB_ENTRY_LEN
+            || usize::try_from(entries_offset).ok() != Some(VOCAB_HEADER_LEN)
+        {
             return Err(PackError::InvalidVocabularyLayout);
         }
         if entry_count > limits.max_vocab_entries {
             return Err(PackError::ResourceLimitExceeded);
         }
 
-        let entries_offset = usize::try_from(entries_offset).map_err(|_| PackError::IntegerOverflow)?;
-        let id_index_offset = usize::try_from(id_index_offset).map_err(|_| PackError::IntegerOverflow)?;
-        let first_byte_index_offset = usize::try_from(first_byte_index_offset).map_err(|_| PackError::IntegerOverflow)?;
+        let entries_offset =
+            usize::try_from(entries_offset).map_err(|_| PackError::IntegerOverflow)?;
+        let id_index_offset =
+            usize::try_from(id_index_offset).map_err(|_| PackError::IntegerOverflow)?;
+        let first_byte_index_offset =
+            usize::try_from(first_byte_index_offset).map_err(|_| PackError::IntegerOverflow)?;
         let blob_offset = usize::try_from(blob_offset).map_err(|_| PackError::IntegerOverflow)?;
         let blob_len = usize::try_from(blob_len).map_err(|_| PackError::IntegerOverflow)?;
         let count = usize::try_from(entry_count).map_err(|_| PackError::IntegerOverflow)?;
 
         let entries_end = entries_offset
-            .checked_add(count.checked_mul(VOCAB_ENTRY_LEN).ok_or(PackError::IntegerOverflow)?)
+            .checked_add(
+                count
+                    .checked_mul(VOCAB_ENTRY_LEN)
+                    .ok_or(PackError::IntegerOverflow)?,
+            )
             .ok_or(PackError::IntegerOverflow)?;
         let id_index_end = id_index_offset
             .checked_add(count.checked_mul(4).ok_or(PackError::IntegerOverflow)?)
             .ok_or(PackError::IntegerOverflow)?;
         let first_byte_index_end = first_byte_index_offset
-            .checked_add(FIRST_BYTE_INDEX_COUNT.checked_mul(4).ok_or(PackError::IntegerOverflow)?)
+            .checked_add(
+                FIRST_BYTE_INDEX_COUNT
+                    .checked_mul(4)
+                    .ok_or(PackError::IntegerOverflow)?,
+            )
             .ok_or(PackError::IntegerOverflow)?;
-        let blob_end = blob_offset.checked_add(blob_len).ok_or(PackError::IntegerOverflow)?;
+        let blob_end = blob_offset
+            .checked_add(blob_len)
+            .ok_or(PackError::IntegerOverflow)?;
 
         if !(entries_end <= id_index_offset
             && id_index_offset <= id_index_end
@@ -120,6 +141,12 @@ impl<'a> VocabularyView<'a> {
         self.entry_count == 0
     }
 
+    /// Returns the vocabulary entry at canonical position `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the encoded entry is
+    /// malformed.
     pub fn entry(self, index: u32) -> Result<VocabularyEntry<'a>, PackError> {
         if index >= self.entry_count {
             return Err(PackError::VocabularyIndexOutOfBounds);
@@ -135,7 +162,8 @@ impl<'a> VocabularyView<'a> {
             .ok_or(PackError::IntegerOverflow)?;
         let token_id = read_u32(self.bytes, base)?;
         let cost = read_i32(self.bytes, base + 4)?;
-        let surface_offset = usize::try_from(read_u32(self.bytes, base + 8)?).map_err(|_| PackError::IntegerOverflow)?;
+        let surface_offset = usize::try_from(read_u32(self.bytes, base + 8)?)
+            .map_err(|_| PackError::IntegerOverflow)?;
         let surface_len = usize::from(read_u16(self.bytes, base + 12)?);
         let flags = read_u16(self.bytes, base + 14)?;
         if flags != 0 {
@@ -144,17 +172,40 @@ impl<'a> VocabularyView<'a> {
         if surface_len == 0 {
             return Err(PackError::InvalidVocabularySurface);
         }
-        let relative_end = surface_offset.checked_add(surface_len).ok_or(PackError::IntegerOverflow)?;
+        let relative_end = surface_offset
+            .checked_add(surface_len)
+            .ok_or(PackError::IntegerOverflow)?;
         if relative_end > self.blob_len {
             return Err(PackError::InvalidVocabularySurface);
         }
-        let start = self.blob_offset.checked_add(surface_offset).ok_or(PackError::IntegerOverflow)?;
-        let end = start.checked_add(surface_len).ok_or(PackError::IntegerOverflow)?;
-        let surface = self.bytes.get(start..end).ok_or(PackError::InvalidVocabularySurface)?;
-        Ok(VocabularyEntry { token_id, cost, surface })
+        let start = self
+            .blob_offset
+            .checked_add(surface_offset)
+            .ok_or(PackError::IntegerOverflow)?;
+        let end = start
+            .checked_add(surface_len)
+            .ok_or(PackError::IntegerOverflow)?;
+        let surface = self
+            .bytes
+            .get(start..end)
+            .ok_or(PackError::InvalidVocabularySurface)?;
+        Ok(VocabularyEntry {
+            token_id,
+            cost,
+            surface,
+        })
     }
 
-    pub fn entry_by_token_id(self, token_id: u32) -> Result<Option<VocabularyEntry<'a>>, PackError> {
+    /// Looks up a vocabulary entry by token ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the token-ID index points outside the vocabulary
+    /// or the referenced entry is malformed.
+    pub fn entry_by_token_id(
+        self,
+        token_id: u32,
+    ) -> Result<Option<VocabularyEntry<'a>>, PackError> {
         let mut low = 0_u32;
         let mut high = self.entry_count;
         while low < high {
@@ -170,7 +221,15 @@ impl<'a> VocabularyView<'a> {
         Ok(None)
     }
 
-    pub fn candidate_range_for_first_byte(self, byte: u8) -> Result<core::ops::Range<u32>, PackError> {
+    /// Returns the canonical entry range whose surfaces begin with `byte`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the first-byte index is malformed.
+    pub fn candidate_range_for_first_byte(
+        self,
+        byte: u8,
+    ) -> Result<core::ops::Range<u32>, PackError> {
         let start = self.first_byte_index(u16::from(byte))?;
         let end = self.first_byte_index(u16::from(byte) + 1)?;
         Ok(start..end)
@@ -180,13 +239,17 @@ impl<'a> VocabularyView<'a> {
         let mut previous_index: Option<u32> = None;
         for index in 0..self.entry_count {
             let entry = self.entry(index)?;
-            let surface_len = u32::try_from(entry.surface.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
+            let surface_len =
+                u32::try_from(entry.surface.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
             if surface_len > limits.max_token_bytes {
                 return Err(PackError::ResourceLimitExceeded);
             }
             if let Some(previous) = previous_index {
                 let prior = self.entry(previous)?;
-                let ordering = prior.surface.cmp(entry.surface).then(prior.token_id.cmp(&entry.token_id));
+                let ordering = prior
+                    .surface
+                    .cmp(entry.surface)
+                    .then(prior.token_id.cmp(&entry.token_id));
                 if ordering != core::cmp::Ordering::Less {
                     return Err(PackError::VocabularyNotCanonical);
                 }
@@ -221,14 +284,14 @@ impl<'a> VocabularyView<'a> {
         if self.first_byte_index(0)? != 0 || self.first_byte_index(256)? != self.entry_count {
             return Err(PackError::InvalidVocabularyFirstByteIndex);
         }
-        for byte in 0_u16..256 {
-            let start = self.first_byte_index(byte)?;
-            let end = self.first_byte_index(byte + 1)?;
+        for byte in 0_u8..=u8::MAX {
+            let start = self.first_byte_index(u16::from(byte))?;
+            let end = self.first_byte_index(u16::from(byte) + 1)?;
             if start > end || end > self.entry_count {
                 return Err(PackError::InvalidVocabularyFirstByteIndex);
             }
             for index in start..end {
-                if self.entry(index)?.surface.first().copied() != Some(byte as u8) {
+                if self.entry(index)?.surface.first().copied() != Some(byte) {
                     return Err(PackError::InvalidVocabularyFirstByteIndex);
                 }
             }
@@ -237,11 +300,11 @@ impl<'a> VocabularyView<'a> {
     }
 
     fn validate_byte_fallback(self) -> Result<(), PackError> {
-        for value in 0_u32..=255 {
-            let Some(entry) = self.entry_by_token_id(value)? else {
+        for value in 0_u8..=u8::MAX {
+            let Some(entry) = self.entry_by_token_id(u32::from(value))? else {
                 return Err(PackError::MissingByteFallback);
             };
-            if entry.surface.len() != 1 || entry.surface[0] != value as u8 {
+            if entry.surface.len() != 1 || entry.surface[0] != value {
                 return Err(PackError::MissingByteFallback);
             }
         }
@@ -270,7 +333,11 @@ impl<'a> VocabularyView<'a> {
         }
         let offset = self
             .first_byte_index_offset
-            .checked_add(usize::from(position).checked_mul(4).ok_or(PackError::IntegerOverflow)?)
+            .checked_add(
+                usize::from(position)
+                    .checked_mul(4)
+                    .ok_or(PackError::IntegerOverflow)?,
+            )
             .ok_or(PackError::IntegerOverflow)?;
         read_u32(self.bytes, offset)
     }
@@ -278,18 +345,24 @@ impl<'a> VocabularyView<'a> {
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, PackError> {
     let end = offset.checked_add(2).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidVocabularyLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidVocabularyLayout)?;
     Ok(u16::from_le_bytes([data[0], data[1]]))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, PackError> {
     let end = offset.checked_add(4).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidVocabularyLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidVocabularyLayout)?;
     Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }
 
 fn read_i32(bytes: &[u8], offset: usize) -> Result<i32, PackError> {
     let end = offset.checked_add(4).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidVocabularyLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidVocabularyLayout)?;
     Ok(i32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, hashlib, json, os, re, sqlite3, struct, sys, tempfile, time
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -83,7 +84,7 @@ class Registry:
         db=sqlite3.connect(self.db_path,timeout=30,isolation_level=None);db.execute('PRAGMA foreign_keys=ON');db.execute('PRAGMA busy_timeout=30000');return db
     def init(self):
         self.objects.mkdir(parents=True,exist_ok=True);self.tmp.mkdir(parents=True,exist_ok=True)
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             db.executescript('''PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS packs(
@@ -111,7 +112,7 @@ CREATE INDEX IF NOT EXISTS packs_hash ON packs(sha256);''')
             else:os.replace(tmp,target)
         finally:tmp.unlink(missing_ok=True)
         row=PackRow(publisher,name,version,h,len(data),info['pack_class'],info['format'],trust_status,key_id)
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             db.execute('BEGIN IMMEDIATE')
             old=db.execute('SELECT sha256,key_id FROM packs WHERE publisher=? AND name=? AND version=?',(publisher,name,version)).fetchone()
             if old and (old[0]!=h or (old[1] and key_id and old[1]!=key_id)):
@@ -121,7 +122,7 @@ VALUES(?,?,?,?,?,?,?,?,?,?)''',(publisher,name,version,h,len(data),info['pack_cl
             db.execute('COMMIT')
         return row
     def rows(self)->list[PackRow]:
-        with self.connect() as db:rows=db.execute('SELECT publisher,name,version,sha256,size,pack_class,format,trust_status,key_id FROM packs').fetchall()
+        with closing(self.connect()) as db:rows=db.execute('SELECT publisher,name,version,sha256,size,pack_class,format,trust_status,key_id FROM packs').fetchall()
         return [PackRow(*r) for r in rows]
     def catalog_hash(self)->str:
         rows=[asdict(r) for r in sorted(self.rows(),key=lambda x:(x.publisher,x.name,semver(x.version),x.sha256))]
@@ -158,7 +159,7 @@ VALUES(?,?,?,?,?,?,?,?,?,?)''',(publisher,name,version,h,len(data),info['pack_cl
         info=inspect_pack(pack)
         if not info['canonical_hash_valid']:raise ValueError('pack canonical hash invalid')
         data=pack.read_bytes();h=sha256_bytes(data)
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             count=db.execute('SELECT COUNT(*) FROM packs WHERE sha256=?',(h,)).fetchone()[0]
         if not count:raise ValueError('repair source is not referenced by registry metadata')
         target=self.object_path(h);target.parent.mkdir(parents=True,exist_ok=True)
@@ -172,7 +173,7 @@ VALUES(?,?,?,?,?,?,?,?,?,?)''',(publisher,name,version,h,len(data),info['pack_cl
     def audit(self)->list[str]:
         errors=[]
         try:
-            with self.connect() as db:
+            with closing(self.connect()) as db:
                 checks=[r[0] for r in db.execute('PRAGMA integrity_check').fetchall()]
                 if checks!=['ok']:errors.extend(f'sqlite integrity: {x}' for x in checks)
                 schema=db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()

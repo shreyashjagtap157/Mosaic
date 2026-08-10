@@ -59,19 +59,33 @@ fn canonical_metadata_rejects_lock_tampering_and_invalid_identity() {
     let limits = PackValidationLimits::DEFAULT;
     let lock_hash = include_bytes!("../../../fixtures/packs/malformed/lock-hash-mismatch.mpack");
     let pack = PackView::parse(lock_hash, limits).expect("outer pack remains valid");
-    assert_eq!(pack.validate_canonical_metadata(limits), Err(PackError::DependencyLockHashMismatch));
+    assert_eq!(
+        pack.validate_canonical_metadata(limits),
+        Err(PackError::DependencyLockHashMismatch)
+    );
 
-    let invalid_utf8 = include_bytes!("../../../fixtures/packs/malformed/dependency-invalid-utf8.mpack");
+    let invalid_utf8 =
+        include_bytes!("../../../fixtures/packs/malformed/dependency-invalid-utf8.mpack");
     let pack = PackView::parse(invalid_utf8, limits).expect("outer pack remains valid");
-    assert_eq!(pack.validate_canonical_metadata(limits), Err(PackError::InvalidIdentityUtf8));
+    assert_eq!(
+        pack.validate_canonical_metadata(limits),
+        Err(PackError::InvalidIdentityUtf8)
+    );
 
     let zero_hash = include_bytes!("../../../fixtures/packs/malformed/dependency-zero-hash.mpack");
     let pack = PackView::parse(zero_hash, limits).expect("outer pack remains valid");
-    assert_eq!(pack.validate_canonical_metadata(limits), Err(PackError::ZeroDependencyHash));
+    assert_eq!(
+        pack.validate_canonical_metadata(limits),
+        Err(PackError::ZeroDependencyHash)
+    );
 
-    let duplicate = include_bytes!("../../../fixtures/packs/malformed/dependency-duplicate-identity.mpack");
+    let duplicate =
+        include_bytes!("../../../fixtures/packs/malformed/dependency-duplicate-identity.mpack");
     let pack = PackView::parse(duplicate, limits).expect("outer pack remains valid");
-    assert_eq!(pack.validate_canonical_metadata(limits), Err(PackError::DuplicateDependencyIdentity));
+    assert_eq!(
+        pack.validate_canonical_metadata(limits),
+        Err(PackError::DuplicateDependencyIdentity)
+    );
 }
 
 #[test]
@@ -80,7 +94,10 @@ fn dfa_validation_rejects_out_of_range_state() {
     let bytes = include_bytes!("../../../fixtures/packs/malformed/dfa-state-out-of-bounds.mpack");
     let pack = PackView::parse(bytes, limits).expect("outer pack remains valid");
     let dfa = pack.section_bytes(2).expect("DFA section");
-    assert!(matches!(DfaView::parse(dfa, limits), Err(PackError::DfaStateOutOfBounds)));
+    assert!(matches!(
+        DfaView::parse(dfa, limits),
+        Err(PackError::DfaStateOutOfBounds)
+    ));
 
     let flagged = include_bytes!("../../../fixtures/packs/malformed/dfa-transition-flags.mpack");
     let pack = PackView::parse(flagged, limits).expect("outer flagged pack remains valid");

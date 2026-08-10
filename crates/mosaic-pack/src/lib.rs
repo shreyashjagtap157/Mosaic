@@ -57,7 +57,7 @@ impl PackValidationLimits {
         max_manifest_packs: 4096,
         max_vocab_entries: 1_048_576,
         max_token_bytes: 1 << 20,
-        max_unicode_ranges: 1_000_000,
+        max_unicode_ranges: 1_048_576,
     };
 }
 
@@ -151,23 +151,53 @@ pub struct PackHeaderV0 {
 }
 
 impl PackHeaderV0 {
+    /// Parses a legacy M0 pack header.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the bytes are too short, the magic/header layout
+    /// is unsupported, reserved fields are non-zero, or the encoded length does
+    /// not match the provided buffer.
     pub fn parse(bytes: &[u8]) -> Result<Self, PackError> {
-        if bytes.len() < M0_HEADER_LEN { return Err(PackError::TooShort); }
-        if bytes[..8] != MAGIC { return Err(PackError::InvalidMagic); }
+        if bytes.len() < M0_HEADER_LEN {
+            return Err(PackError::TooShort);
+        }
+        if bytes[..8] != MAGIC {
+            return Err(PackError::InvalidMagic);
+        }
         let format_major = u16::from_le_bytes([bytes[8], bytes[9]]);
         let format_minor = u16::from_le_bytes([bytes[10], bytes[11]]);
         let header_len = u16::from_le_bytes([bytes[12], bytes[13]]);
         let flags = u16::from_le_bytes([bytes[14], bytes[15]]);
-        let file_len = u64::from_le_bytes(bytes[16..24].try_into().map_err(|_| PackError::TooShort)?);
-        let section_count = u32::from_le_bytes(bytes[24..28].try_into().map_err(|_| PackError::TooShort)?);
-        let reserved = u32::from_le_bytes(bytes[28..32].try_into().map_err(|_| PackError::TooShort)?);
-        if usize::from(header_len) != M0_HEADER_LEN { return Err(PackError::UnsupportedHeaderLength); }
-        let actual_len = u64::try_from(bytes.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
-        if file_len != actual_len { return Err(PackError::LengthMismatch); }
-        if reserved != 0 { return Err(PackError::ReservedNotZero); }
-        Ok(Self { format_major, format_minor, header_len, flags, file_len, section_count })
+        let file_len =
+            u64::from_le_bytes(bytes[16..24].try_into().map_err(|_| PackError::TooShort)?);
+        let section_count =
+            u32::from_le_bytes(bytes[24..28].try_into().map_err(|_| PackError::TooShort)?);
+        let reserved =
+            u32::from_le_bytes(bytes[28..32].try_into().map_err(|_| PackError::TooShort)?);
+        if usize::from(header_len) != M0_HEADER_LEN {
+            return Err(PackError::UnsupportedHeaderLength);
+        }
+        let actual_len =
+            u64::try_from(bytes.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
+        if file_len != actual_len {
+            return Err(PackError::LengthMismatch);
+        }
+        if reserved != 0 {
+            return Err(PackError::ReservedNotZero);
+        }
+        Ok(Self {
+            format_major,
+            format_minor,
+            header_len,
+            flags,
+            file_len,
+            section_count,
+        })
     }
 
     #[must_use]
-    pub const fn is_test_fixture(self) -> bool { self.flags & FLAG_TEST_FIXTURE != 0 }
+    pub const fn is_test_fixture(self) -> bool {
+        self.flags & FLAG_TEST_FIXTURE != 0
+    }
 }

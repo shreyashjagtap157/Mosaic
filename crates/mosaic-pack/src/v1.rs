@@ -58,6 +58,12 @@ pub struct PackView<'a> {
 }
 
 impl PackHeaderV1 {
+    /// Parses a MOSPACK v1 header.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the header is too short, uses unsupported format
+    /// features, violates resource limits, or points outside the provided bytes.
     pub fn parse(bytes: &[u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         if bytes.len() < V1_HEADER_LEN {
             return Err(PackError::TooShort);
@@ -92,7 +98,8 @@ impl PackHeaderV1 {
         if usize::from(section_entry_len) != SECTION_ENTRY_LEN {
             return Err(PackError::UnsupportedSectionEntryLength);
         }
-        let actual_file_len = u64::try_from(bytes.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
+        let actual_file_len =
+            u64::try_from(bytes.len()).map_err(|_| PackError::ResourceLimitExceeded)?;
         if file_len != actual_file_len {
             return Err(PackError::LengthMismatch);
         }
@@ -102,7 +109,10 @@ impl PackHeaderV1 {
         if section_count > limits.max_sections {
             return Err(PackError::ResourceLimitExceeded);
         }
-        if bytes[CONTENT_HASH_END..V1_HEADER_LEN].iter().any(|byte| *byte != 0) {
+        if bytes[CONTENT_HASH_END..V1_HEADER_LEN]
+            .iter()
+            .any(|byte| *byte != 0)
+        {
             return Err(PackError::ReservedNotZero);
         }
 
@@ -118,8 +128,12 @@ impl PackHeaderV1 {
         if section_directory_offset % 8 != 0 {
             return Err(PackError::MisalignedSection);
         }
-        let directory_start = usize::try_from(section_directory_offset).map_err(|_| PackError::IntegerOverflow)?;
-        if bytes[usize::from(header_len)..directory_start].iter().any(|byte| *byte != 0) {
+        let directory_start =
+            usize::try_from(section_directory_offset).map_err(|_| PackError::IntegerOverflow)?;
+        if bytes[usize::from(header_len)..directory_start]
+            .iter()
+            .any(|byte| *byte != 0)
+        {
             return Err(PackError::NonCanonicalPadding);
         }
 
@@ -147,6 +161,12 @@ impl PackHeaderV1 {
 }
 
 impl<'a> PackView<'a> {
+    /// Parses a complete MOSPACK v1 file view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the header, section directory, content hash, or
+    /// special manifest/lock section references are invalid.
     pub fn parse(bytes: &'a [u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         let header = PackHeaderV1::parse(bytes, limits)?;
         let view = Self { bytes, header };
@@ -161,6 +181,12 @@ impl<'a> PackView<'a> {
         self.header
     }
 
+    /// Returns a section directory entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when `index` is out of bounds or the directory entry
+    /// cannot be decoded.
     pub fn section(self, index: u32) -> Result<SectionEntry, PackError> {
         if index >= self.header.section_count {
             return Err(PackError::InvalidSectionIndex);
@@ -178,14 +204,30 @@ impl<'a> PackView<'a> {
         parse_section_entry(self.bytes, base)
     }
 
+    /// Returns the raw payload bytes for a section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when `index` is invalid or the section payload points
+    /// outside the pack.
     pub fn section_bytes(self, index: u32) -> Result<&'a [u8], PackError> {
         let section = self.section(index)?;
         let start = usize::try_from(section.offset).map_err(|_| PackError::IntegerOverflow)?;
         let length = usize::try_from(section.length).map_err(|_| PackError::IntegerOverflow)?;
-        let end = start.checked_add(length).ok_or(PackError::IntegerOverflow)?;
-        self.bytes.get(start..end).ok_or(PackError::SectionOutOfBounds)
+        let end = start
+            .checked_add(length)
+            .ok_or(PackError::IntegerOverflow)?;
+        self.bytes
+            .get(start..end)
+            .ok_or(PackError::SectionOutOfBounds)
     }
 
+    /// Returns the canonical manifest section bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the pack has no manifest section or it cannot be
+    /// sliced from the pack bytes.
     pub fn manifest_bytes(self) -> Result<&'a [u8], PackError> {
         if self.header.manifest_section_index == NONE_SECTION_INDEX {
             return Err(PackError::MissingManifestSection);
@@ -193,6 +235,12 @@ impl<'a> PackView<'a> {
         self.section_bytes(self.header.manifest_section_index)
     }
 
+    /// Returns the canonical lock-graph section bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the pack has no lock section or it cannot be
+    /// sliced from the pack bytes.
     pub fn lock_bytes(self) -> Result<&'a [u8], PackError> {
         if self.header.lock_section_index == NONE_SECTION_INDEX {
             return Err(PackError::MissingLockSection);
@@ -200,15 +248,35 @@ impl<'a> PackView<'a> {
         self.section_bytes(self.header.lock_section_index)
     }
 
+    /// Parses the canonical manifest section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the manifest section is missing or malformed.
     pub fn canonical_manifest(self) -> Result<ManifestV1, PackError> {
         ManifestV1::parse(self.manifest_bytes()?)
     }
 
+    /// Parses the canonical lock-graph section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the lock section is missing, malformed, or exceeds
+    /// configured limits.
     pub fn lock_graph(self, limits: PackValidationLimits) -> Result<LockGraphView<'a>, PackError> {
         LockGraphView::parse(self.lock_bytes()?, limits)
     }
 
-    pub fn validate_canonical_metadata(self, limits: PackValidationLimits) -> Result<(), PackError> {
+    /// Validates the required singleton manifest and lock metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if manifest/lock sections are not canonical or the
+    /// manifest's lock hash does not match the lock bytes.
+    pub fn validate_canonical_metadata(
+        self,
+        limits: PackValidationLimits,
+    ) -> Result<(), PackError> {
         let mut manifests = 0_u32;
         let mut locks = 0_u32;
         for index in 0..self.header.section_count {
@@ -230,6 +298,12 @@ impl<'a> PackView<'a> {
         Ok(())
     }
 
+    /// Validates canonical metadata and dependency availability.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if metadata validation fails or any locked dependency
+    /// hash is absent from `available`.
     pub fn validate_canonical_dependencies(
         self,
         limits: PackValidationLimits,
@@ -288,8 +362,10 @@ impl<'a> PackView<'a> {
             if end > self.header.file_len {
                 return Err(PackError::SectionOutOfBounds);
             }
-            let gap_start = usize::try_from(previous_end).map_err(|_| PackError::IntegerOverflow)?;
-            let gap_end = usize::try_from(section.offset).map_err(|_| PackError::IntegerOverflow)?;
+            let gap_start =
+                usize::try_from(previous_end).map_err(|_| PackError::IntegerOverflow)?;
+            let gap_end =
+                usize::try_from(section.offset).map_err(|_| PackError::IntegerOverflow)?;
             if self.bytes[gap_start..gap_end].iter().any(|byte| *byte != 0) {
                 return Err(PackError::NonCanonicalPadding);
             }
@@ -344,7 +420,9 @@ fn parse_section_entry(bytes: &[u8], base: usize) -> Result<SectionEntry, PackEr
     let end = base
         .checked_add(SECTION_ENTRY_LEN)
         .ok_or(PackError::IntegerOverflow)?;
-    let entry = bytes.get(base..end).ok_or(PackError::SectionDirectoryOutOfBounds)?;
+    let entry = bytes
+        .get(base..end)
+        .ok_or(PackError::SectionDirectoryOutOfBounds)?;
     if entry[31] != 0 {
         return Err(PackError::ReservedNotZero);
     }

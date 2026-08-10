@@ -7,7 +7,10 @@ fn every_byte_value_round_trips() {
     let mut output = vec![0_u8; bytes.len()];
 
     source
-        .read_exact(ByteRange::new(0, u64::try_from(bytes.len()).expect("length must fit u64")), &mut output)
+        .read_exact(
+            ByteRange::new(0, u64::try_from(bytes.len()).expect("length must fit u64")),
+            &mut output,
+        )
         .expect("full range must be readable");
 
     assert_eq!(output, bytes);
@@ -22,27 +25,33 @@ fn canonical_leaves_are_gapless_single_bytes() {
     assert_eq!(leaves.len(), bytes.len());
     for (index, leaf) in leaves.into_iter().enumerate() {
         let range = leaf.range();
-        assert_eq!(range.start.0, u64::try_from(index).expect("index must fit u64"));
+        assert_eq!(
+            range.start.0,
+            u64::try_from(index).expect("index must fit u64")
+        );
         assert_eq!(range.len.0, 1);
     }
 }
 
 #[test]
 fn generated_buffers_round_trip() {
-    let mut state = 0x4d595df4d0f33173_u64;
+    let mut state = 0x4d59_5df4_d0f3_3173_u64;
     for len in 0..2048_usize {
         let mut bytes = vec![0_u8; len];
         for byte in &mut bytes {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
-            *byte = state as u8;
+            *byte = state.to_le_bytes()[0];
         }
 
         let source = BorrowedSource::new(&bytes);
         let mut output = vec![0_u8; len];
         source
-            .read_exact(ByteRange::new(0, u64::try_from(len).expect("length must fit u64")), &mut output)
+            .read_exact(
+                ByteRange::new(0, u64::try_from(len).expect("length must fit u64")),
+                &mut output,
+            )
             .expect("generated buffer must round-trip");
         assert_eq!(output, bytes);
     }
@@ -60,7 +69,11 @@ fn range_errors_are_explicit() {
     let mut one = [0_u8; 1];
 
     assert!(source.read_exact(ByteRange::new(3, 1), &mut one).is_err());
-    assert!(source.read_exact(ByteRange::new(u64::MAX, 2), &mut one).is_err());
+    assert!(
+        source
+            .read_exact(ByteRange::new(u64::MAX, 2), &mut one)
+            .is_err()
+    );
 }
 
 #[test]
@@ -89,7 +102,11 @@ fn versioned_source_keeps_identity_outside_byte_semantics() {
 
 #[test]
 fn checked_ranges_accept_the_largest_valid_empty_range() {
-    assert!(ByteRange::new(u64::MAX, 0).validate_for_len(u64::MAX).is_ok());
+    assert!(
+        ByteRange::new(u64::MAX, 0)
+            .validate_for_len(u64::MAX)
+            .is_ok()
+    );
 }
 
 #[test]

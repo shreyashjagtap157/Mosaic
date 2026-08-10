@@ -23,7 +23,6 @@ pub struct ProjectionId(pub u32);
 #[repr(C)]
 pub struct ContentHash(pub [u8; 32]);
 
-
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct EdgeCost(pub i32);

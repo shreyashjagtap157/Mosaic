@@ -30,6 +30,13 @@ pub struct UnicodeDataView<'a> {
 }
 
 impl<'a> UnicodeDataView<'a> {
+    /// Parses and validates a Unicode data section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the section header, Unicode version, range
+    /// layout, resource limits, padding, or canonical range ordering are
+    /// invalid.
     pub fn parse(bytes: &'a [u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         if bytes.len() < UNICODE_HEADER_LEN || bytes[..4] != UNICODE_MAGIC {
             return Err(PackError::InvalidUnicodeHeader);
@@ -43,9 +50,12 @@ impl<'a> UnicodeDataView<'a> {
         let gcb_count = read_u32(bytes, 16)?;
         let incb_count = read_u32(bytes, 20)?;
         let ep_count = read_u32(bytes, 24)?;
-        let gcb_offset = usize::try_from(read_u32(bytes, 28)?).map_err(|_| PackError::IntegerOverflow)?;
-        let incb_offset = usize::try_from(read_u32(bytes, 32)?).map_err(|_| PackError::IntegerOverflow)?;
-        let ep_offset = usize::try_from(read_u32(bytes, 36)?).map_err(|_| PackError::IntegerOverflow)?;
+        let gcb_offset =
+            usize::try_from(read_u32(bytes, 28)?).map_err(|_| PackError::IntegerOverflow)?;
+        let incb_offset =
+            usize::try_from(read_u32(bytes, 32)?).map_err(|_| PackError::IntegerOverflow)?;
+        let ep_offset =
+            usize::try_from(read_u32(bytes, 36)?).map_err(|_| PackError::IntegerOverflow)?;
         let reserved2 = read_u64(bytes, 40)?;
 
         if version != 1 || (major, minor, patch) != (17, 0, 0) {
@@ -114,14 +124,29 @@ impl<'a> UnicodeDataView<'a> {
         (17, 0, 0)
     }
 
+    /// Looks up the grapheme-cluster-break property for `scalar`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the encoded range table is malformed.
     pub fn grapheme_break(self, scalar: u32) -> Result<u8, PackError> {
         self.property_lookup(self.gcb_offset, self.gcb_count, scalar)
     }
 
+    /// Looks up the Indic-conjunct-break property for `scalar`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the encoded range table is malformed.
     pub fn indic_conjunct_break(self, scalar: u32) -> Result<u8, PackError> {
         self.property_lookup(self.incb_offset, self.incb_count, scalar)
     }
 
+    /// Returns whether `scalar` is in the extended-pictographic table.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the encoded range table is malformed.
     pub fn is_extended_pictographic(self, scalar: u32) -> Result<bool, PackError> {
         let mut low = 0_u32;
         let mut high = self.ep_count;
@@ -139,14 +164,29 @@ impl<'a> UnicodeDataView<'a> {
         Ok(false)
     }
 
+    /// Returns a grapheme-cluster-break range by index.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the entry is malformed.
     pub fn gcb_range(self, index: u32) -> Result<PropertyRange, PackError> {
         self.property_range(self.gcb_offset, self.gcb_count, index)
     }
 
+    /// Returns an Indic-conjunct-break range by index.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the entry is malformed.
     pub fn incb_range(self, index: u32) -> Result<PropertyRange, PackError> {
         self.property_range(self.incb_offset, self.incb_count, index)
     }
 
+    /// Returns an extended-pictographic range by index.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if `index` is out of bounds or the entry is malformed.
     pub fn ep_range(self, index: u32) -> Result<CodepointRange, PackError> {
         if index >= self.ep_count {
             return Err(PackError::UnicodeRangeIndexOutOfBounds);
@@ -183,7 +223,12 @@ impl<'a> UnicodeDataView<'a> {
         Ok(0)
     }
 
-    fn property_range(self, offset: usize, count: u32, index: u32) -> Result<PropertyRange, PackError> {
+    fn property_range(
+        self,
+        offset: usize,
+        count: u32,
+        index: u32,
+    ) -> Result<PropertyRange, PackError> {
         if index >= count {
             return Err(PackError::UnicodeRangeIndexOutOfBounds);
         }
@@ -209,7 +254,10 @@ impl<'a> UnicodeDataView<'a> {
         Ok(PropertyRange {
             start: read_u32(self.bytes, base)?,
             end: read_u32(self.bytes, base + 4)?,
-            value: *self.bytes.get(base + 8).ok_or(PackError::InvalidUnicodeLayout)?,
+            value: *self
+                .bytes
+                .get(base + 8)
+                .ok_or(PackError::InvalidUnicodeLayout)?,
         })
     }
 
@@ -249,17 +297,23 @@ impl<'a> UnicodeDataView<'a> {
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, PackError> {
     let end = offset.checked_add(2).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidUnicodeLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidUnicodeLayout)?;
     Ok(u16::from_le_bytes([data[0], data[1]]))
 }
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, PackError> {
     let end = offset.checked_add(4).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidUnicodeLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidUnicodeLayout)?;
     Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, PackError> {
     let end = offset.checked_add(8).ok_or(PackError::IntegerOverflow)?;
-    let data = bytes.get(offset..end).ok_or(PackError::InvalidUnicodeLayout)?;
+    let data = bytes
+        .get(offset..end)
+        .ok_or(PackError::InvalidUnicodeLayout)?;
     Ok(u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]))

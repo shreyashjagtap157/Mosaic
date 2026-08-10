@@ -20,6 +20,12 @@ pub trait Source {
 
     fn read_byte(&self, offset: u64) -> Option<u8>;
 
+    /// Copies the exact source bytes for `range` into `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SourceError` when `range` is invalid for the source or `output`
+    /// does not have exactly the requested byte length.
     fn read_exact(&self, range: ByteRange, output: &mut [u8]) -> Result<(), SourceError>;
 
     #[must_use]
@@ -62,12 +68,14 @@ impl Source for BorrowedSource<'_> {
 
     fn read_exact(&self, range: ByteRange, output: &mut [u8]) -> Result<(), SourceError> {
         range.validate_for_len(self.len())?;
-        let expected = usize::try_from(range.len.0).map_err(|_| SourceError::LengthDoesNotFitPlatform)?;
+        let expected =
+            usize::try_from(range.len.0).map_err(|_| SourceError::LengthDoesNotFitPlatform)?;
         if output.len() != expected {
             return Err(RangeError::OutputLengthMismatch.into());
         }
 
-        let start = usize::try_from(range.start.0).map_err(|_| SourceError::LengthDoesNotFitPlatform)?;
+        let start =
+            usize::try_from(range.start.0).map_err(|_| SourceError::LengthDoesNotFitPlatform)?;
         let end = start.checked_add(expected).ok_or(RangeError::EndOverflow)?;
         output.copy_from_slice(&self.bytes[start..end]);
         Ok(())

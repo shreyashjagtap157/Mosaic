@@ -27,7 +27,9 @@ impl fmt::Display for RangeError {
         match self {
             Self::EndOverflow => f.write_str("byte range end overflows u64"),
             Self::OutOfBounds => f.write_str("byte range is outside the source"),
-            Self::OutputLengthMismatch => f.write_str("output buffer length does not match byte range"),
+            Self::OutputLengthMismatch => {
+                f.write_str("output buffer length does not match byte range")
+            }
         }
     }
 }
@@ -46,6 +48,11 @@ impl ByteRange {
         }
     }
 
+    /// Returns the exclusive end offset.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RangeError::EndOverflow` when `start + len` cannot fit in `u64`.
     pub const fn checked_end(self) -> Result<ByteOffset, RangeError> {
         match self.start.0.checked_add(self.len.0) {
             Some(end) => Ok(ByteOffset(end)),
@@ -53,6 +60,11 @@ impl ByteRange {
         }
     }
 
+    /// Validates that the range is contained by a source of `source_len` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RangeError` if the range end overflows or exceeds `source_len`.
     pub const fn validate_for_len(self, source_len: u64) -> Result<(), RangeError> {
         match self.checked_end() {
             Ok(end) if end.0 <= source_len => Ok(()),

@@ -13,6 +13,12 @@ pub struct ManifestV1 {
 }
 
 impl ManifestV1 {
+    /// Parses a canonical manifest section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` if the section length, magic, version, reserved
+    /// fields, or integer reads are invalid.
     pub fn parse(bytes: &[u8]) -> Result<Self, PackError> {
         if bytes.len() != MANIFEST_V1_LEN {
             return Err(PackError::InvalidManifestLength);

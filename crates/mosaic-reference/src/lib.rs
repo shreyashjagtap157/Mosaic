@@ -10,6 +10,11 @@ pub const BYTE_KIND: TokenKind = TokenKind(0);
 ///
 /// This implementation materializes output for clarity. Production code is
 /// free to stream/fill caller buffers as long as it is differential-equivalent.
+///
+/// # Panics
+///
+/// Panics only if a canonical source leaf points outside its source, which would
+/// violate the `Source::canonical_leaves` contract.
 pub fn project_bytes(source: &impl Source) -> Vec<ProjectedToken> {
     let mut tokens = Vec::with_capacity(usize::try_from(source.len()).unwrap_or(0));
     for leaf in source.canonical_leaves() {
@@ -26,7 +31,12 @@ pub fn project_bytes(source: &impl Source) -> Vec<ProjectedToken> {
     tokens
 }
 
-
+/// Runs the reference DFA interpreter over `input`.
+///
+/// # Errors
+///
+/// Returns `PackError` if DFA entries are malformed or transition/accept costs
+/// overflow while accumulating the run cost.
 pub fn run_dfa(
     dfa: mosaic_pack::DfaView<'_>,
     input: &[u8],
@@ -58,13 +68,21 @@ pub fn run_dfa(
             cost = cost
                 .checked_add(i64::from(accept.cost))
                 .ok_or(mosaic_pack::PackError::CostOverflow)?;
-            return Ok(Some(mosaic_ir::DfaRun { token_id: accept.token_id, cost }));
+            return Ok(Some(mosaic_ir::DfaRun {
+                token_id: accept.token_id,
+                cost,
+            }));
         }
     }
     Ok(None)
 }
 
-
+/// Compares two candidate paths using Mosaic's canonical tie-break order.
+///
+/// # Errors
+///
+/// Returns `PathComparisonError` if path costs overflow or an edge range is
+/// invalid.
 pub fn compare_paths(
     left: &[mosaic_ir::CandidateEdge],
     right: &[mosaic_ir::CandidateEdge],
@@ -110,9 +128,18 @@ fn path_cost(edges: &[mosaic_ir::CandidateEdge]) -> Result<i64, mosaic_ir::PathC
 }
 
 fn edge_len(edge: mosaic_ir::CandidateEdge) -> Result<u64, mosaic_ir::PathComparisonError> {
-    edge.key.end.checked_sub(edge.key.start).ok_or(mosaic_ir::PathComparisonError::InvalidEdgeRange)
+    edge.key
+        .end
+        .checked_sub(edge.key.start)
+        .ok_or(mosaic_ir::PathComparisonError::InvalidEdgeRange)
 }
 
+/// Tokenizes `input` with the reference Viterbi implementation.
+///
+/// # Errors
+///
+/// Returns `ModelError` if the vocabulary cannot be read, a span overflows, or
+/// no complete tokenization path exists.
 pub fn tokenize_viterbi(
     vocabulary: mosaic_pack::VocabularyView<'_>,
     input: &[u8],
@@ -152,6 +179,7 @@ pub fn tokenize_viterbi(
         .ok_or(mosaic_model::ModelError::InvalidVocabularySectionCount)
 }
 
+#[must_use]
 pub fn compare_model_paths(
     left: &[mosaic_model::EncodedToken],
     right: &[mosaic_model::EncodedToken],

@@ -24,6 +24,12 @@ pub struct LockGraphView<'a> {
 }
 
 impl<'a> LockGraphView<'a> {
+    /// Parses and validates a dependency lock graph section.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when the lock graph header, UTF-8 identities,
+    /// dependency limits, duplicate identities, or padding are invalid.
     pub fn parse(bytes: &'a [u8], limits: PackValidationLimits) -> Result<Self, PackError> {
         if bytes.len() < HEADER_LEN {
             return Err(PackError::InvalidLockGraphLength);
@@ -86,6 +92,12 @@ impl<'a> LockGraphView<'a> {
         self.count == 0
     }
 
+    /// Returns the resolved dependency identity at `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when `index` is out of bounds or the encoded entry
+    /// cannot be decoded under `limits`.
     pub fn entry(
         self,
         index: u32,
@@ -105,6 +117,12 @@ impl<'a> LockGraphView<'a> {
         Err(PackError::DependencyIndexOutOfBounds)
     }
 
+    /// Checks whether every locked dependency hash appears in `available`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PackError` when a dependency entry cannot be decoded under
+    /// `limits`.
     pub fn dependencies_satisfied_by(
         self,
         available: &[PackHash],
@@ -113,7 +131,7 @@ impl<'a> LockGraphView<'a> {
         let mut offset = HEADER_LEN;
         for _ in 0..self.count {
             let (dependency, next) = self.entry_from_offset(offset, limits)?;
-            if !available.iter().any(|hash| *hash == dependency.content_hash) {
+            if !available.contains(&dependency.content_hash) {
                 return Ok(false);
             }
             offset = next;
@@ -167,7 +185,8 @@ impl<'a> LockGraphView<'a> {
             .bytes
             .get(publisher_end..name_end)
             .ok_or(PackError::InvalidLockGraphLength)?;
-        let publisher = str::from_utf8(publisher_bytes).map_err(|_| PackError::InvalidIdentityUtf8)?;
+        let publisher =
+            str::from_utf8(publisher_bytes).map_err(|_| PackError::InvalidIdentityUtf8)?;
         let name = str::from_utf8(name_bytes).map_err(|_| PackError::InvalidIdentityUtf8)?;
         let next = align4(name_end).ok_or(PackError::IntegerOverflow)?;
         let padding = self
