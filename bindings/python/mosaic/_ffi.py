@@ -49,6 +49,10 @@ class CDetection(C.Structure):
                 ("margin", C.c_int64), ("language", C.c_char * 64)]
 
 
+class CSpanRoute(C.Structure):
+    _fields_ = [("start", C.c_uint64), ("length", C.c_uint64), ("detection", CDetection)]
+
+
 class CRuntimeLimits(C.Structure):
     _fields_ = [("struct_size", C.c_uint32), ("flags", C.c_uint32),
                 ("max_input_bytes", C.c_uint64), ("max_output_tokens", C.c_uint64),
@@ -184,7 +188,9 @@ def configure_library(lib: C.CDLL) -> None:
     lib.mosaic_online_stream_pending_bytes.argtypes = [C.c_void_p]; lib.mosaic_online_stream_pending_bytes.restype = C.c_size_t
     lib.mosaic_online_stream_free.argtypes = [C.c_void_p]
     lib.mosaic_tokenizer_detect_language.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(CDetection)]; lib.mosaic_tokenizer_detect_language.restype = C.c_int
+    lib.mosaic_tokenizer_detect_spans.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.POINTER(CSpanRoute)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_detect_spans.restype = C.c_int
     lib.mosaic_tokenizer_encode_auto.argtypes = [C.c_void_p, u8p, C.c_size_t, pp_u32, C.POINTER(C.c_size_t), C.POINTER(CDetection)]; lib.mosaic_tokenizer_encode_auto.restype = C.c_int
+    lib.mosaic_tokenizer_encode_span_auto.argtypes = [C.c_void_p, u8p, C.c_size_t, pp_u32, C.POINTER(C.c_size_t), C.POINTER(C.POINTER(CSpanRoute)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_encode_span_auto.restype = C.c_int
     lib.mosaic_tokenizer_grapheme_ranges.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.POINTER(CRange)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_grapheme_ranges.restype = C.c_int
     lib.mosaic_tokenizer_security_scan.argtypes = [C.c_void_p, u8p, C.c_size_t, C.POINTER(C.POINTER(CSecurityFinding)), C.POINTER(C.c_size_t)]; lib.mosaic_tokenizer_security_scan.restype = C.c_int
     lib.mosaic_tokenizer_normalize.argtypes = [C.c_void_p, C.c_uint32, u8p, C.c_size_t, C.POINTER(CNormalizedView)]; lib.mosaic_tokenizer_normalize.restype = C.c_int

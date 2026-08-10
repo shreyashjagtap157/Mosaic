@@ -4,7 +4,7 @@ Date: 2026-08-10
 
 ## Current enterprise candidate
 
-**0.1.2.1 — universal tokenization and token-native processing platform candidate.**
+**0.1.3.0 — universal tokenization and token-native processing platform candidate.**
 
 Mosaic uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` remains deliberate: real Windows qualification exposed portability defects, and `0.1.0.4` closes the C++ smoke-client compatibility defect with an explicit strict-C++11 consumer contract. The dependency-minimal Windows Clang preset and the pinned Rust 1.97.1 workspace gate now pass, but the remaining declared stable-generation gates must complete before the project is permitted to claim `1.0.0.0` stable.
 
@@ -16,6 +16,7 @@ The qualified production implementation is the native C runtime on the platforms
 - deterministic checked integer Viterbi and BPE/tiktoken compatibility;
 - generated Unicode grapheme/security/normalization views with exact source mapping;
 - external language, detector, security, normalization and lexer packs;
+- deterministic document-level and mixed-language span-level detector routing;
 - deterministic authoring/training baseline and content-addressed pack registry/lockfiles;
 - exact online streaming, transactional incrementality and checkpoint suffix resynchronization;
 - immutable TokenDocument/Core IR with model, grapheme, security, normalization, lexical and semantic projections;
@@ -46,7 +47,7 @@ The qualified production implementation is the native C runtime on the platforms
 - deterministic 250,000-iteration reliability soak repeated with identical replay digest;
 - deterministic release archives and Python wheels;
 - clean-extraction external C consumer and control-plane package tests;
-- ABI/export and stable-format contract checks;
+- ABI/export and stable-format contract checks, including Windows PE/COFF export validation for the native DLL;
 - clean Git provenance and SPDX/in-toto release metadata.
 
 ## Stable-generation qualification gates still open

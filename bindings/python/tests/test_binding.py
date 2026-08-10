@@ -20,6 +20,8 @@ PACK = ROOT / "fixtures/packs"
 def tokenizer() -> Tokenizer:
     t = Tokenizer(PACK / "model-v2.mpack", PACK / "unicode17-v1.mpack", library_path=LIB)
     t.add_language(PACK / "language/en-v1.mpack")
+    t.add_language(PACK / "language/hi-v1.mpack")
+    t.add_language(PACK / "language/ja-v1.mpack")
     t.set_detector(PACK / "detector/reference-v1.mpack")
     t.set_security(PACK / "security17-v1.mpack")
     t.set_normalization(PACK / "normalization16-v1.mpack")
@@ -43,6 +45,14 @@ class BindingTests(unittest.TestCase):
         with tokenizer() as t:
             ids, detection = t.encode_auto(b"tokenizer")
             self.assertEqual(ids, (271,)); self.assertEqual(detection.language, "en"); self.assertTrue(detection.available)
+            mixed = "tokenizer नमस्ते दुनिया こんにちは世界".encode()
+            routes = t.detect_spans(mixed)
+            self.assertEqual(sum(r.length for r in routes), len(mixed))
+            self.assertEqual([r.start for r in routes], [0] + [r.start + r.length for r in routes[:-1]])
+            self.assertTrue({"en", "hi", "ja"}.issubset({r.detection.language for r in routes if r.detection.available}))
+            span_ids, span_routes = t.encode_span_auto(mixed)
+            self.assertEqual(t.decode(span_ids), mixed)
+            self.assertEqual(routes, span_routes)
             self.assertEqual(sum(r.length for r in t.graphemes("e\N{COMBINING ACUTE ACCENT}".encode())), 3)
             self.assertIsInstance(t.security_scan(b"hello"), tuple)
             self.assertEqual(t.normalize(b"e\xcc\x81", NORMALIZE_NFC).data, "é".encode())

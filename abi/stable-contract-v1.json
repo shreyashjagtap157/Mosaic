@@ -3,7 +3,7 @@
     "mosaic.h": {
       "constants": [
         "#define MOSAIC_C_API_VERSION_MAJOR 1",
-        "#define MOSAIC_C_API_VERSION_MINOR 0",
+        "#define MOSAIC_C_API_VERSION_MINOR 1",
         "#define MOSAIC_C_API_VERSION_PATCH 0"
       ],
       "declarations": [
@@ -99,10 +99,12 @@
         "MOSAIC_API mosaic_status mosaic_tokenizer_add_language_memory(mosaic_tokenizer *tokenizer, const uint8_t *language_pack, size_t language_pack_len);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_decode(const mosaic_tokenizer *tokenizer, const uint32_t *ids, size_t count, uint8_t **out_bytes, size_t *out_len);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_detection *out_detection);",
+        "MOSAIC_API mosaic_status mosaic_tokenizer_detect_spans(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_span_route **out_routes, size_t *out_count);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_document_create(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_document **out_document);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_document_create_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_document **out_document);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_encode(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, uint32_t **out_ids, size_t *out_count);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, uint32_t **out_ids, size_t *out_count, mosaic_detection *out_detection);",
+        "MOSAIC_API mosaic_status mosaic_tokenizer_encode_span_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, uint32_t **out_ids, size_t *out_count, mosaic_span_route **out_routes, size_t *out_route_count);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_encode_tokens(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_token **out_tokens, size_t *out_count);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer, const uint8_t *input, size_t input_len, mosaic_token **out_tokens, size_t *out_count, mosaic_detection *out_detection);",
         "MOSAIC_API mosaic_status mosaic_tokenizer_fingerprint(const mosaic_tokenizer *tokenizer, uint8_t out_sha256[32]);",
@@ -177,7 +179,7 @@
       ],
       "types": [
         "enum { MOSAIC_BLOCK_OVERSIZE_TOKEN = 1u << 0 };",
-        "enum { MOSAIC_CAP_MODEL = 1ull << 0, MOSAIC_CAP_GRAPHEMES = 1ull << 1, MOSAIC_CAP_LANGUAGE_PACKS = 1ull << 2, MOSAIC_CAP_DETECTOR = 1ull << 3, MOSAIC_CAP_SECURITY = 1ull << 4, MOSAIC_CAP_NORMALIZATION = 1ull << 5, MOSAIC_CAP_STREAMING = 1ull << 6, MOSAIC_CAP_ONLINE_STREAMING = 1ull << 7, MOSAIC_CAP_EDITABLE_DOCUMENT = 1ull << 8, MOSAIC_CAP_INCREMENTAL_DOCUMENT = 1ull << 9, MOSAIC_CAP_RESYNC_DOCUMENT = 1ull << 10, MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11, MOSAIC_CAP_LEXER = 1ull << 12, MOSAIC_CAP_SEMANTIC = 1ull << 13, MOSAIC_CAP_SUBBYTE = 1ull << 14, MOSAIC_CAP_BLOCK_PLAN = 1ull << 15, MOSAIC_CAP_PACKED_MODEL = 1ull << 16, MOSAIC_CAP_CONTENT_CACHE = 1ull << 17, MOSAIC_CAP_CACHE_BACKEND = 1ull << 18, MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19, MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20, MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21, MOSAIC_CAP_OBSERVABILITY = 1ull << 22 };",
+        "enum { MOSAIC_CAP_MODEL = 1ull << 0, MOSAIC_CAP_GRAPHEMES = 1ull << 1, MOSAIC_CAP_LANGUAGE_PACKS = 1ull << 2, MOSAIC_CAP_DETECTOR = 1ull << 3, MOSAIC_CAP_SECURITY = 1ull << 4, MOSAIC_CAP_NORMALIZATION = 1ull << 5, MOSAIC_CAP_STREAMING = 1ull << 6, MOSAIC_CAP_ONLINE_STREAMING = 1ull << 7, MOSAIC_CAP_EDITABLE_DOCUMENT = 1ull << 8, MOSAIC_CAP_INCREMENTAL_DOCUMENT = 1ull << 9, MOSAIC_CAP_RESYNC_DOCUMENT = 1ull << 10, MOSAIC_CAP_TOKEN_DOCUMENT = 1ull << 11, MOSAIC_CAP_LEXER = 1ull << 12, MOSAIC_CAP_SEMANTIC = 1ull << 13, MOSAIC_CAP_SUBBYTE = 1ull << 14, MOSAIC_CAP_BLOCK_PLAN = 1ull << 15, MOSAIC_CAP_PACKED_MODEL = 1ull << 16, MOSAIC_CAP_CONTENT_CACHE = 1ull << 17, MOSAIC_CAP_CACHE_BACKEND = 1ull << 18, MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19, MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20, MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21, MOSAIC_CAP_OBSERVABILITY = 1ull << 22, MOSAIC_CAP_SPAN_ROUTING = 1ull << 23 };",
         "enum { MOSAIC_OBSERVE_SUCCESS = 1u << 0, MOSAIC_OBSERVE_FAILURE = 1u << 1, MOSAIC_OBSERVE_RESOURCE = 1u << 2 };",
         "enum { MOSAIC_TOKEN_DOCUMENT_MODEL = 1u << 0, MOSAIC_TOKEN_DOCUMENT_GRAPHEMES = 1u << 1, MOSAIC_TOKEN_DOCUMENT_SECURITY = 1u << 2, MOSAIC_TOKEN_DOCUMENT_NORMALIZATION = 1u << 3, MOSAIC_TOKEN_DOCUMENT_LEXICAL = 1u << 4, MOSAIC_TOKEN_DOCUMENT_SEMANTIC = 1u << 5 };",
         "typedef enum mosaic_bit_order { MOSAIC_BIT_MSB0 = 0, MOSAIC_BIT_LSB0 = 1 } mosaic_bit_order;",
@@ -214,6 +216,7 @@
         "typedef struct mosaic_script_span { uint64_t start; uint64_t length; uint16_t script_id; uint16_t reserved; } mosaic_script_span;",
         "typedef struct mosaic_security_finding { uint32_t kind; uint16_t script_id; uint16_t reserved; uint64_t start; uint64_t length; } mosaic_security_finding;",
         "typedef struct mosaic_semantic_component { uint32_t kind; uint32_t flags; uint64_t lexical_index; uint64_t start; uint64_t length; } mosaic_semantic_component;",
+        "typedef struct mosaic_span_route { uint64_t start; uint64_t length; mosaic_detection detection; } mosaic_span_route;",
         "typedef struct mosaic_subbyte_span { uint64_t byte_start; uint32_t start_bit; uint32_t bit_length; mosaic_bit_order bit_order; uint32_t reserved; } mosaic_subbyte_span;",
         "typedef struct mosaic_token { uint32_t id; uint64_t start; uint64_t length; int32_t cost; } mosaic_token;",
         "typedef struct mosaic_token_document_info { uint32_t flags; uint64_t source_length; uint64_t model_token_count; uint64_t grapheme_count; uint64_t security_finding_count; uint64_t normalized_byte_length; uint64_t normalized_unit_count; uint64_t lexical_token_count; uint64_t semantic_component_count; mosaic_normalization_mode normalization_mode; uint32_t reserved; uint8_t source_sha256[32]; uint8_t tokenizer_fingerprint_sha256[32]; mosaic_detection detection; } mosaic_token_document_info;",
@@ -366,11 +369,13 @@
       "mosaic_tokenizer_add_language_memory",
       "mosaic_tokenizer_decode",
       "mosaic_tokenizer_detect_language",
+      "mosaic_tokenizer_detect_spans",
       "mosaic_tokenizer_detector_loaded",
       "mosaic_tokenizer_document_create",
       "mosaic_tokenizer_document_create_auto",
       "mosaic_tokenizer_encode",
       "mosaic_tokenizer_encode_auto",
+      "mosaic_tokenizer_encode_span_auto",
       "mosaic_tokenizer_encode_tokens",
       "mosaic_tokenizer_encode_tokens_auto",
       "mosaic_tokenizer_fingerprint",

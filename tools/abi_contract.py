@@ -44,6 +44,15 @@ def build_contract()->dict:
     return {'schema':1,'policy':'additive-public-c-abi','headers':headers,'required_symbols':symbols}
 
 def tool_symbols(lib:Path)->set[str]:
+    readobj=shutil.which('llvm-readobj')
+    if readobj and lib.suffix.lower()=='.dll':
+        p=subprocess.run([readobj,'--coff-exports',str(lib)],text=True,capture_output=True)
+        if p.returncode==0:
+            out=set()
+            for line in p.stdout.splitlines():
+                m=re.match(r'\s*Name:\s+(mosaic_[A-Za-z0-9_]+)\s*$',line)
+                if m:out.add(m.group(1))
+            if out:return out
     nm=shutil.which('llvm-nm') or shutil.which('nm')
     if not nm:raise RuntimeError('nm/llvm-nm unavailable')
     cmds=[[nm,'-D','--defined-only',str(lib)],[nm,'--defined-only',str(lib)]]

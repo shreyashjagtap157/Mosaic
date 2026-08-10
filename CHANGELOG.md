@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3.0 — 2026-08-10
+
+Mixed-language span-routing candidate minor.
+
+- add `mosaic_span_route`, `MOSAIC_CAP_SPAN_ROUTING`, `mosaic_tokenizer_detect_spans`, and `mosaic_tokenizer_encode_span_auto`;
+- expose the span-routing API through Python as `SpanRoute`, `detect_spans()`, and `encode_span_auto()`;
+- add native and Python regressions for gapless en/hi/ja span routing with exact decode preservation;
+- teach ABI validation to inspect Windows PE/COFF DLL exports through `llvm-readobj`;
+- advance native C ABI additively from 1.0.0 to 1.1.0 while preserving tokenizer semantics 2, trust ABI 1.0.0, and frozen pack/serialization formats.
+
 ## 0.1.2.1 — 2026-08-10
 
 Rust-substrate correctness patch.

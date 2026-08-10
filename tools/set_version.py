@@ -67,7 +67,7 @@ def expected_occurrences(version: str) -> dict[str, str]:
         "readme_sentence": sentence,
         "readme_platform": platform_sentence(version),
         "version_policy": f"The current cumulative candidate is `{version}`.",
-        "capi_doc": f"The native C ABI is independently versioned from the Mosaic product release. The current product candidate `{version}` continues to expose frozen C ABI `1.0.0`.",
+        "capi_doc": f"The native C ABI is independently versioned from the Mosaic product release. The current product candidate `{version}` exposes frozen C ABI `1.1.0`.",
         "status": f"**{version} — universal tokenization and token-native processing platform candidate.**",
         "threat_model": f"Status: frozen enterprise candidate baseline; current product release {version}.",
     }
@@ -145,8 +145,8 @@ def set_version(version: str) -> None:
     )
     replace_regex(
         FILES["capi_doc"],
-        r'^The native C ABI is independently versioned from the Mosaic product release\. The current product candidate `[0-9]+(?:\.[0-9]+){2,3}` continues to expose frozen C ABI `1\.0\.0`\.$',
-        f"The native C ABI is independently versioned from the Mosaic product release. The current product candidate `{version}` continues to expose frozen C ABI `1.0.0`.",
+        r'^The native C ABI is independently versioned from the Mosaic product release\. The current product candidate `[0-9]+(?:\.[0-9]+){2,3}` (?:continues to expose|exposes) frozen C ABI `(?:1\.0\.0|1\.1\.0)`\.$',
+        f"The native C ABI is independently versioned from the Mosaic product release. The current product candidate `{version}` exposes frozen C ABI `1.1.0`.",
     )
     replace_regex(
         FILES["status"],

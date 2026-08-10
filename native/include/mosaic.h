@@ -22,10 +22,10 @@
 extern "C" {
 #endif
 
-#define MOSAIC_RELEASE_VERSION "0.1.2.1"
+#define MOSAIC_RELEASE_VERSION "0.1.3.0"
 
 #define MOSAIC_C_API_VERSION_MAJOR 1
-#define MOSAIC_C_API_VERSION_MINOR 0
+#define MOSAIC_C_API_VERSION_MINOR 1
 #define MOSAIC_C_API_VERSION_PATCH 0
 
 typedef enum mosaic_status {
@@ -109,7 +109,8 @@ enum {
     MOSAIC_CAP_RUNTIME_POLICY = 1ull << 19,
     MOSAIC_CAP_TOKEN_DOCUMENT_SERIALIZATION = 1ull << 20,
     MOSAIC_CAP_PARALLEL_BATCH = 1ull << 21,
-    MOSAIC_CAP_OBSERVABILITY = 1ull << 22
+    MOSAIC_CAP_OBSERVABILITY = 1ull << 22,
+    MOSAIC_CAP_SPAN_ROUTING = 1ull << 23
 };
 
 typedef struct mosaic_range {
@@ -437,6 +438,12 @@ typedef struct mosaic_detection {
     char language[64];
 } mosaic_detection;
 
+typedef struct mosaic_span_route {
+    uint64_t start;
+    uint64_t length;
+    mosaic_detection detection;
+} mosaic_span_route;
+
 typedef struct mosaic_token_document_options {
     uint32_t struct_size;
     uint32_t flags;
@@ -524,10 +531,19 @@ MOSAIC_API int mosaic_tokenizer_detector_loaded(const mosaic_tokenizer *tokenize
 MOSAIC_API mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_detection *out_detection);
+/* Segment input into deterministic byte spans and detect each routable span. Returned spans cover
+ * the input exactly; neutral punctuation/whitespace spans carry an unmatched detection. */
+MOSAIC_API mosaic_status mosaic_tokenizer_detect_spans(const mosaic_tokenizer *tokenizer,
+                                            const uint8_t *input, size_t input_len,
+                                            mosaic_span_route **out_routes, size_t *out_count);
 MOSAIC_API mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
                                            const uint8_t *input, size_t input_len,
                                            uint32_t **out_ids, size_t *out_count,
                                            mosaic_detection *out_detection);
+MOSAIC_API mosaic_status mosaic_tokenizer_encode_span_auto(const mosaic_tokenizer *tokenizer,
+                                                const uint8_t *input, size_t input_len,
+                                                uint32_t **out_ids, size_t *out_count,
+                                                mosaic_span_route **out_routes, size_t *out_route_count);
 MOSAIC_API mosaic_status mosaic_tokenizer_encode_tokens_auto(const mosaic_tokenizer *tokenizer,
                                                   const uint8_t *input, size_t input_len,
                                                   mosaic_token **out_tokens, size_t *out_count,

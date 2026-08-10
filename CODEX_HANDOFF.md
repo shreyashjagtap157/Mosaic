@@ -1,6 +1,10 @@
-# Codex Local Handoff — Mosaic 0.1.2.1
+# Codex Local Handoff — Mosaic 0.1.3.0
 
 This repository is intended to replace the previous local Mosaic folder directly. It includes Git history and excludes generated build trees.
+
+## Current local additions
+
+The current source line is product candidate `0.1.3.0` with additive native C ABI `1.1.0`. It adds deterministic mixed-language span routing through `mosaic_tokenizer_detect_spans`, `mosaic_tokenizer_encode_span_auto`, and the Python `Tokenizer.detect_spans()` / `Tokenizer.encode_span_auto()` wrappers. The Windows ABI validator can now inspect PE/COFF DLL exports with `llvm-readobj`.
 
 ## First local qualification on Windows
 

@@ -9,10 +9,10 @@ from typing import Callable, Iterable, Optional, Sequence
 from ._ffi import (
     CBatchInput, CBatchResult, CDetection, CDocumentToken, CEvent, CExecutorConfig, CExecutorMetrics,
     CLexToken, CNormalizedView, CObserverConfig, CRange, CRuntimeLimits, CRuntimeMetrics, CSecurityFinding,
-    CToken, CTokenDocumentInfo, CTokenDocumentOptions, CTokenizerCapabilities, ObserverCallback, load_library,
+    CSpanRoute, CToken, CTokenDocumentInfo, CTokenDocumentOptions, CTokenizerCapabilities, ObserverCallback, load_library,
 )
 
-__version__ = "0.1.2.1"
+__version__ = "0.1.3.0"
 
 OK = 0
 ERROR_RESOURCE_LIMIT = 9
@@ -60,6 +60,13 @@ class Detection:
     score: int
     margin: int
     language: str
+
+
+@dataclass(frozen=True)
+class SpanRoute:
+    start: int
+    length: int
+    detection: Detection
 
 
 @dataclass(frozen=True)
@@ -129,6 +136,13 @@ def _buffer(data: bytes):
         return None, C.POINTER(C.c_uint8)()
     owner = (C.c_uint8 * len(data)).from_buffer_copy(data)
     return owner, C.cast(owner, C.POINTER(C.c_uint8))
+
+
+def _detection(value: CDetection) -> Detection:
+    return Detection(
+        bool(value.matched), bool(value.available), int(value.score), int(value.margin),
+        bytes(value.language).split(b'\0', 1)[0].decode(),
+    )
 
 
 class _LibraryBound:
@@ -303,11 +317,23 @@ class Tokenizer(_LibraryBound):
         handle=C.c_void_p(); self._check(self._lib.mosaic_tokenizer_online_stream_create(self._handle,max_pending_bytes,C.byref(handle)),"online_stream_create"); return OnlineStream(self._lib,handle)
     def detect(self,data:bytes)->Detection:
         owner,ptr=_buffer(bytes(data)); d=CDetection(); status=self._lib.mosaic_tokenizer_detect_language(self._handle,ptr,len(data),C.byref(d));del owner;self._check(status,"detect");return Detection(bool(d.matched),bool(d.available),int(d.score),int(d.margin),bytes(d.language).split(b'\0',1)[0].decode())
+    def detect_spans(self,data:bytes)->tuple[SpanRoute,...]:
+        owner,ptr=_buffer(bytes(data));out=C.POINTER(CSpanRoute)();n=C.c_size_t();status=self._lib.mosaic_tokenizer_detect_spans(self._handle,ptr,len(data),C.byref(out),C.byref(n));del owner;self._check(status,"detect_spans")
+        try:return tuple(SpanRoute(int(out[i].start),int(out[i].length),_detection(out[i].detection)) for i in range(n.value))
+        finally:self._lib.mosaic_free(out)
     def encode_auto(self,data:bytes):
         owner,ptr=_buffer(bytes(data));out=C.POINTER(C.c_uint32)();n=C.c_size_t();d=CDetection();status=self._lib.mosaic_tokenizer_encode_auto(self._handle,ptr,len(data),C.byref(out),C.byref(n),C.byref(d));del owner;self._check(status,"encode_auto")
         try:ids=tuple(int(out[i]) for i in range(n.value))
         finally:self._lib.mosaic_free(out)
-        return ids,Detection(bool(d.matched),bool(d.available),int(d.score),int(d.margin),bytes(d.language).split(b'\0',1)[0].decode())
+        return ids,_detection(d)
+    def encode_span_auto(self,data:bytes):
+        owner,ptr=_buffer(bytes(data));ids_out=C.POINTER(C.c_uint32)();ids_n=C.c_size_t();routes_out=C.POINTER(CSpanRoute)();routes_n=C.c_size_t();status=self._lib.mosaic_tokenizer_encode_span_auto(self._handle,ptr,len(data),C.byref(ids_out),C.byref(ids_n),C.byref(routes_out),C.byref(routes_n));del owner;self._check(status,"encode_span_auto")
+        try:
+            ids=tuple(int(ids_out[i]) for i in range(ids_n.value))
+            routes=tuple(SpanRoute(int(routes_out[i].start),int(routes_out[i].length),_detection(routes_out[i].detection)) for i in range(routes_n.value))
+            return ids,routes
+        finally:
+            self._lib.mosaic_free(ids_out); self._lib.mosaic_free(routes_out)
     def graphemes(self,data:bytes)->tuple[Range,...]:
         owner,ptr=_buffer(bytes(data));out=C.POINTER(CRange)();n=C.c_size_t();status=self._lib.mosaic_tokenizer_grapheme_ranges(self._handle,ptr,len(data),C.byref(out),C.byref(n));del owner;self._check(status,"graphemes")
         try:return tuple(Range(int(out[i].start),int(out[i].length)) for i in range(n.value))
@@ -366,7 +392,7 @@ class BatchExecutor(_LibraryBound):
 
 __all__ = [
     "Tokenizer", "TokenDocument", "OnlineStream", "BatchExecutor", "MosaicError", "Token", "Range", "Detection", "SecurityFinding",
-    "LexToken", "NormalizedView", "RuntimeLimits", "RuntimeMetrics", "Event", "BatchResult",
+    "SpanRoute", "LexToken", "NormalizedView", "RuntimeLimits", "RuntimeMetrics", "Event", "BatchResult",
     "TOKEN_DOCUMENT_MODEL", "TOKEN_DOCUMENT_GRAPHEMES", "TOKEN_DOCUMENT_SECURITY", "TOKEN_DOCUMENT_NORMALIZATION",
     "TOKEN_DOCUMENT_LEXICAL", "TOKEN_DOCUMENT_SEMANTIC", "NORMALIZE_PRESERVE", "NORMALIZE_NFD", "NORMALIZE_NFC",
     "NORMALIZE_NFKD", "NORMALIZE_NFKC", "NORMALIZE_NFKC_CASEFOLD", "OBSERVE_SUCCESS", "OBSERVE_FAILURE", "OBSERVE_RESOURCE",

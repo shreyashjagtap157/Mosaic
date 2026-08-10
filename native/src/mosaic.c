@@ -3751,6 +3751,120 @@ static const LanguagePack *tokenizer_language_for_detection(const mosaic_tokeniz
     return NULL;
 }
 
+typedef struct {
+    mosaic_span_route *items;
+    size_t len;
+    size_t cap;
+} SpanRouteVec;
+
+static mosaic_status span_route_vec_push(SpanRouteVec *vec, size_t start, size_t length,
+                                         const mosaic_detection *detection) {
+    if (!vec || !detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (vec->len == vec->cap) {
+        size_t cap = vec->cap ? vec->cap * 2u : 8u;
+        if (cap < vec->cap || cap > SIZE_MAX / sizeof *vec->items) return MOSAIC_ERROR_OVERFLOW;
+        mosaic_span_route *next = (mosaic_span_route *)realloc(vec->items, cap * sizeof *next);
+        if (!next) return MOSAIC_ERROR_OUT_OF_MEMORY;
+        vec->items = next; vec->cap = cap;
+    }
+    vec->items[vec->len++] = (mosaic_span_route){(uint64_t)start, (uint64_t)length, *detection};
+    return MOSAIC_OK;
+}
+
+static mosaic_status u32_vec_append(uint32_t **items, size_t *len, size_t *cap,
+                                    const uint32_t *src, size_t count) {
+    if (!items || !len || !cap || (!src && count)) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    if (count > SIZE_MAX - *len) return MOSAIC_ERROR_OVERFLOW;
+    size_t required = *len + count;
+    if (required > *cap) {
+        size_t next_cap = *cap ? *cap : 16u;
+        while (next_cap < required) {
+            if (next_cap > SIZE_MAX / 2u) { next_cap = required; break; }
+            next_cap *= 2u;
+        }
+        if (next_cap > SIZE_MAX / sizeof **items) return MOSAIC_ERROR_OVERFLOW;
+        uint32_t *next = (uint32_t *)realloc(*items, next_cap * sizeof *next);
+        if (!next) return MOSAIC_ERROR_OUT_OF_MEMORY;
+        *items = next; *cap = next_cap;
+    }
+    if (count) memcpy(*items + *len, src, count * sizeof *src);
+    *len = required;
+    return MOSAIC_OK;
+}
+
+static size_t span_utf8_advance(const uint8_t *input, size_t remaining, uint32_t *out_cp) {
+    if (!input || !remaining || !out_cp) return 0;
+    uint8_t b0 = input[0];
+    if (b0 < 0x80u) { *out_cp = b0; return 1u; }
+    if ((b0 & 0xe0u) == 0xc0u && remaining >= 2u && (input[1] & 0xc0u) == 0x80u) {
+        uint32_t cp = ((uint32_t)(b0 & 0x1fu) << 6) | (uint32_t)(input[1] & 0x3fu);
+        if (cp >= 0x80u) { *out_cp = cp; return 2u; }
+    } else if ((b0 & 0xf0u) == 0xe0u && remaining >= 3u &&
+               (input[1] & 0xc0u) == 0x80u && (input[2] & 0xc0u) == 0x80u) {
+        uint32_t cp = ((uint32_t)(b0 & 0x0fu) << 12) | ((uint32_t)(input[1] & 0x3fu) << 6) |
+                      (uint32_t)(input[2] & 0x3fu);
+        if (cp >= 0x800u && !(cp >= 0xd800u && cp <= 0xdfffu)) { *out_cp = cp; return 3u; }
+    } else if ((b0 & 0xf8u) == 0xf0u && remaining >= 4u &&
+               (input[1] & 0xc0u) == 0x80u && (input[2] & 0xc0u) == 0x80u &&
+               (input[3] & 0xc0u) == 0x80u) {
+        uint32_t cp = ((uint32_t)(b0 & 0x07u) << 18) | ((uint32_t)(input[1] & 0x3fu) << 12) |
+                      ((uint32_t)(input[2] & 0x3fu) << 6) | (uint32_t)(input[3] & 0x3fu);
+        if (cp >= 0x10000u && cp <= 0x10ffffu) { *out_cp = cp; return 4u; }
+    }
+    *out_cp = 0xfffdu;
+    return 1u;
+}
+
+static int span_route_class(uint32_t cp) {
+    if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= '0' && cp <= '9') || cp == '_')
+        return 1;
+    if (cp >= 0x0900u && cp <= 0x097fu) return 2;       /* Devanagari */
+    if ((cp >= 0x3040u && cp <= 0x30ffu) ||              /* Japanese kana */
+        (cp >= 0x3400u && cp <= 0x9fffu)) return 3;      /* CJK ideographs */
+    if (cp >= 0x80u) return 4;
+    return 0;
+}
+
+static mosaic_status tokenizer_detect_span(const mosaic_tokenizer *tokenizer,
+                                           const uint8_t *input, size_t input_len, int route_class,
+                                           mosaic_detection *out_detection) {
+    if (!tokenizer || !out_detection) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    memset(out_detection, 0, sizeof *out_detection);
+    if (!route_class || !input_len) return MOSAIC_OK;
+    mosaic_status status = mosaic_detector_detect(tokenizer->detector, input, input_len, out_detection);
+    if (status == MOSAIC_OK)
+        out_detection->available = tokenizer_language_for_detection(tokenizer, out_detection) ? 1u : 0u;
+    return status;
+}
+
+static mosaic_status tokenizer_detect_spans_internal(const mosaic_tokenizer *tokenizer,
+                                                     const uint8_t *input, size_t input_len,
+                                                     SpanRouteVec *out_vec) {
+    if (!tokenizer || !tokenizer->detector || (!input && input_len) || !out_vec) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    size_t pos = 0;
+    while (pos < input_len) {
+        uint32_t cp = 0;
+        size_t step = span_utf8_advance(input + pos, input_len - pos, &cp);
+        if (!step) return MOSAIC_ERROR_INTERNAL;
+        int klass = span_route_class(cp);
+        size_t start = pos;
+        pos += step;
+        while (pos < input_len) {
+            uint32_t next_cp = 0;
+            size_t next_step = span_utf8_advance(input + pos, input_len - pos, &next_cp);
+            if (!next_step) return MOSAIC_ERROR_INTERNAL;
+            if (span_route_class(next_cp) != klass) break;
+            pos += next_step;
+        }
+        mosaic_detection detection;
+        mosaic_status status = tokenizer_detect_span(tokenizer, input + start, pos - start, klass, &detection);
+        if (status != MOSAIC_OK) return status;
+        status = span_route_vec_push(out_vec, start, pos - start, &detection);
+        if (status != MOSAIC_OK) return status;
+    }
+    return MOSAIC_OK;
+}
+
 mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer,
                                                const uint8_t *input, size_t input_len,
                                                mosaic_detection *out_detection) {
@@ -3765,6 +3879,29 @@ mosaic_status mosaic_tokenizer_detect_language(const mosaic_tokenizer *tokenizer
     if (status == MOSAIC_OK) out_detection->available = tokenizer_language_for_detection(tokenizer, out_detection) ? 1u : 0u;
     tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_DETECT,
                       status, input_len, status == MOSAIC_OK && out_detection->matched ? 1u : 0u, 0u);
+    return status;
+}
+
+mosaic_status mosaic_tokenizer_detect_spans(const mosaic_tokenizer *tokenizer,
+                                            const uint8_t *input, size_t input_len,
+                                            mosaic_span_route **out_routes, size_t *out_count) {
+    if (!tokenizer || !tokenizer->detector || (!input && input_len) || !out_routes || !out_count)
+        return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_routes = NULL; *out_count = 0;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_DETECT, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+    SpanRouteVec routes = {0};
+    mosaic_status status = tokenizer_detect_spans_internal(tokenizer, input, input_len, &routes);
+    if (status == MOSAIC_OK) {
+        *out_routes = routes.items; *out_count = routes.len;
+    } else {
+        free(routes.items);
+    }
+    tokenizer_observe(tokenizer, status == MOSAIC_OK ? MOSAIC_EVENT_SUCCESS : MOSAIC_EVENT_FAILURE, MOSAIC_OPERATION_DETECT,
+                      status, input_len, status == MOSAIC_OK ? *out_count : 0u, 0u);
     return status;
 }
 
@@ -3793,6 +3930,58 @@ mosaic_status mosaic_tokenizer_encode_auto(const mosaic_tokenizer *tokenizer,
         tokenizer_observe(tokenizer, MOSAIC_EVENT_SUCCESS, MOSAIC_OPERATION_ENCODE, status, input_len, *out_count, 0u);
     } else {
         atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+        tokenizer_observe(tokenizer, status == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE,
+                          MOSAIC_OPERATION_ENCODE, status, input_len, 0u,
+                          status == MOSAIC_ERROR_RESOURCE_LIMIT ? tokenizer->limits.max_output_tokens : 0u);
+    }
+    return status;
+}
+
+mosaic_status mosaic_tokenizer_encode_span_auto(const mosaic_tokenizer *tokenizer,
+                                                const uint8_t *input, size_t input_len,
+                                                uint32_t **out_ids, size_t *out_count,
+                                                mosaic_span_route **out_routes, size_t *out_route_count) {
+    if (!tokenizer || !tokenizer->detector || (!input && input_len) || !out_ids || !out_count ||
+        !out_routes || !out_route_count) return MOSAIC_ERROR_INVALID_ARGUMENT;
+    *out_ids = NULL; *out_count = 0; *out_routes = NULL; *out_route_count = 0;
+    if (!tokenizer_input_allowed(tokenizer, input_len)) {
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_RESOURCE_REJECTED, MOSAIC_OPERATION_ENCODE, MOSAIC_ERROR_RESOURCE_LIMIT,
+                          input_len, 0u, tokenizer->limits.max_input_bytes);
+        return MOSAIC_ERROR_RESOURCE_LIMIT;
+    }
+
+    TokenizerTelemetry *m = &((mosaic_tokenizer *)tokenizer)->telemetry;
+    atomic_fetch_add_explicit(&m->encode_calls, 1, memory_order_relaxed);
+    atomic_fetch_add_explicit(&m->bytes_in, input_len, memory_order_relaxed);
+
+    SpanRouteVec routes = {0};
+    uint32_t *ids = NULL;
+    size_t id_count = 0, id_cap = 0;
+    mosaic_status status = tokenizer_detect_spans_internal(tokenizer, input, input_len, &routes);
+    size_t token_limit = (size_t)(tokenizer->limits.max_output_tokens > SIZE_MAX ? SIZE_MAX : tokenizer->limits.max_output_tokens);
+    for (size_t i = 0; status == MOSAIC_OK && i < routes.len; ++i) {
+        if (id_count > token_limit) { status = MOSAIC_ERROR_RESOURCE_LIMIT; break; }
+        mosaic_span_route *route = &routes.items[i];
+        const LanguagePack *pack = tokenizer_language_for_detection(tokenizer, &route->detection);
+        uint32_t *span_ids = NULL;
+        size_t span_count = 0;
+        size_t remaining = token_limit - id_count;
+        status = encode_internal(tokenizer->model, input + (size_t)route->start, (size_t)route->length,
+                                 pack ? pack->adjustments : NULL, remaining, &span_ids, &span_count);
+        if (status == MOSAIC_OK) {
+            status = u32_vec_append(&ids, &id_count, &id_cap, span_ids, span_count);
+        }
+        mosaic_free(span_ids);
+    }
+
+    if (status == MOSAIC_OK) {
+        *out_ids = ids; *out_count = id_count; *out_routes = routes.items; *out_route_count = routes.len;
+        atomic_fetch_add_explicit(&m->tokens_out, id_count, memory_order_relaxed);
+        tokenizer_observe(tokenizer, MOSAIC_EVENT_SUCCESS, MOSAIC_OPERATION_ENCODE, status, input_len, id_count, 0u);
+    } else {
+        free(ids); free(routes.items);
+        atomic_fetch_add_explicit(&m->failures, 1, memory_order_relaxed);
+        if (status == MOSAIC_ERROR_RESOURCE_LIMIT) atomic_fetch_add_explicit(&m->resource_rejections, 1, memory_order_relaxed);
         tokenizer_observe(tokenizer, status == MOSAIC_ERROR_RESOURCE_LIMIT ? MOSAIC_EVENT_RESOURCE_REJECTED : MOSAIC_EVENT_FAILURE,
                           MOSAIC_OPERATION_ENCODE, status, input_len, 0u,
                           status == MOSAIC_ERROR_RESOURCE_LIMIT ? tokenizer->limits.max_output_tokens : 0u);
@@ -3956,7 +4145,7 @@ mosaic_status mosaic_tokenizer_get_capabilities(const mosaic_tokenizer *tokenize
                     MOSAIC_CAP_INCREMENTAL_DOCUMENT | MOSAIC_CAP_RESYNC_DOCUMENT | MOSAIC_CAP_TOKEN_DOCUMENT;
     if (tokenizer->model && tokenizer->model->vocab.algorithm == 0u) caps |= MOSAIC_CAP_ONLINE_STREAMING;
     if (tokenizer->language_count) caps |= MOSAIC_CAP_LANGUAGE_PACKS;
-    if (tokenizer->detector) caps |= MOSAIC_CAP_DETECTOR;
+    if (tokenizer->detector) caps |= MOSAIC_CAP_DETECTOR | MOSAIC_CAP_SPAN_ROUTING;
     if (tokenizer->security) caps |= MOSAIC_CAP_SECURITY;
     if (tokenizer->normalization) caps |= MOSAIC_CAP_NORMALIZATION;
     if (tokenizer->lexer) caps |= MOSAIC_CAP_LEXER | MOSAIC_CAP_SEMANTIC;
