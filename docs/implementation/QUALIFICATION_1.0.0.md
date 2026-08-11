@@ -36,3 +36,5 @@ These gates remain declared in CI. They are not represented as passed. The packa
 
 - nightly Miri on `mosaic-core` and `mosaic-pack`: PASS via `tools/validate_miri.py`;
 - bounded nightly fuzz smoke on `fuzz_source_bytes`, `fuzz_pack_header`, `fuzz_pack_v1`, and `fuzz_dfa`: PASS via `tools/validate_fuzz.py`.
+
+The local release-readiness tooling now also exposes a fast deferred-Miri lane via `make release-readiness-fast` or `python tools/validate_release_readiness.py --skip-miri --skip-package` for incremental release work. That convenience path is not a substitute for the full Miri-backed qualification record above.
