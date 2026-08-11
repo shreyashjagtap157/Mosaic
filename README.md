@@ -192,6 +192,12 @@ The native build also ships `mosaic-compress-compare`, a comparison harness for 
 
 By default it tries `zip`, `7z`, and `rar` if they are available on `PATH`. Each template uses `%A` for the archive path, `%I` for the input file, and `%R` for the round-trip output file. Missing tools are reported as `SKIP`.
 
+Set `MOSAIC_COMPRESS_TOOLS` to override the comparison list. The value is a semicolon-separated list of `name|compress-template|decompress-template` entries, for example:
+
+```bash
+MOSAIC_COMPRESS_TOOLS="7z|7z a -t7z -bd -y -mx=9 \"%A\" \"%I\"|7z e -bd -y -so \"%A\" > \"%R\""
+```
+
 ## Language-pack behavior
 
 A v0.5 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.

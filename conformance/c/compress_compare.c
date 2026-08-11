@@ -126,6 +126,44 @@ static void default_tools(ToolList *tools) {
     add_tool(tools, "rar", "rar a -idq \"%A\" \"%I\"", "rar p -inul \"%A\" > \"%R\"");
 }
 
+static void trim(char *s) {
+    char *start = s;
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') ++start;
+    char *end = start + strlen(start);
+    while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) --end;
+    if (start != s) memmove(s, start, (size_t)(end - start));
+    s[end - start] = '\0';
+}
+
+static void load_env_tools(ToolList *tools) {
+    const char *spec = getenv("MOSAIC_COMPRESS_TOOLS");
+    if (!spec || !*spec) {
+        default_tools(tools);
+        return;
+    }
+    tools->count = 0;
+    char *copy = (char *)malloc(strlen(spec) + 1);
+    if (!copy) { default_tools(tools); return; }
+    memcpy(copy, spec, strlen(spec) + 1);
+    for (char *entry = strtok(copy, ";"); entry; entry = strtok(NULL, ";")) {
+        char *name = entry;
+        char *compress = strchr(entry, '|');
+        char *decompress = NULL;
+        if (compress) {
+            *compress++ = '\0';
+            decompress = strchr(compress, '|');
+            if (decompress) *decompress++ = '\0';
+        }
+        trim(name);
+        if (compress) trim(compress);
+        if (decompress) trim(decompress);
+        if (!name[0] || !compress || !decompress || !decompress[0]) continue;
+        add_tool(tools, name, compress, decompress);
+    }
+    free(copy);
+    if (!tools->count) default_tools(tools);
+}
+
 static int compare_external(const char *input_path, const char *archive_path, const char *roundtrip_path, const ToolSpec *tool) {
     char cmd[MAX_TEMPLATE * 2];
     if (!command_available(tool->name)) return 0;
@@ -175,7 +213,7 @@ int main(int argc, char **argv) {
     snprintf(roundtrip_path, sizeof roundtrip_path, "%s.%s.roundtrip", input_path, stem);
 
     ToolList tools;
-    default_tools(&tools);
+    load_env_tools(&tools);
 
     printf("mosaic bytes=%zu tokens=%zu roundtrip=PASS encode_decode=%.6f\n", input_len, id_count, t1 - t0);
     size_t archive_size = 0;
