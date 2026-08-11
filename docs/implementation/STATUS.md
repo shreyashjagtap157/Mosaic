@@ -49,6 +49,7 @@ The qualified production implementation is the native C runtime on the platforms
 - deterministic release archives and Python wheels;
 - targeted nightly Miri on `mosaic-core` and `mosaic-pack`;
 - bounded Windows nightly cargo-fuzz smoke across `fuzz_source_bytes`, `fuzz_pack_header`, `fuzz_pack_v1`, and `fuzz_dfa` with the matching ASan runtime path;
+- a faster local readiness path that can defer Miri while still running repo, version, checksum, gate, and fuzz-smoke validation;
 - clean-extraction external C consumer and control-plane package tests;
 - ABI/export and stable-format contract checks, including Windows PE/COFF export validation for the native DLL;
 - clean Git provenance and SPDX/in-toto release metadata.
