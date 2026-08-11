@@ -87,6 +87,7 @@ python -m pip install -r requirements-dev.txt
 make test
 python tools/qualify_native.py
 make release-readiness
+make release-readiness-fast
 python tools/validate_release_readiness.py
 ```
 

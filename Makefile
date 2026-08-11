@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VERSION := $(shell $(PYTHON) -c "print(open('VERSION', encoding='utf-8').read().strip())")
 
-.PHONY: all native test qualify release release-readiness fixtures clean rust-check status
+.PHONY: all native test qualify release release-readiness release-readiness-fast fixtures clean rust-check status
 
 all: native
 
@@ -55,6 +55,9 @@ release: qualify
 
 release-readiness:
 	$(PYTHON) tools/validate_release_readiness.py --skip-package
+
+release-readiness-fast:
+	$(PYTHON) tools/validate_release_readiness.py --skip-miri --skip-package
 
 rust-check:
 	$(PYTHON) tools/qualify.py

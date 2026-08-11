@@ -18,7 +18,9 @@ def main() -> int:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     require(makefile, "release-readiness:", "Makefile target")
+    require(makefile, "release-readiness-fast:", "Makefile fast readiness target")
     require(makefile, "tools/validate_release_readiness.py --skip-package", "Makefile readiness command")
+    require(makefile, "tools/validate_release_readiness.py --skip-miri --skip-package", "Makefile fast readiness command")
     require(makefile, "tools/validate_release_readiness.py --build-release --archive dist/mosaic-tokenizer-$(VERSION)-linux-x86_64.tar.gz", "Makefile release command")
 
     require(workflow, "python tools/validate_release_readiness.py --build-release", "release workflow readiness command")
@@ -27,6 +29,7 @@ def main() -> int:
     require(doc, "release-qualification workflow now calls the same entrypoint", "release engineering workflow note")
 
     require(readme, "make release-readiness", "README release-readiness target")
+    require(readme, "make release-readiness-fast", "README fast readiness target")
     require(readme, "python tools/validate_release_readiness.py", "README readiness command")
 
     print("OK: release matrix entries are aligned across Makefile, workflow, README, and release engineering docs")
