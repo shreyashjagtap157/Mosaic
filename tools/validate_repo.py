@@ -159,6 +159,12 @@ def main() -> int:
     check_m2_fixture()
     check_convergence_requirements()
     check_product_versioning()
+    subprocess.run(
+        [sys.executable, str(ROOT / "tools/generate_artifact_checksums.py"), "--check"],
+        check=True,
+        cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+    )
     digest = hashlib.sha256((ROOT / "fixtures/packs/empty-v0.mpack").read_bytes()).hexdigest()
     print("OK: M0 repository structure and four-part product versioning validated")
     print(f"OK: empty fixture SHA-256 {digest}")

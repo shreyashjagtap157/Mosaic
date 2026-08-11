@@ -25,12 +25,16 @@ def main() -> int:
     parser.add_argument("--archive", default=str(DEFAULT_ARCHIVE))
     parser.add_argument("--build-release", action="store_true")
     parser.add_argument("--skip-package", action="store_true")
+    parser.add_argument("--skip-miri", action="store_true")
     args = parser.parse_args()
 
     run([python(), "tools/validate_repo.py"])
     run([python(), "tools/validate_release_matrix.py"])
     run([python(), "tools/validate_open_gates.py"])
-    run([python(), "tools/validate_miri.py"])
+    run([python(), "tools/set_version.py", "--check"])
+    run([python(), "tools/generate_artifact_checksums.py", "--check"])
+    if not args.skip_miri:
+        run([python(), "tools/validate_miri.py"])
     run([python(), "tools/validate_fuzz.py", "--runs", "60"])
 
     if not args.skip_package:
