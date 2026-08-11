@@ -116,6 +116,20 @@ static int has_suffix(const char *path, const char *suffix) {
     return _stricmp(path + lp - ls, suffix) == 0;
 }
 
+static void suggest_output_from_input(const char *input_path, char *out_path, size_t out_cap, const char *suffix) {
+    const char *base = input_path;
+    const char *slash = strrchr(input_path, '\\');
+    const char *fslash = strrchr(input_path, '/');
+    if (slash && fslash) base = slash > fslash ? slash + 1 : fslash + 1;
+    else if (slash) base = slash + 1;
+    else if (fslash) base = fslash + 1;
+    if (!*base) {
+        snprintf(out_path, out_cap, "mosaic-output%s", suffix);
+        return;
+    }
+    snprintf(out_path, out_cap, "%.*s%s", (int)(strcspn(base, ".")), base, suffix);
+}
+
 typedef struct MosaicArchiveHeader {
     uint32_t magic;
     uint32_t version;
@@ -229,11 +243,6 @@ static void compress_selected(AppState *state) {
     if (!read_file(input_path, &input, &in_len)) { log_append(state->log_edit, "Could not read input file."); goto done; }
     state->algorithm = algorithm_from_selection(state->algo_combo);
     state->level = level_from_track(state->level_track);
-    {
-        WCHAR lvl[8];
-        _snwprintf(lvl, 8, L"%lu", (unsigned long)state->level);
-        SetWindowTextW(GetDlgItem(state->hwnd, ID_LEVEL_TRACK), lvl);
-    }
     err = compress_buffer(state->algorithm, input, in_len, &compressed, &out_len);
     if (err != ERROR_SUCCESS) {
         char line[128];
@@ -283,7 +292,7 @@ static void decompress_selected(AppState *state) {
         goto done;
     }
     memcpy(&header, input, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
+    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len || header.original_size == 0) {
         log_append(state->log_edit, "Not a Mosaic archive.");
         goto done;
     }
@@ -362,7 +371,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             const char *filter = "All Files\0*.*\0";
             if (file_dialog_open(hwnd, path, sizeof(path), filter)) {
                 set_text(state->input_edit, path);
+                suggest_output_from_input(path, state->output_path, sizeof(state->output_path), ".mzc");
+                set_text(state->output_edit, state->output_path);
                 log_append(state->log_edit, "Input selected.");
+                set_status(state, "Input loaded");
             }
             return 0;
         }
@@ -371,6 +383,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             const char *filter = "Mosaic Archive\0*.mzc\0All Files\0*.*\0";
             if (file_dialog_save(hwnd, path, sizeof(path), filter)) {
                 set_text(state->output_edit, path);
+                strncpy(state->output_path, path, sizeof(state->output_path) - 1);
                 log_append(state->log_edit, "Output selected.");
             }
             return 0;
