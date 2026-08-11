@@ -64,6 +64,7 @@ def main() -> int:
 
     print("PASS: local stable-Rust qualification gates completed")
     print("NOTE: nightly/release CI still owns cross-platform gates; local validators cover Miri and fuzz smoke")
+    print("NOTE: for release-readiness without the long Miri pass, use `make release-readiness-fast`")
     return 0
 
 

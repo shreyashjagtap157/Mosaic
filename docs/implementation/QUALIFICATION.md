@@ -34,3 +34,5 @@ Scheduled CI adds:
 ## Release qualification
 
 A public release candidate must pass every applicable stable, nightly, cross-platform, conformance, fuzz, ABI, benchmark, and provenance gate for the capabilities it claims. A checked box in a Markdown file is not evidence unless the corresponding CI artifact identifies the exact commit and test inputs.
+
+For local release-readiness checks, `make release-readiness-fast` is the deferred-Miri lane; it keeps the repository, version, checksum, gate-alignment, and fuzz-smoke checks in place while skipping the long interpreter pass. Use `make release-readiness` or `python tools/validate_release_readiness.py` when you want the full gate.
