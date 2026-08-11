@@ -21,11 +21,13 @@ def python() -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Run Mosaic release-readiness checks; optionally defer Miri or packaging."
+    )
     parser.add_argument("--archive", default=str(DEFAULT_ARCHIVE))
     parser.add_argument("--build-release", action="store_true")
     parser.add_argument("--skip-package", action="store_true")
-    parser.add_argument("--skip-miri", action="store_true")
+    parser.add_argument("--skip-miri", action="store_true", help="skip the long Miri pass")
     args = parser.parse_args()
 
     run([python(), "tools/validate_repo.py"])
