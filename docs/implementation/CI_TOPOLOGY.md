@@ -53,6 +53,8 @@ Release candidates additionally require:
 - signature/revocation tests once trust infrastructure exists;
 - benchmark artifacts tied to exact source/manifest/build hashes.
 
+Local release-readiness runs may use the fast deferred-Miri lane when the long-running interpreter gate is intentionally postponed; that path still requires the repository, version, checksum, gate-alignment, and fuzz-smoke checks before the full package build is attempted.
+
 ## Gate ownership
 
 No benchmark regression may waive a correctness invariant. Performance waivers require a written issue/ADR reference; correctness, exactness, reproducibility, or resource-bound failures block qualification.
