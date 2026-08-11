@@ -91,6 +91,8 @@ make release-readiness-fast
 python tools/validate_release_readiness.py
 ```
 
+Use `make release-readiness-fast` when you want the readiness checks without the long Miri pass; use the plain `make release-readiness` or `python tools/validate_release_readiness.py` when you want the full gate.
+
 Qualification covers exact bounded streaming and security visitors, deterministic fixture regeneration, native C/C++ clients, sanitizers, malformed model/Unicode/language/detector/security/normalization packs, Python/native differentials, Unicode 17 grapheme/security conformance, 10,000 ICU-backed Unicode-16 normalization comparisons, exact normalization provenance, stream/full equality, edit/full equality, language-pack composition/order independence, detector fail-soft routing, deterministic span routing, and performance/RSS regression floors.
 
 ## CLI
