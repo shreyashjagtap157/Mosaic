@@ -16,6 +16,7 @@ def main() -> int:
     workflow = (ROOT / ".github/workflows/release-qualification.yml").read_text(encoding="utf-8")
     doc = (ROOT / "docs/implementation/RELEASE_ENGINEERING_v1.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    external = (ROOT / "docs/implementation/EXTERNAL_QUALIFICATION.md").read_text(encoding="utf-8")
 
     require(makefile, "release-readiness:", "Makefile target")
     require(makefile, "release-readiness-fast:", "Makefile fast readiness target")
@@ -27,10 +28,12 @@ def main() -> int:
 
     require(doc, "consolidated local entrypoint is `tools/validate_release_readiness.py`", "release engineering doc")
     require(doc, "release-qualification workflow now calls the same entrypoint", "release engineering workflow note")
+    require(doc, "docs/implementation/EXTERNAL_QUALIFICATION.md", "release engineering external gate note")
 
     require(readme, "make release-readiness", "README release-readiness target")
     require(readme, "make release-readiness-fast", "README fast readiness target")
     require(readme, "python tools/validate_release_readiness.py", "README readiness command")
+    require(external, "Required external gates", "external qualification checklist")
 
     print("OK: release matrix entries are aligned across Makefile, workflow, README, and release engineering docs")
     return 0
