@@ -8,8 +8,12 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <direct.h>
+#define PATH_SEP '\\'
 #else
 #include <unistd.h>
+#include <sys/stat.h>
+#define PATH_SEP '/'
 #endif
 
 #define MAX_TOOLS 8
@@ -25,6 +29,11 @@ typedef struct {
     ToolSpec tools[MAX_TOOLS];
     size_t count;
 } ToolList;
+
+typedef struct {
+    int json;
+    const char *output_dir;
+} Options;
 
 static double seconds(void) {
     return (double)clock() / (double)CLOCKS_PER_SEC;
@@ -190,13 +199,49 @@ static int compare_external(const char *input_path, const char *archive_path, co
     return 1;
 }
 
+static void json_escape(FILE *out, const char *s) {
+    fputc('"', out);
+    for (; *s; ++s) {
+        switch (*s) {
+            case '\\': fputs("\\\\", out); break;
+            case '"': fputs("\\\"", out); break;
+            case '\n': fputs("\\n", out); break;
+            case '\r': fputs("\\r", out); break;
+            case '\t': fputs("\\t", out); break;
+            default: fputc((unsigned char)*s, out); break;
+        }
+    }
+    fputc('"', out);
+}
+
+static int ensure_directory(const char *path) {
+#ifdef _WIN32
+    if (_mkdir(path) == 0 || errno == EEXIST) return 1;
+#else
+    if (mkdir(path, 0775) == 0 || errno == EEXIST) return 1;
+#endif
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    if (argc < 4) return 2;
+    Options opts = {0, "build/compress-compare"};
+    int argi = 1;
+    while (argi < argc && argv[argi][0] == '-') {
+        if (!strcmp(argv[argi], "--json")) { opts.json = 1; ++argi; continue; }
+        if (!strcmp(argv[argi], "--output-dir")) {
+            if (argi + 1 >= argc) return 2;
+            opts.output_dir = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        return 2;
+    }
+    if (argc - argi < 3) return 2;
     if (mosaic_tokenizer_semantics_version() != 2u) return 60;
 
-    const char *model_pack = argv[1];
-    const char *unicode_pack = argv[2];
-    const char *input_path = argv[3];
+    const char *model_pack = argv[argi++];
+    const char *unicode_pack = argv[argi++];
+    const char *input_path = argv[argi++];
 
     mosaic_tokenizer *tokenizer = NULL;
     if (mosaic_tokenizer_load_files(model_pack, unicode_pack, &tokenizer) != MOSAIC_OK) return 3;
@@ -221,17 +266,30 @@ int main(int argc, char **argv) {
         return 7;
     }
 
+    if (!ensure_directory(opts.output_dir)) {
+        mosaic_free(ids);
+        mosaic_free(decoded);
+        free(input);
+        mosaic_tokenizer_free(tokenizer);
+        return 8;
+    }
     char stem[256];
     stem_from_path(input_path, stem, sizeof stem);
     char archive_path[512];
     char roundtrip_path[512];
-    snprintf(archive_path, sizeof archive_path, "%s.%s.7z", input_path, stem);
-    snprintf(roundtrip_path, sizeof roundtrip_path, "%s.%s.roundtrip", input_path, stem);
+    snprintf(archive_path, sizeof archive_path, "%s%c%s.7z", opts.output_dir, PATH_SEP, stem);
+    snprintf(roundtrip_path, sizeof roundtrip_path, "%s%c%s.roundtrip", opts.output_dir, PATH_SEP, stem);
 
     ToolList tools;
     load_env_tools(&tools);
 
-    printf("mosaic bytes=%zu tokens=%zu roundtrip=PASS encode_decode=%.6f\n", input_len, id_count, t1 - t0);
+    if (opts.json) {
+        printf("{\"input\":");
+        json_escape(stdout, input_path);
+        printf(",\"mosaic\":{\"bytes\":%zu,\"tokens\":%zu,\"roundtrip\":\"PASS\",\"encode_decode_sec\":%.6f},\"tools\":[", input_len, id_count, t1 - t0);
+    } else {
+        printf("mosaic bytes=%zu tokens=%zu roundtrip=PASS encode_decode=%.6f\n", input_len, id_count, t1 - t0);
+    }
     size_t archive_size = 0;
     for (size_t i = 0; i < tools.count; ++i) {
         const ToolSpec *tool = &tools.tools[i];
@@ -239,31 +297,69 @@ int main(int argc, char **argv) {
         int ok = compare_external(input_path, archive_path, roundtrip_path, tool);
         double c1 = seconds();
         if (!ok) {
-            printf("%s=SKIP\n", tool->name);
+            if (opts.json) {
+                if (i) printf(",");
+                printf("{\"tool\":");
+                json_escape(stdout, tool->name);
+                printf(",\"status\":\"SKIP\"}");
+            } else {
+                printf("%s=SKIP\n", tool->name);
+            }
             continue;
         }
         if (!file_size(archive_path, &archive_size)) {
-            printf("%s=FAIL size\n", tool->name);
+            if (opts.json) {
+                if (i) printf(",");
+                printf("{\"tool\":");
+                json_escape(stdout, tool->name);
+                printf(",\"status\":\"FAIL\",\"reason\":\"size\"}");
+            } else {
+                printf("%s=FAIL size\n", tool->name);
+            }
             continue;
         }
         size_t roundtrip_size = 0;
         if (!file_size(roundtrip_path, &roundtrip_size)) {
-            printf("%s=FAIL roundtrip-size\n", tool->name);
+            if (opts.json) {
+                if (i) printf(",");
+                printf("{\"tool\":");
+                json_escape(stdout, tool->name);
+                printf(",\"status\":\"FAIL\",\"reason\":\"roundtrip-size\"}");
+            } else {
+                printf("%s=FAIL roundtrip-size\n", tool->name);
+            }
             continue;
         }
         uint8_t *roundtrip = read_file(roundtrip_path, &roundtrip_size);
         if (!roundtrip && roundtrip_size) {
-            printf("%s=FAIL roundtrip-read\n", tool->name);
+            if (opts.json) {
+                if (i) printf(",");
+                printf("{\"tool\":");
+                json_escape(stdout, tool->name);
+                printf(",\"status\":\"FAIL\",\"reason\":\"roundtrip-read\"}");
+            } else {
+                printf("%s=FAIL roundtrip-read\n", tool->name);
+            }
             continue;
         }
         int match = roundtrip_size == input_len && (!input_len || memcmp(roundtrip, input, input_len) == 0);
         free(roundtrip);
-        printf("%s=%s archive_bytes=%zu ratio=%.3f elapsed=%.6f\n",
-               tool->name, match ? "PASS" : "FAIL", archive_size,
-               input_len ? (double)archive_size / (double)input_len : 0.0, c1 - c0);
+        if (opts.json) {
+            if (i) printf(",");
+            printf("{\"tool\":");
+            json_escape(stdout, tool->name);
+            printf(",\"status\":\"%s\",\"archive_bytes\":%zu,\"ratio\":%.3f,\"elapsed_sec\":%.6f}",
+                   match ? "PASS" : "FAIL", archive_size,
+                   input_len ? (double)archive_size / (double)input_len : 0.0, c1 - c0);
+        } else {
+            printf("%s=%s archive_bytes=%zu ratio=%.3f elapsed=%.6f\n",
+                   tool->name, match ? "PASS" : "FAIL", archive_size,
+                   input_len ? (double)archive_size / (double)input_len : 0.0, c1 - c0);
+        }
         remove(archive_path);
         remove(roundtrip_path);
     }
+    if (opts.json) printf("]}\n");
 
     mosaic_free(ids);
     mosaic_free(decoded);
