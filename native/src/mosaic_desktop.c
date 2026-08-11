@@ -35,6 +35,15 @@ typedef struct AppState {
     char output_path[MAX_PATH];
 } AppState;
 
+typedef struct ArchiveConfig {
+    DWORD algorithm;
+    DWORD level;
+    const char *input_path;
+    const char *archive_path;
+    const char *output_path;
+    int roundtrip;
+} ArchiveConfig;
+
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
     SendMessageA(edit, EM_SETSEL, (WPARAM)len, (LPARAM)len);
@@ -79,6 +88,19 @@ static int write_file(const char *path, const uint8_t *bytes, size_t len) {
     if (!f) return 0;
     int ok = !len || fwrite(bytes, 1, len, f) == len;
     fclose(f);
+    return ok;
+}
+
+static int file_equals_path(const char *left_path, const char *right_path) {
+    uint8_t *left = NULL;
+    uint8_t *right = NULL;
+    size_t left_len = 0, right_len = 0;
+    int ok = 0;
+    if (!read_file(left_path, &left, &left_len) || !read_file(right_path, &right, &right_len)) goto done;
+    ok = left_len == right_len && (!left_len || memcmp(left, right, left_len) == 0);
+done:
+    free(left);
+    free(right);
     return ok;
 }
 
@@ -130,6 +152,12 @@ static void suggest_output_from_input(const char *input_path, char *out_path, si
     snprintf(out_path, out_cap, "%.*s%s", (int)(strcspn(base, ".")), base, suffix);
 }
 
+static void set_output_for_input(AppState *state, const char *input_path, const char *suffix) {
+    if (!state || !input_path || !*input_path) return;
+    suggest_output_from_input(input_path, state->output_path, sizeof(state->output_path), suffix);
+    set_text(state->output_edit, state->output_path);
+}
+
 typedef struct MosaicArchiveHeader {
     uint32_t magic;
     uint32_t version;
@@ -159,6 +187,13 @@ static const char *algorithm_name(DWORD algorithm) {
     case COMPRESS_ALGORITHM_LZMS: return "LZMS";
     default: return "UNKNOWN";
     }
+}
+
+static int algorithm_supported(DWORD algorithm) {
+    return algorithm == COMPRESS_ALGORITHM_XPRESS_HUFF ||
+           algorithm == COMPRESS_ALGORITHM_XPRESS ||
+           algorithm == COMPRESS_ALGORITHM_MSZIP ||
+           algorithm == COMPRESS_ALGORITHM_LZMS;
 }
 
 static DWORD level_from_track(HWND track) {
@@ -222,6 +257,99 @@ static DWORD decompress_buffer(DWORD algorithm, const uint8_t *input, size_t inp
     CloseDecompressor(handle);
     *out_bytes = buf;
     return ERROR_SUCCESS;
+}
+
+static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, size_t error_cap);
+static int utf8_from_wide(const wchar_t *input, char **out_text) {
+    int need = WideCharToMultiByte(CP_UTF8, 0, input, -1, NULL, 0, NULL, NULL);
+    if (need <= 0) return 0;
+    *out_text = (char *)malloc((size_t)need);
+    if (!*out_text) return 0;
+    if (!WideCharToMultiByte(CP_UTF8, 0, input, -1, *out_text, need, NULL, NULL)) {
+        free(*out_text);
+        *out_text = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+static int run_self_test(int argc, char **argv) {
+    ArchiveConfig cfg;
+    char errbuf[128];
+    if (argc != 5) {
+        fprintf(stderr, "usage: mosaic-desktop --self-test INPUT ARCHIVE OUTPUT\n");
+        return 2;
+    }
+    cfg.algorithm = COMPRESS_ALGORITHM_XPRESS_HUFF;
+    cfg.level = 3;
+    cfg.input_path = argv[2];
+    cfg.archive_path = argv[3];
+    cfg.output_path = argv[4];
+    cfg.roundtrip = 1;
+    if (!archive_write_roundtrip(&cfg, errbuf, sizeof(errbuf))) {
+        fprintf(stderr, "self-test failed: %s\n", errbuf);
+        return 3;
+    }
+    fprintf(stdout, "OK self-test roundtrip=%s archive=%s output=%s\n", cfg.input_path, cfg.archive_path, cfg.output_path);
+    return 0;
+}
+
+static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, size_t error_cap) {
+    uint8_t *input = NULL, *compressed = NULL, *payload = NULL, *output = NULL;
+    size_t input_len = 0, compressed_len = 0;
+    MosaicArchiveHeader header;
+    DWORD err = ERROR_SUCCESS;
+    if (!cfg || !cfg->input_path || !cfg->archive_path || !cfg->output_path) return 0;
+    if (!read_file(cfg->input_path, &input, &input_len)) {
+        snprintf(error_buf, error_cap, "read input failed");
+        return 0;
+    }
+    err = compress_buffer(cfg->algorithm, input, input_len, &compressed, &compressed_len);
+    if (err != ERROR_SUCCESS) {
+        snprintf(error_buf, error_cap, "compress failed: %lu", (unsigned long)err);
+        goto fail;
+    }
+    header.magic = 0x31434D5A;
+    header.version = 1;
+    header.algorithm = cfg->algorithm;
+    header.level = cfg->level;
+    header.original_size = (uint64_t)input_len;
+    header.compressed_size = (uint64_t)compressed_len;
+    header.checksum32 = crc32_bytes(input, input_len);
+    payload = (uint8_t *)malloc(sizeof(header) + compressed_len);
+    if (!payload) {
+        snprintf(error_buf, error_cap, "out of memory");
+        goto fail;
+    }
+    memcpy(payload, &header, sizeof(header));
+    memcpy(payload + sizeof(header), compressed, compressed_len);
+    if (!write_file(cfg->archive_path, payload, sizeof(header) + compressed_len)) {
+        snprintf(error_buf, error_cap, "write archive failed");
+        goto fail;
+    }
+    if (!decompress_buffer(header.algorithm, payload + sizeof(header), compressed_len, (size_t)header.original_size, &output)) {
+        snprintf(error_buf, error_cap, "decompress failed");
+        goto fail;
+    }
+    if (!write_file(cfg->output_path, output, (size_t)header.original_size)) {
+        snprintf(error_buf, error_cap, "write output failed");
+        goto fail;
+    }
+    if (!file_equals_path(cfg->input_path, cfg->output_path)) {
+        snprintf(error_buf, error_cap, "roundtrip mismatch");
+        goto fail;
+    }
+    free(input);
+    free(compressed);
+    free(payload);
+    free(output);
+    return 1;
+fail:
+    free(input);
+    free(compressed);
+    free(payload);
+    free(output);
+    return 0;
 }
 
 static void compress_selected(AppState *state) {
@@ -292,7 +420,7 @@ static void decompress_selected(AppState *state) {
         goto done;
     }
     memcpy(&header, input, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len || header.original_size == 0) {
+    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len || header.original_size == 0 || !algorithm_supported(header.algorithm)) {
         log_append(state->log_edit, "Not a Mosaic archive.");
         goto done;
     }
@@ -371,8 +499,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             const char *filter = "All Files\0*.*\0";
             if (file_dialog_open(hwnd, path, sizeof(path), filter)) {
                 set_text(state->input_edit, path);
-                suggest_output_from_input(path, state->output_path, sizeof(state->output_path), ".mzc");
-                set_text(state->output_edit, state->output_path);
+                set_output_for_input(state, path, ".mzc");
                 log_append(state->log_edit, "Input selected.");
                 set_status(state, "Input loaded");
             }
@@ -422,7 +549,32 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 }
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) {
-    (void)prev; (void)cmdline;
+    LPWSTR *argvw = NULL;
+    int argc = 0;
+    int rc = 0;
+    int i;
+    (void)prev;
+    (void)cmdline;
+    argvw = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argvw && argc >= 2 && wcscmp(argvw[1], L"--self-test") == 0) {
+        char **argv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+        if (argv) {
+            for (i = 0; i < argc; ++i) {
+                if (!utf8_from_wide(argvw[i], &argv[i])) {
+                    rc = 4;
+                    break;
+                }
+            }
+            if (i == argc) rc = run_self_test(argc, argv);
+            for (i = 0; i < argc; ++i) free(argv[i]);
+            free(argv);
+        } else {
+            rc = 4;
+        }
+        LocalFree(argvw);
+        return rc;
+    }
+    if (argvw) LocalFree(argvw);
     INITCOMMONCONTROLSEX icc;
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES;
