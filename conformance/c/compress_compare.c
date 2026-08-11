@@ -99,14 +99,30 @@ static int run_command(const char *cmd) {
 #endif
 }
 
-static int command_available(const char *name) {
+static void first_command_token(const char *cmd, char *token, size_t token_size) {
+    size_t i = 0;
+    const char *p = cmd;
+    while (*p == ' ' || *p == '\t') ++p;
+    if (*p == '\"') {
+        ++p;
+        while (*p && *p != '\"' && i + 1 < token_size) token[i++] = *p++;
+    } else {
+        while (*p && *p != ' ' && *p != '\t' && i + 1 < token_size) token[i++] = *p++;
+    }
+    token[i] = '\0';
+}
+
+static int command_available_template(const char *cmd) {
+    char token[MAX_TEMPLATE];
+    first_command_token(cmd, token, sizeof token);
+    if (!token[0]) return 0;
 #ifdef _WIN32
     char path[MAX_TEMPLATE];
-    DWORD n = SearchPathA(NULL, name, ".exe;.cmd;.bat", (DWORD)sizeof path, path, NULL);
+    DWORD n = SearchPathA(NULL, token, ".exe;.cmd;.bat", (DWORD)sizeof path, path, NULL);
     return n > 0 && n < sizeof path;
 #else
     char probe[128];
-    snprintf(probe, sizeof probe, "%s", name);
+    snprintf(probe, sizeof probe, "%s", token);
     return access(probe, X_OK) == 0;
 #endif
 }
@@ -166,8 +182,8 @@ static void load_env_tools(ToolList *tools) {
 
 static int compare_external(const char *input_path, const char *archive_path, const char *roundtrip_path, const ToolSpec *tool) {
     char cmd[MAX_TEMPLATE * 2];
-    if (!command_available(tool->name)) return 0;
     if (!replace_tokens(tool->compress, input_path, archive_path, roundtrip_path, cmd, sizeof cmd)) return 0;
+    if (!command_available_template(cmd)) return 0;
     if (!run_command(cmd)) return 0;
     if (!replace_tokens(tool->decompress, input_path, archive_path, roundtrip_path, cmd, sizeof cmd)) return 0;
     if (!run_command(cmd)) return 0;
