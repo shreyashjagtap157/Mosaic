@@ -13,10 +13,11 @@ New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
 cmake --build $BuildDir --config $Config --target mosaic_shared mosaic-desktop
 cmake --install $BuildDir --config $Config --prefix $StageDir
 
-$wix = Get-Command candle -ErrorAction SilentlyContinue
-if (-not $wix) {
-    Write-Host "WiX tools not found. Staged install tree is ready at $StageDir."
+$iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+if (Test-Path $iscc) {
+    & $iscc "/O$InstallerDir" "packaging\windows\MosaicDesktop.iss"
+    Write-Host "Installer created in $InstallerDir."
     exit 0
 }
 
-Write-Host "WiX tools detected. MSI packaging can be wired from $StageDir using packaging\windows\MosaicDesktop.wxs."
+Write-Host "Inno Setup not found. Staged install tree is ready at $StageDir."

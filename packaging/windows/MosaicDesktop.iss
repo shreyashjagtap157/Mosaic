@@ -1,0 +1,38 @@
+#define AppName "Mosaic Compressor"
+#define AppVersion "0.1.3.0"
+#define AppPublisher "Mosaic"
+#define AppExeName "mosaic-desktop.exe"
+
+[Setup]
+AppId={{A53E0D0F-7BBA-4C87-8D18-3F4E6F58D2B7}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+DefaultDirName={autopf}\Mosaic Compressor
+DefaultGroupName=Mosaic Compressor
+DisableProgramGroupPage=yes
+OutputDir=..\..\dist\windows
+OutputBaseFilename=MosaicCompressorSetup-{#AppVersion}-x64
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+UsePreviousAppDir=no
+UninstallDisplayIcon={app}\{#AppExeName}
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Files]
+Source: "..\..\dist\windows\stage\bin\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\stage\bin\mosaic.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\stage\share\mosaic\packs\*"; DestDir: "{app}\share\mosaic\packs"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\windows\stage\include\mosaic.h"; DestDir: "{app}\include"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
+Name: "{autodesktop}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
+
+[Run]
+Filename: "{app}\{#AppExeName}"; Description: "Launch Mosaic Compressor"; Flags: nowait postinstall skipifsilent
