@@ -182,6 +182,16 @@ The release ships `mosaic-author`, which can compile explicit model vocabularies
 
 The 0.5 trainer is a reproducible practical baseline, not yet the final constrained-Unigram/BPE quality-optimization toolchain. Runtime model-quality claims remain benchmark-gated. See `docs/implementation/AUTHORING_0.5.md`.
 
+## Compression comparison
+
+The native build also ships `mosaic-compress-compare`, a comparison harness for Mosaic roundtrip timing plus external compressors when they are installed locally. It expects a model pack, a Unicode pack, and an input file:
+
+```bash
+./build/mosaic-compress-compare fixtures/packs/model-v2.mpack fixtures/packs/unicode17-v1.mpack INPUT
+```
+
+By default it tries `zip`, `7z`, and `rar` if they are available on `PATH`. Each template uses `%A` for the archive path, `%I` for the input file, and `%R` for the round-trip output file. Missing tools are reported as `SKIP`.
+
 ## Language-pack behavior
 
 A v0.5 language pack is declarative data, not native executable code. It contributes deterministic cost adjustments keyed by byte surfaces already representable in the loaded model vocabulary. It **cannot add hidden model token IDs**. This preserves fixed-vocabulary model compatibility while allowing an external language pack to specialize segmentation.
