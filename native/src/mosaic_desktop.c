@@ -25,7 +25,6 @@
 #define ID_CLEAR 1011
 #define ID_SOURCE_KIND 1012
 #define ID_VERIFY_CHECK 1013
-#define ID_DELETE_CHECK 1014
 #define ID_MODE_COMBO 1015
 
 #define APP_BG RGB(247, 249, 252)
@@ -57,7 +56,7 @@ typedef struct AppState {
     HWND algo_combo;
     HWND level_track;
     HWND verify_check;
-    HWND delete_check;
+    HWND safety_note;
     HWND status;
     HWND log_edit;
     DWORD algorithm;
@@ -65,7 +64,6 @@ typedef struct AppState {
     SourceKind source_kind;
     ArchiveMode archive_mode;
     int verify_after;
-    int delete_after;
     char input_path[MAX_PATH];
     char output_path[MAX_PATH];
 } AppState;
@@ -225,7 +223,7 @@ static void ui_layout(HWND hwnd, AppState *state) {
     MoveWindow(state->algo_combo, x_right, y + 36, card_w - 20, 28, TRUE);
     MoveWindow(state->level_track, x_right, y + 96, card_w - 20, 34, TRUE);
     MoveWindow(state->verify_check, x_right, y + 150, card_w - 20, 24, TRUE);
-    MoveWindow(state->delete_check, x_right, y + 178, card_w - 20, 24, TRUE);
+    MoveWindow(state->safety_note, x_right, y + 178, card_w - 20, 40, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_COMPRESS), margin, rc.bottom - 124, 120, 34, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_DECOMPRESS), margin + 132, rc.bottom - 124, 120, 34, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_CLEAR), margin + 264, rc.bottom - 124, 120, 34, TRUE);
@@ -261,7 +259,7 @@ static void paint_ui(HWND hwnd, HDC hdc) {
     draw_section_label(hdc, 44, 282, "Workflow");
     draw_section_label(hdc, 580, 116, "Compression profile");
     draw_section_label(hdc, 580, 176, "Compression level");
-    draw_section_label(hdc, 580, 230, "Safety toggles");
+    draw_section_label(hdc, 580, 230, "Safety note");
 }
 
 static void draw_card(HDC hdc, const RECT *rc) {
@@ -1141,9 +1139,6 @@ static void decompress_selected(AppState *state) {
         log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
         goto done;
     }
-    if (state->delete_after) {
-        log_append(state->log_edit, "Delete-after-completion is enabled in the UI, but destructive actions are disabled in this build.");
-    }
     if (!restore_archive_entries(output_path, entries, entry_count)) {
         log_append(state->log_edit, "Could not write decompressed output.");
         goto done;
@@ -1175,7 +1170,6 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state->source_kind = SOURCE_KIND_FILE;
         state->archive_mode = ARCHIVE_MODE_ADD_REPLACE;
         state->verify_after = 1;
-        state->delete_after = 0;
         ui_init(hwnd);
         HFONT font = g_ui.body_font;
         CreateWindowA("STATIC", "Source file or folder", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
@@ -1208,7 +1202,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         SendMessageA(state->level_track, TBM_SETPOS, TRUE, 3);
         state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
         SendMessageA(state->verify_check, BM_SETCHECK, BST_CHECKED, 0);
-        state->delete_check = CreateWindowA("BUTTON", "Delete source after completion", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_DELETE_CHECK, NULL, NULL);
+        state->safety_note = CreateWindowA("STATIC", "Source deletion is disabled in this build.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
         CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
@@ -1220,7 +1214,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         ui_apply_fonts(state->mode_combo, font);
         ui_apply_fonts(state->algo_combo, font);
         ui_apply_fonts(state->verify_check, font);
-        ui_apply_fonts(state->delete_check, font);
+        ui_apply_fonts(state->safety_note, font);
         ui_apply_fonts(state->status, font);
         ui_apply_fonts(state->log_edit, font);
         ui_theme_common(state->input_edit);
@@ -1229,7 +1223,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         ui_theme_common(state->mode_combo);
         ui_theme_common(state->algo_combo);
         ui_theme_common(state->verify_check);
-        ui_theme_common(state->delete_check);
+        ui_theme_common(state->safety_note);
         ui_theme_common(state->log_edit);
         DragAcceptFiles(hwnd, TRUE);
         log_append(state->log_edit, "Mosaic Desktop ready.");
@@ -1278,9 +1272,6 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             return 0;
         case ID_VERIFY_CHECK:
             state->verify_after = (IsDlgButtonChecked(hwnd, ID_VERIFY_CHECK) == BST_CHECKED);
-            return 0;
-        case ID_DELETE_CHECK:
-            state->delete_after = (IsDlgButtonChecked(hwnd, ID_DELETE_CHECK) == BST_CHECKED);
             return 0;
         case ID_COMPRESS: compress_selected(state); return 0;
         case ID_DECOMPRESS: decompress_selected(state); return 0;
