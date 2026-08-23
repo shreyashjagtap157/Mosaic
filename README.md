@@ -250,6 +250,8 @@ The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the C
 
 On Windows, `tools/package_windows_app.ps1` builds the installable desktop package and emits `dist/windows/MosaicCompressorSetup-<version>-x64.exe` from the same staged app tree. That installer includes the desktop app, self-test, tokenizer CLI, comparison harness, public header, shared library, packs, and release docs. The matching evidence note is `docs/release/QUALIFICATION_0.1.3.0_WINDOWS_PACKAGE.md`. Release notes and qualification reports are indexed in `docs/release/README.md`.
 
+The packaging script keeps only the latest `MosaicCompressorSetup-*.exe` in `dist/windows` for testing, and the installer is configured as a normal upgrade path so newer versions replace the installed binaries while user settings remain outside the install tree.
+
 If you prefer the repo-native task runner, use `make windows-package` to build the installer and `make windows-package-verify` to check the staged tree and installer metadata.
 
 ## Rust status

@@ -10,6 +10,9 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
 Get-ChildItem -Force $StageDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Force $InstallerDir -Filter "MosaicCompressorSetup-*.exe" -File |
+    Where-Object { $_.Name -ne "MosaicCompressorSetup-$((Get-Content VERSION).Trim())-x64.exe" } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 cmake --build $BuildDir --config $Config --target mosaic_shared mosaic-desktop mosaic-desktop-selftest mosaic-tokenizer mosaic-compress-compare
 cmake --install $BuildDir --config $Config --prefix $StageDir
