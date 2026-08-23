@@ -22,6 +22,7 @@
 - add a tiny reusable Python `mosaicd` client helper and exercise it in the service validator so other apps and agents have a ready-made HTTP integration path;
 - ship the reusable `mosaicd` client helper in the release bundle and surface it in the top-level README as a supported integration convenience;
 - add direct Python binding test coverage for the packaged `MosaicdClient` helper so the import path and HTTP integration surface are exercised outside the service smoke;
+- add release-package smoke coverage that imports the packaged `MosaicdClient` from the installed wheel and exercises it against a stub HTTP service;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;
