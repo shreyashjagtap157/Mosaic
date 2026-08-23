@@ -247,18 +247,38 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
 
 static void inspect_selected_archive(AppState *state) {
     char *input_path = NULL;
+    char *output_path = NULL;
     size_t in_len = 0;
+    size_t out_len = 0;
     uint8_t *input = NULL, *output = NULL;
     MosaicEntry *entries = NULL;
     size_t entry_count = 0;
     char root_name[MAX_PATH];
     char errbuf[160];
     MosaicArchiveHeader header;
-    if (!state || !get_window_text_alloc(state->input_edit, &input_path, &in_len)) {
+    if (!state || !get_window_text_alloc(state->output_edit, &output_path, &out_len)) {
         log_append(state->log_edit, "Read paths failed.");
         goto done;
     }
-    if (!read_file(input_path, &input, &in_len) || in_len < sizeof(header)) {
+    if (output_path[0] && read_file(output_path, &input, &in_len) && in_len >= sizeof(header)) {
+        input_path = output_path;
+        output_path = NULL;
+    } else {
+        free(input);
+        input = NULL;
+        in_len = 0;
+        free(output_path);
+        output_path = NULL;
+        if (!get_window_text_alloc(state->input_edit, &input_path, &in_len)) {
+            log_append(state->log_edit, "Read paths failed.");
+            goto done;
+        }
+        if (!read_file(input_path, &input, &in_len) || in_len < sizeof(header)) {
+            log_append(state->log_edit, "Could not read archive.");
+            goto done;
+        }
+    }
+    if (in_len < sizeof(header)) {
         log_append(state->log_edit, "Could not read archive.");
         goto done;
     }
@@ -290,6 +310,7 @@ done:
     free(input);
     free(output);
     free(input_path);
+    free(output_path);
 }
 
 static void archive_list_init(HWND list) {
