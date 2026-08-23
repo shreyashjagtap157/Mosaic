@@ -15,3 +15,7 @@ Mosaic 0.1.3.0 is a backward-compatible candidate minor release that adds determ
 ## Compatibility
 
 C ABI advances additively from 1.0.0 to 1.1.0. Existing C ABI 1.0.0 declarations remain present, trust ABI 1.0.0 remains unchanged, tokenizer semantics remain version 2, and native pack/serialization formats remain unchanged.
+
+## Windows package evidence
+
+The 0.1.3.0 release also ships a Windows installer path for the desktop product. The stage and installer are qualified in `docs/release/QUALIFICATION_0.1.3.0_WINDOWS_PACKAGE.md`, and the Windows package tooling is exercised through `tools/package_windows_app.ps1` and `tools/validate_windows_package.py`.
