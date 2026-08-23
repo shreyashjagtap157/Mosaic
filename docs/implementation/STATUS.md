@@ -4,7 +4,7 @@ Date: 2026-08-10
 
 ## Current enterprise candidate
 
-**0.1.3.5 — universal tokenization and token-native processing platform candidate.**
+**0.1.3.6 — universal tokenization and token-native processing platform candidate.**
 
 Mosaic uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` remains deliberate: real Windows qualification exposed portability defects, and `0.1.0.4` closes the C++ smoke-client compatibility defect with an explicit strict-C++11 consumer contract. The dependency-minimal Windows Clang preset and the pinned Rust 1.97.1 workspace gate now pass, but the remaining declared stable-generation gates must complete before the project is permitted to claim `1.0.0.0` stable.
 
