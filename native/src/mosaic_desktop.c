@@ -74,6 +74,8 @@ typedef struct AppState {
     int suppress_output_change;
     char input_path[MAX_PATH];
     char output_path[MAX_PATH];
+    char last_source_dir[MAX_PATH];
+    char last_output_dir[MAX_PATH];
 } AppState;
 
 typedef struct UiState {
@@ -142,6 +144,7 @@ static void set_entry_write_time(MosaicEntry *entry, const char *abs_path);
 static void apply_write_time(const char *path, const FILETIME *write_time);
 static void format_filetime_utc(const FILETIME *ft, char *out, size_t cap);
 static int archive_list_get_selected(HWND list, int **indices_out, int *count_out);
+static void path_dirname_copy(const char *path, char *out, size_t cap);
 
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
@@ -183,6 +186,7 @@ static void set_input_path(AppState *state, const char *path) {
     strncpy(state->input_path, path ? path : "", sizeof(state->input_path) - 1);
     state->input_path[sizeof(state->input_path) - 1] = '\0';
     set_text(state->input_edit, state->input_path);
+    path_dirname_copy(state->input_path, state->last_source_dir, sizeof(state->last_source_dir));
     sync_source_kind_controls(state, state->input_path);
     if (state->input_path[0] && state->output_edit && (state->output_path_auto || GetWindowTextLengthA(state->output_edit) == 0)) {
         set_output_for_input(state, state->input_path, ".mzc");
@@ -193,6 +197,7 @@ static void set_output_path(AppState *state, const char *path) {
     if (!state) return;
     strncpy(state->output_path, path ? path : "", sizeof(state->output_path) - 1);
     state->output_path[sizeof(state->output_path) - 1] = '\0';
+    path_dirname_copy(state->output_path, state->last_output_dir, sizeof(state->last_output_dir));
     state->suppress_output_change = 1;
     set_text(state->output_edit, state->output_path);
     state->suppress_output_change = 0;
@@ -202,6 +207,25 @@ static void set_output_path_auto(AppState *state, const char *path) {
     if (!state) return;
     state->output_path_auto = 1;
     set_output_path(state, path);
+}
+
+static void path_dirname_copy(const char *path, char *out, size_t cap) {
+    const char *slash;
+    const char *fslash;
+    const char *cut;
+    size_t len;
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    if (!path || !*path) return;
+    slash = strrchr(path, '\\');
+    fslash = strrchr(path, '/');
+    cut = slash;
+    if (!cut || (fslash && fslash > cut)) cut = fslash;
+    if (!cut) return;
+    len = (size_t)(cut - path);
+    if (len >= cap) len = cap - 1;
+    memcpy(out, path, len);
+    out[len] = '\0';
 }
 
 static int utf8_to_wide_alloc(const char *input, wchar_t **out_text) {
@@ -760,9 +784,10 @@ done:
     return ok;
 }
 
-static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int save_mode, int folder_mode) {
+static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int save_mode, int folder_mode, const char *default_folder) {
     HRESULT hr;
     IFileDialog *dlg = NULL;
+    IShellItem *start_folder = NULL;
     COMDLG_FILTERSPEC spec[] = {
         {L"Mosaic Archive", L"*.mzc"},
         {L"All Files", L"*.*"},
@@ -793,6 +818,15 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
         dlg->lpVtbl->GetOptions(dlg, &opts);
         dlg->lpVtbl->SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
     }
+    if (default_folder && *default_folder) {
+        wchar_t *wide_folder = NULL;
+        if (utf8_to_wide_alloc(default_folder, &wide_folder)) {
+            if (SUCCEEDED(SHCreateItemFromParsingName(wide_folder, NULL, &IID_IShellItem, (void **)&start_folder)) && start_folder) {
+                dlg->lpVtbl->SetDefaultFolder(dlg, start_folder);
+            }
+            free(wide_folder);
+        }
+    }
     hr = dlg->lpVtbl->Show(dlg, owner);
     if (SUCCEEDED(hr)) {
         IShellItem *item = NULL;
@@ -820,23 +854,24 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
             item->lpVtbl->Release(item);
         }
     }
+    if (start_folder) start_folder->lpVtbl->Release(start_folder);
     dlg->lpVtbl->Release(dlg);
     CoUninitialize();
     return 0;
 }
 
-static int folder_dialog_open(HWND owner, char *out_path, size_t out_cap) {
-    return modern_file_dialog(owner, out_path, out_cap, 0, 1);
+static int folder_dialog_open(HWND owner, char *out_path, size_t out_cap, const char *default_folder) {
+    return modern_file_dialog(owner, out_path, out_cap, 0, 1, default_folder);
 }
 
-static int file_dialog_save(HWND owner, char *out_path, size_t out_cap, const char *filter) {
+static int file_dialog_save(HWND owner, char *out_path, size_t out_cap, const char *filter, const char *default_folder) {
     (void)filter;
-    return modern_file_dialog(owner, out_path, out_cap, 1, 0);
+    return modern_file_dialog(owner, out_path, out_cap, 1, 0, default_folder);
 }
 
-static int file_dialog_open(HWND owner, char *out_path, size_t out_cap, const char *filter) {
+static int file_dialog_open(HWND owner, char *out_path, size_t out_cap, const char *filter, const char *default_folder) {
     (void)filter;
-    return modern_file_dialog(owner, out_path, out_cap, 0, 0);
+    return modern_file_dialog(owner, out_path, out_cap, 0, 0, default_folder);
 }
 
 static int has_suffix(const char *path, const char *suffix) {
@@ -1696,7 +1731,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         case ID_LOAD_INPUT: {
             char path[MAX_PATH];
             if (state->source_kind == SOURCE_KIND_FOLDER) {
-                if (folder_dialog_open(hwnd, path, sizeof(path))) {
+                if (folder_dialog_open(hwnd, path, sizeof(path), state->last_source_dir)) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 1, 0);
                     state->source_kind = SOURCE_KIND_FOLDER;
                     apply_selected_source_path(state, path);
@@ -1704,7 +1739,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                     set_status(state, "Folder loaded");
                 }
             } else {
-                if (file_dialog_open(hwnd, path, sizeof(path), NULL)) {
+                if (file_dialog_open(hwnd, path, sizeof(path), NULL, state->last_source_dir)) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
                     state->source_kind = SOURCE_KIND_FILE;
                     apply_selected_source_path(state, path);
@@ -1716,7 +1751,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         }
         case ID_CHOOSE_OUTPUT: {
             char path[MAX_PATH];
-            if (file_dialog_save(hwnd, path, sizeof(path), NULL)) {
+            if (file_dialog_save(hwnd, path, sizeof(path), NULL, state->last_output_dir)) {
                 set_output_path(state, path);
                 state->output_path_auto = 0;
                 log_append(state->log_edit, "Output selected.");
