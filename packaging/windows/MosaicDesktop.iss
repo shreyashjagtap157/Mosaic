@@ -1,5 +1,5 @@
 #define AppName "Mosaic Compressor"
-#define AppVersion "0.1.3.6"
+#define AppVersion "0.1.3.7"
 #define AppPublisher "Mosaic"
 #define AppExeName "mosaic-desktop.exe"
 

@@ -103,6 +103,7 @@ typedef struct MosaicEntry {
     char path[MAX_PATH * 2];
     uint8_t *bytes;
     size_t size;
+    FILETIME write_time;
 } MosaicEntry;
 
 typedef struct MosaicArchiveHeader {
@@ -133,6 +134,10 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
 static int restore_archive_entries(const char *output_path, MosaicEntry *entries, size_t count);
 static void archive_list_clear(HWND list);
 static void archive_list_add_entries(HWND list, const char *archive_path, MosaicEntry *entries, size_t count);
+static int get_path_write_time(const char *path, FILETIME *out_time);
+static void set_entry_write_time(MosaicEntry *entry, const char *abs_path);
+static void apply_write_time(const char *path, const FILETIME *write_time);
+static void format_filetime_utc(const FILETIME *ft, char *out, size_t cap);
 
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
@@ -243,10 +248,54 @@ static void archive_list_clear(HWND list) {
     SendMessageA(list, LVM_DELETEALLITEMS, 0, 0);
 }
 
+static int get_path_write_time(const char *path, FILETIME *out_time) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!path || !out_time) return 0;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) return 0;
+    *out_time = data.ftLastWriteTime;
+    return 1;
+}
+
+static void set_entry_write_time(MosaicEntry *entry, const char *abs_path) {
+    if (!entry) return;
+    ZeroMemory(&entry->write_time, sizeof(entry->write_time));
+    (void)get_path_write_time(abs_path, &entry->write_time);
+}
+
+static void apply_write_time(const char *path, const FILETIME *write_time) {
+    HANDLE h;
+    if (!path || !write_time) return;
+    h = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+        SetFileTime(h, NULL, NULL, write_time);
+        CloseHandle(h);
+    }
+}
+
+static void format_filetime_utc(const FILETIME *ft, char *out, size_t cap) {
+    FILETIME local;
+    SYSTEMTIME st;
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    if (!ft || ft->dwLowDateTime == 0 && ft->dwHighDateTime == 0) {
+        strncpy(out, "n/a", cap - 1);
+        out[cap - 1] = '\0';
+        return;
+    }
+    if (!FileTimeToSystemTime(ft, &st)) {
+        strncpy(out, "n/a", cap - 1);
+        out[cap - 1] = '\0';
+        return;
+    }
+    (void)local;
+    _snprintf(out, cap, "%04u-%02u-%02u %02u:%02u:%02u", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+}
+
 static void archive_list_add_entries(HWND list, const char *archive_path, MosaicEntry *entries, size_t count) {
     char size_buf[64];
     char ratio_buf[32];
     char kind_buf[32];
+    char time_buf[64];
     LVITEMA item;
     int i;
     archive_list_clear(list);
@@ -260,6 +309,7 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
         _snprintf(kind_buf, sizeof(kind_buf), "%s", entries[i].is_dir ? "Folder" : "File");
         _snprintf(size_buf, sizeof(size_buf), "%lu", (unsigned long)entries[i].size);
         _snprintf(ratio_buf, sizeof(ratio_buf), "%s", entries[i].is_dir ? "-" : "n/a");
+        format_filetime_utc(&entries[i].write_time, time_buf, sizeof(time_buf));
         ZeroMemory(&item, sizeof(item));
         item.iSubItem = 1;
         item.pszText = kind_buf;
@@ -271,6 +321,10 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
         ZeroMemory(&item, sizeof(item));
         item.iSubItem = 3;
         item.pszText = ratio_buf;
+        SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
+        ZeroMemory(&item, sizeof(item));
+        item.iSubItem = 4;
+        item.pszText = time_buf;
         SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
     }
     (void)archive_path;
@@ -415,6 +469,9 @@ static void archive_list_init(HWND list) {
     col.cx = 90;
     col.pszText = "Ratio";
     ListView_InsertColumn(list, 3, &col);
+    col.cx = 150;
+    col.pszText = "Modified (UTC)";
+    ListView_InsertColumn(list, 4, &col);
 }
 
 static void ui_layout(HWND hwnd, AppState *state) {
@@ -737,10 +794,12 @@ static int collect_folder_entries(const char *root, const char *rel, MosaicEntry
         entry.is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         strncpy(entry.path, child_rel, sizeof(entry.path) - 1);
         if (entry.is_dir) {
+            set_entry_write_time(&entry, child_abs);
             if (!append_entry(entries, count, cap, &entry)) { FindClose(h); return 0; }
             if (!collect_folder_entries(root, child_rel, entries, count, cap)) { FindClose(h); return 0; }
         } else {
             if (!read_file(child_abs, &entry.bytes, &entry.size)) { FindClose(h); return 0; }
+            set_entry_write_time(&entry, child_abs);
             if (!append_entry(entries, count, cap, &entry)) { free(entry.bytes); FindClose(h); return 0; }
         }
     } while (FindNextFileA(h, &fd));
@@ -786,7 +845,7 @@ static int serialize_entries(const MosaicEntry *entries, size_t count, const cha
     size_t len = 0, cap = 0;
     size_t i;
     size_t root_len = root_name ? strlen(root_name) : 0;
-    if (!write_u32(&buf, &len, &cap, 0x31434D5A) || !write_u32(&buf, &len, &cap, 1)) goto fail;
+    if (!write_u32(&buf, &len, &cap, 0x31434D5A) || !write_u32(&buf, &len, &cap, 2)) goto fail;
     if (!write_u32(&buf, &len, &cap, (uint32_t)root_len) || !write_bytes(&buf, &len, &cap, root_name ? root_name : "", root_len)) goto fail;
     if (!write_u32(&buf, &len, &cap, (uint32_t)count)) goto fail;
     for (i = 0; i < count; ++i) {
@@ -794,6 +853,7 @@ static int serialize_entries(const MosaicEntry *entries, size_t count, const cha
         if (!write_u32(&buf, &len, &cap, (uint32_t)entries[i].is_dir)) goto fail;
         if (!write_u32(&buf, &len, &cap, path_len) || !write_bytes(&buf, &len, &cap, entries[i].path, path_len)) goto fail;
         if (!write_u64(&buf, &len, &cap, (uint64_t)entries[i].size)) goto fail;
+        if (!write_u64(&buf, &len, &cap, ((uint64_t)entries[i].write_time.dwHighDateTime << 32) | (uint64_t)entries[i].write_time.dwLowDateTime)) goto fail;
         if (entries[i].size && !write_bytes(&buf, &len, &cap, entries[i].bytes, entries[i].size)) goto fail;
     }
     *out = buf;
@@ -880,7 +940,7 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
     size_t remain = blob_len;
     uint32_t magic = 0, version = 0, root_len = 0, count = 0;
     if (!read_u32(&p, &remain, &magic) || !read_u32(&p, &remain, &version) || !read_u32(&p, &remain, &root_len)) goto bad;
-    if (magic != 0x31434D5A || version != 1 || root_len >= root_cap || !read_bytes(&p, &remain, root_name, root_len)) goto bad;
+    if (magic != 0x31434D5A || (version != 1 && version != 2) || root_len >= root_cap || !read_bytes(&p, &remain, root_name, root_len)) goto bad;
     root_name[root_len] = '\0';
     if (!read_u32(&p, &remain, &count)) goto bad;
     *entries = (MosaicEntry *)calloc(count ? count : 1, sizeof(MosaicEntry));
@@ -888,13 +948,16 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
     *entry_count = count;
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t is_dir = 0, path_len = 0;
-        uint64_t data_len = 0;
+        uint64_t data_len = 0, write_time = 0;
         if (!read_u32(&p, &remain, &is_dir) || !read_u32(&p, &remain, &path_len)) goto bad;
         if (path_len >= sizeof((*entries)[i].path) || !read_bytes(&p, &remain, (*entries)[i].path, path_len)) goto bad;
         (*entries)[i].path[path_len] = '\0';
         if (!read_u64(&p, &remain, &data_len)) goto bad;
+        if (version >= 2 && !read_u64(&p, &remain, &write_time)) goto bad;
         (*entries)[i].is_dir = (int)is_dir;
         (*entries)[i].size = (size_t)data_len;
+        (*entries)[i].write_time.dwLowDateTime = (DWORD)(write_time & 0xFFFFFFFFu);
+        (*entries)[i].write_time.dwHighDateTime = (DWORD)(write_time >> 32);
         if (data_len) {
             (*entries)[i].bytes = (uint8_t *)malloc((size_t)data_len);
             if (!(*entries)[i].bytes || !read_bytes(&p, &remain, (*entries)[i].bytes, (size_t)data_len)) goto bad;
@@ -915,16 +978,20 @@ static int restore_archive_entries(const char *output_path, MosaicEntry *entries
     char target[MAX_PATH * 2];
     size_t i;
     if (count == 1 && !entries[0].is_dir) {
-        return write_file(output_path, entries[0].bytes, entries[0].size);
+        if (!write_file(output_path, entries[0].bytes, entries[0].size)) return 0;
+        apply_write_time(output_path, &entries[0].write_time);
+        return 1;
     }
     CreateDirectoryA(output_path, NULL);
     for (i = 0; i < count; ++i) {
         if (!join_under_root(output_path, entries[i].path, target, sizeof(target))) return 0;
         if (entries[i].is_dir) {
             CreateDirectoryA(target, NULL);
+            apply_write_time(target, &entries[i].write_time);
         } else {
             ensure_parent_dirs(target);
             if (!write_file(target, entries[i].bytes, entries[i].size)) return 0;
+            apply_write_time(target, &entries[i].write_time);
         }
     }
     return 1;
