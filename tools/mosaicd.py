@@ -324,6 +324,27 @@ class Handler(BaseHTTPRequestHandler):
                 },
             })
             return
+        if self.path == "/v1/config":
+            cfg = self.state.config
+            self._send_json(HTTPStatus.OK, {
+                "service_api": 1,
+                "host": cfg.host,
+                "port": cfg.port,
+                "service_profile": {
+                    "low_memory": cfg.low_memory_mode,
+                    "executor_workers": cfg.executor_workers,
+                    "executor_queue": cfg.executor_queue,
+                    "max_concurrency": cfg.max_concurrency,
+                    "max_request_bytes": cfg.max_request_bytes,
+                    "max_decode_ids": cfg.max_decode_ids,
+                    "max_batch_items": cfg.max_batch_items,
+                    "max_batch_bytes": cfg.max_batch_bytes,
+                    "max_stream_sessions": cfg.max_stream_sessions,
+                    "stream_pending_bytes": cfg.stream_pending_bytes,
+                    "stream_idle_seconds": cfg.stream_idle_seconds,
+                },
+            })
+            return
         if self.path == "/metrics":
             self._send_text(HTTPStatus.OK, "text/plain; version=0.0.4; charset=utf-8", self.state.prometheus())
             return

@@ -11,6 +11,7 @@
 - multiple service processes may be used when process-level parallelism is required;
 - request bodies are never written to service logs by default.
 - `GET /v1/version` includes a `service_profile` object so callers can detect whether the service is running in low-memory mode and what ceilings were selected.
+- `GET /v1/config` returns the active service profile and concrete ceilings in a machine-readable form for embedders and ops tooling.
 
 ## Endpoints
 
@@ -22,6 +23,7 @@ Unauthenticated operational endpoints:
 Authenticated API endpoints when a bearer token is configured:
 
 - `GET /v1/version`
+- `GET /v1/config`
 - `GET /v1/metrics`
 - `POST /v1/encode`
 - `POST /v1/encode-batch`

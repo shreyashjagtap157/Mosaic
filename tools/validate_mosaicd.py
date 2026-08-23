@@ -65,6 +65,9 @@ def main() -> int:
             status, ver = request(base + "/v1/version", token="secret")
             if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True or ver["service_profile"]["low_memory"] is not False:
                 raise SystemExit("version/identity endpoint failed")
+            status, config = request(base + "/v1/config", token="secret")
+            if status != 200 or config["service_profile"]["low_memory"] is not False or config["service_profile"]["max_concurrency"] != server.state.config.max_concurrency:
+                raise SystemExit("service config endpoint failed")
             status, metrics = request(base + "/v1/metrics", token="secret")
             if status != 200 or metrics["service"]["low_memory"] is not False:
                 raise SystemExit("default service profile metadata missing")
@@ -153,6 +156,9 @@ def main() -> int:
                 raise SystemExit("low-memory service profile did not propagate")
             if low_server.state.tokenizer.sealed is False:
                 raise SystemExit("low-memory service server did not preserve tokenizer state")
+            low_config = low_server.state.snapshot()["service"]["low_memory"]
+            if low_config is not True:
+                raise SystemExit("low-memory config snapshot missing")
             low_server.server_close()
             req = urllib.request.Request(base + "/metrics", headers={"Authorization":"Bearer secret"})
             with urllib.request.urlopen(req, timeout=5) as r:
