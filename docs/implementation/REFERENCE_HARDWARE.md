@@ -30,6 +30,7 @@ Rather than one mythical universal machine, maintain at least:
 2. ARM64 NEON profile;
 3. scalar/feature-disabled correctness profile;
 4. optional AVX-512 server profile;
-5. later constrained/embedded profile.
+5. constrained low-memory desktop profile (for example, 4 GB RAM, older 3rd- to 5th-gen CPUs, no GPU);
+6. later embedded profile.
 
 Results across profiles are separate data, not averaged into one meaningless "Mosaic speed" number.

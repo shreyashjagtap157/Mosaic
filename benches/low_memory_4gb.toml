@@ -1,0 +1,51 @@
+schema_version = 1
+benchmark_family = "B3"
+run_id = "LOW-MEMORY-4GB-EXAMPLE"
+run_timestamp_utc = "2026-08-23T00:00:00Z"
+
+[hardware]
+profile_id = "low-memory-4gb"
+cpu = "Example 3rd-5th gen mobile or desktop CPU"
+physical_cores = 4
+logical_cores = 4
+memory_bytes = 4294967296
+isa_extensions = []
+
+[software]
+os = "Windows 11 or Windows 10"
+kernel = "NT"
+rustc = "n/a"
+linker = "n/a"
+commit = "record the benchmarked commit"
+
+[build]
+profile = "release"
+lto = "thin"
+codegen_units = 1
+features = []
+
+[input]
+corpus_id = "fixtures/packs/model-v2.mpack + fixtures/packs/unicode17-v1.mpack"
+content_hash = "record the corpus hash"
+bytes = 31
+language_tags = []
+
+[tokenizer]
+manifest_hash = "record the tokenizer manifest hash"
+projection = "low-memory native C ABI"
+output_density = "record observed output density"
+warm_state = true
+threads = 1
+
+[baseline]
+name = "mosaic-low-memory-bench"
+version = "local"
+semantic_equivalence_notes = "exact encode/decode plus bounded batch execution under low-memory defaults"
+
+[measurements]
+wall_time_ns = 0
+cpu_time_ns = 0
+peak_rss_bytes = 0
+allocations = 0
+input_bytes_per_second = 0.0
+output_tokens = 0
