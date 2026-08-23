@@ -4,7 +4,7 @@
 
 - add explicit low-memory native defaults for runtime limits and executor sizing;
 - expose Python convenience helpers for low-resource operation and make library discovery robust against preset build-tree layouts on Windows;
-- add native low-memory smoke coverage in the build and test runners, plus tests covering the constrained profile and improve binding-path resolution for local integration use;
+- add native low-memory smoke and benchmark coverage in the build and test runners, plus tests covering the constrained profile and improve binding-path resolution for local integration use;
 - record the space-grade completion plan/spec in-repo so remaining work stays explicit and measurable.
 
 ## 0.1.3.0 — 2026-08-10

@@ -41,6 +41,7 @@ Current artifacts:
 - `examples/integration/low_memory_embed.py`;
 - `examples/integration/low_memory_embed.c`.
 - native `low_memory_smoke` conformance coverage in the build and test runners.
+- native `low_memory_bench` qualification coverage for constrained-desktop measurements.
 
 ### B. Low-resource mode
 
