@@ -198,7 +198,7 @@ def write_atomic(path:Path,data:bytes):
     finally:tmp.unlink(missing_ok=True)
 
 def main()->int:
-    ap=argparse.ArgumentParser(prog='mosaic-registry');ap.add_argument('--version',action='version',version='mosaic-registry 0.1.3.1');sub=ap.add_subparsers(dest='cmd',required=True)
+    ap=argparse.ArgumentParser(prog='mosaic-registry');ap.add_argument('--version',action='version',version='mosaic-registry 0.1.3.2');sub=ap.add_subparsers(dest='cmd',required=True)
     q=sub.add_parser('init');q.add_argument('registry',type=Path)
     q=sub.add_parser('install');q.add_argument('registry',type=Path);q.add_argument('pack',type=Path);q.add_argument('--publisher',required=True);q.add_argument('--name',required=True);q.add_argument('--version',required=True);q.add_argument('--signature',type=Path);q.add_argument('--public-key',type=Path);q.add_argument('--require-signature',action='store_true')
     q=sub.add_parser('list');q.add_argument('registry',type=Path)

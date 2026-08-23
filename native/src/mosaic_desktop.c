@@ -6,6 +6,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <compressapi.h>
+#include <uxtheme.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,15 @@
 #define ID_VERIFY_CHECK 1013
 #define ID_DELETE_CHECK 1014
 #define ID_MODE_COMBO 1015
+
+#define APP_BG RGB(247, 249, 252)
+#define CARD_BG RGB(255, 255, 255)
+#define TEXT_PRIMARY RGB(25, 32, 44)
+#define TEXT_SECONDARY RGB(92, 101, 118)
+#define BORDER_COLOR RGB(216, 223, 233)
+#define ACCENT_COLOR RGB(38, 99, 235)
+#define LOG_BG RGB(248, 250, 252)
+#define LOG_FG RGB(17, 24, 39)
 
 typedef enum SourceKind {
     SOURCE_KIND_FILE = 0,
@@ -59,6 +69,21 @@ typedef struct AppState {
     char input_path[MAX_PATH];
     char output_path[MAX_PATH];
 } AppState;
+
+typedef struct UiState {
+    HFONT title_font;
+    HFONT header_font;
+    HFONT body_font;
+    HBRUSH bg_brush;
+    HBRUSH card_brush;
+    HBRUSH log_brush;
+    HBRUSH edit_brush;
+    HBRUSH border_brush;
+    COLORREF text_color;
+    COLORREF secondary_color;
+} UiState;
+
+static UiState g_ui;
 
 typedef struct ArchiveConfig {
     DWORD algorithm;
@@ -108,6 +133,119 @@ static void set_text(HWND edit, const char *text) { SetWindowTextA(edit, text ? 
 
 static void set_status(AppState *state, const char *text) {
     if (state && state->status) SetWindowTextA(state->status, text ? text : "");
+}
+
+static void ui_init(HWND hwnd) {
+    if (g_ui.body_font) return;
+    NONCLIENTMETRICSA ncm;
+    ZeroMemory(&ncm, sizeof(ncm));
+    ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    strncpy(ncm.lfMessageFont.lfFaceName, "Segoe UI", LF_FACESIZE - 1);
+    ncm.lfMessageFont.lfFaceName[LF_FACESIZE - 1] = '\0';
+    ncm.lfMessageFont.lfHeight = -16;
+    g_ui.body_font = CreateFontIndirectA(&ncm.lfMessageFont);
+    LOGFONTA lf = ncm.lfMessageFont;
+    lf.lfHeight = -26;
+    lf.lfWeight = FW_SEMIBOLD;
+    g_ui.title_font = CreateFontIndirectA(&lf);
+    lf.lfHeight = -18;
+    lf.lfWeight = FW_BOLD;
+    g_ui.header_font = CreateFontIndirectA(&lf);
+    g_ui.bg_brush = CreateSolidBrush(APP_BG);
+    g_ui.card_brush = CreateSolidBrush(CARD_BG);
+    g_ui.log_brush = CreateSolidBrush(LOG_BG);
+    g_ui.edit_brush = CreateSolidBrush(RGB(255, 255, 255));
+    g_ui.border_brush = CreateSolidBrush(BORDER_COLOR);
+    g_ui.text_color = TEXT_PRIMARY;
+    g_ui.secondary_color = TEXT_SECONDARY;
+    (void)hwnd;
+}
+
+static void ui_apply_fonts(HWND control, HFONT font) {
+    if (control && font) SendMessageA(control, WM_SETFONT, (WPARAM)font, TRUE);
+}
+
+static void ui_theme_common(HWND control) {
+    if (!control) return;
+    SetWindowTheme(control, L"Explorer", NULL);
+}
+
+static void draw_card(HDC hdc, const RECT *rc);
+static void draw_section_label(HDC hdc, int x, int y, const char *text);
+
+static void ui_layout(HWND hwnd, AppState *state) {
+    RECT rc;
+    int margin = 24;
+    int content_w;
+    int x_left, x_right, card_w, card_h;
+    int y = 108;
+    GetClientRect(hwnd, &rc);
+    content_w = rc.right - rc.left;
+    card_w = (content_w - margin * 3) / 2;
+    if (card_w < 280) card_w = content_w - margin * 2;
+    x_left = margin;
+    x_right = x_left + card_w + margin;
+    card_h = 114;
+    MoveWindow(state->input_edit, x_left, y + 36, card_w - 104, 28, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_LOAD_INPUT), x_left + card_w - 92, y + 36, 92, 28, TRUE);
+    MoveWindow(state->output_edit, x_left, y + card_h + 36, card_w - 104, 28, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_CHOOSE_OUTPUT), x_left + card_w - 92, y + card_h + 36, 92, 28, TRUE);
+    MoveWindow(state->source_combo, x_left, y + 290, 150, 28, TRUE);
+    MoveWindow(state->mode_combo, x_left + 166, y + 290, card_w - 166, 28, TRUE);
+    MoveWindow(state->algo_combo, x_right, y + 36, card_w - 20, 28, TRUE);
+    MoveWindow(state->level_track, x_right, y + 96, card_w - 20, 34, TRUE);
+    MoveWindow(state->verify_check, x_right, y + 150, card_w - 20, 24, TRUE);
+    MoveWindow(state->delete_check, x_right, y + 178, card_w - 20, 24, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_COMPRESS), margin, rc.bottom - 124, 120, 34, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_DECOMPRESS), margin + 132, rc.bottom - 124, 120, 34, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_CLEAR), margin + 264, rc.bottom - 124, 120, 34, TRUE);
+    MoveWindow(state->status, margin, rc.bottom - 84, content_w - margin * 2, 22, TRUE);
+    MoveWindow(state->log_edit, margin, rc.bottom - 58, content_w - margin * 2, 38, TRUE);
+}
+
+static void paint_ui(HWND hwnd, HDC hdc) {
+    RECT rc;
+    RECT left_card = {24, 100, 24 + 520, 100 + 334};
+    RECT right_card = {24 + 536, 100, 24 + 536 + 520, 100 + 334};
+    char title[] = "Mosaic Compressor";
+    char subtitle[] = "Modern desktop compression workspace";
+    char hero[] = "Create, test, and extract archives with a cleaner Windows-native workflow.";
+    GetClientRect(hwnd, &rc);
+    FillRect(hdc, &rc, g_ui.bg_brush);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, g_ui.text_color);
+    SelectObject(hdc, g_ui.title_font);
+    rc.left = 24; rc.top = 24; rc.right = 700; rc.bottom = 64;
+    DrawTextA(hdc, title, -1, &rc, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    SelectObject(hdc, g_ui.header_font);
+    SetTextColor(hdc, g_ui.secondary_color);
+    rc.top = 64; rc.bottom = 90;
+    DrawTextA(hdc, subtitle, -1, &rc, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    SelectObject(hdc, g_ui.body_font);
+    rc.top = 86; rc.bottom = 108;
+    DrawTextA(hdc, hero, -1, &rc, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    draw_card(hdc, &left_card);
+    draw_card(hdc, &right_card);
+    draw_section_label(hdc, 44, 116, "Archive source");
+    draw_section_label(hdc, 44, 196, "Destination");
+    draw_section_label(hdc, 44, 282, "Workflow");
+    draw_section_label(hdc, 580, 116, "Compression profile");
+    draw_section_label(hdc, 580, 176, "Compression level");
+    draw_section_label(hdc, 580, 230, "Safety toggles");
+}
+
+static void draw_card(HDC hdc, const RECT *rc) {
+    FillRect(hdc, rc, g_ui.card_brush);
+    FrameRect(hdc, rc, g_ui.border_brush);
+}
+
+static void draw_section_label(HDC hdc, int x, int y, const char *text) {
+    RECT rc = { x, y, x + 1000, y + 22 };
+    SetTextColor(hdc, g_ui.secondary_color);
+    SetBkMode(hdc, TRANSPARENT);
+    SelectObject(hdc, g_ui.header_font);
+    DrawTextA(hdc, text, -1, &rc, DT_LEFT | DT_TOP | DT_SINGLELINE);
 }
 
 static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len) {
@@ -177,7 +315,7 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
     }
     dlg->lpVtbl->SetTitle(dlg, folder_mode ? L"Select a source folder" : (save_mode ? L"Select archive output" : L"Select a source file"));
     dlg->lpVtbl->SetOkButtonLabel(dlg, L"Select");
-    if (!save_mode) {
+    if (!save_mode && !folder_mode) {
         dlg->lpVtbl->SetFileTypes(dlg, (UINT)(sizeof(spec) / sizeof(spec[0])), spec);
     }
     if (folder_mode) {
@@ -198,12 +336,19 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
             PWSTR wide = NULL;
             hr = item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &wide);
             if (SUCCEEDED(hr) && wide) {
-                if (utf8_from_wide(wide, &out_path)) {
-                    CoTaskMemFree(wide);
-                    item->lpVtbl->Release(item);
-                    dlg->lpVtbl->Release(dlg);
-                    CoUninitialize();
-                    return 1;
+                char *utf8 = NULL;
+                if (utf8_from_wide(wide, &utf8)) {
+                    size_t len = strlen(utf8);
+                    if (len < out_cap) {
+                        memcpy(out_path, utf8, len + 1);
+                        free(utf8);
+                        CoTaskMemFree(wide);
+                        item->lpVtbl->Release(item);
+                        dlg->lpVtbl->Release(dlg);
+                        CoUninitialize();
+                        return 1;
+                    }
+                    free(utf8);
                 }
                 CoTaskMemFree(wide);
             }
@@ -952,55 +1097,65 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state->archive_mode = ARCHIVE_MODE_ADD_REPLACE;
         state->verify_after = 1;
         state->delete_after = 0;
-        HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        CreateWindowA("STATIC", "Source file or folder", WS_CHILD | WS_VISIBLE, 12, 12, 150, 20, hwnd, NULL, NULL, NULL);
-        state->input_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 12, 32, 460, 24, hwnd, (HMENU)ID_INPUT_EDIT, NULL, NULL);
-        CreateWindowA("BUTTON", "Select", WS_CHILD | WS_VISIBLE, 480, 32, 80, 24, hwnd, (HMENU)ID_LOAD_INPUT, NULL, NULL);
-        CreateWindowA("STATIC", "Output archive", WS_CHILD | WS_VISIBLE, 12, 64, 150, 20, hwnd, NULL, NULL, NULL);
-        state->output_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 12, 84, 460, 24, hwnd, (HMENU)ID_OUTPUT_EDIT, NULL, NULL);
-        CreateWindowA("BUTTON", "Select", WS_CHILD | WS_VISIBLE, 480, 84, 80, 24, hwnd, (HMENU)ID_CHOOSE_OUTPUT, NULL, NULL);
-        CreateWindowA("STATIC", "Source type", WS_CHILD | WS_VISIBLE, 12, 118, 80, 18, hwnd, NULL, NULL, NULL);
-        state->source_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 12, 136, 160, 160, hwnd, (HMENU)ID_SOURCE_KIND, NULL, NULL);
+        ui_init(hwnd);
+        HFONT font = g_ui.body_font;
+        CreateWindowA("STATIC", "Source file or folder", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->input_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)ID_INPUT_EDIT, NULL, NULL);
+        CreateWindowA("BUTTON", "Browse source", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_LOAD_INPUT, NULL, NULL);
+        CreateWindowA("STATIC", "Destination archive", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->output_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)ID_OUTPUT_EDIT, NULL, NULL);
+        CreateWindowA("BUTTON", "Browse output", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_CHOOSE_OUTPUT, NULL, NULL);
+        CreateWindowA("STATIC", "Source type", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->source_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, hwnd, (HMENU)ID_SOURCE_KIND, NULL, NULL);
         SendMessageA(state->source_combo, CB_ADDSTRING, 0, (LPARAM)"File");
         SendMessageA(state->source_combo, CB_ADDSTRING, 0, (LPARAM)"Folder");
         SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
-        CreateWindowA("STATIC", "Archive mode", WS_CHILD | WS_VISIBLE, 190, 118, 100, 18, hwnd, NULL, NULL, NULL);
-        state->mode_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 190, 136, 180, 160, hwnd, (HMENU)ID_MODE_COMBO, NULL, NULL);
+        CreateWindowA("STATIC", "Archive mode", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->mode_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, hwnd, (HMENU)ID_MODE_COMBO, NULL, NULL);
         SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Add and replace");
         SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Add and skip");
         SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Update newer");
         SendMessageA(state->mode_combo, CB_SETCURSEL, 0, 0);
-        CreateWindowA("STATIC", "Algorithm", WS_CHILD | WS_VISIBLE, 12, 170, 80, 18, hwnd, NULL, NULL, NULL);
-        state->algo_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 12, 188, 160, 160, hwnd, (HMENU)ID_ALGO_COMBO, NULL, NULL);
+        CreateWindowA("STATIC", "Algorithm", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->algo_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, hwnd, (HMENU)ID_ALGO_COMBO, NULL, NULL);
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"XPRESS_HUFF");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"XPRESS");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"MSZIP");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"LZMS");
         SendMessageA(state->algo_combo, CB_SETCURSEL, 0, 0);
-        CreateWindowA("STATIC", "Level", WS_CHILD | WS_VISIBLE, 190, 170, 80, 18, hwnd, NULL, NULL, NULL);
-        state->level_track = CreateWindowA(TRACKBAR_CLASSA, "", WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 190, 188, 180, 30, hwnd, (HMENU)ID_LEVEL_TRACK, NULL, NULL);
+        CreateWindowA("STATIC", "Level", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->level_track = CreateWindowA(TRACKBAR_CLASSA, "", WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 0, 0, 0, 0, hwnd, (HMENU)ID_LEVEL_TRACK, NULL, NULL);
         SendMessageA(state->level_track, TBM_SETRANGE, TRUE, MAKELPARAM(0, 5));
         SendMessageA(state->level_track, TBM_SETPOS, TRUE, 3);
-        state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 12, 224, 160, 20, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
+        state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
         SendMessageA(state->verify_check, BM_SETCHECK, BST_CHECKED, 0);
-        state->delete_check = CreateWindowA("BUTTON", "Delete source after completion", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 190, 224, 210, 20, hwnd, (HMENU)ID_DELETE_CHECK, NULL, NULL);
-        CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE, 12, 250, 100, 28, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
-        CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE, 120, 250, 100, 28, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
-        CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE, 228, 250, 100, 28, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
-        state->status = CreateWindowA("STATIC", "Ready", WS_CHILD | WS_VISIBLE, 12, 286, 548, 18, hwnd, (HMENU)ID_STATUS, NULL, NULL);
-        state->log_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, 12, 310, 548, 142, hwnd, (HMENU)ID_LOG_EDIT, NULL, NULL);
-        SendMessageA(state->input_edit, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->output_edit, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->source_combo, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->mode_combo, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->algo_combo, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->verify_check, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->delete_check, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->status, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(state->log_edit, WM_SETFONT, (WPARAM)font, TRUE);
+        state->delete_check = CreateWindowA("BUTTON", "Delete source after completion", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_DELETE_CHECK, NULL, NULL);
+        CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
+        CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
+        CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
+        state->status = CreateWindowA("STATIC", "Ready", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, (HMENU)ID_STATUS, NULL, NULL);
+        state->log_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, 0, 0, 0, 0, hwnd, (HMENU)ID_LOG_EDIT, NULL, NULL);
+        ui_apply_fonts(state->input_edit, font);
+        ui_apply_fonts(state->output_edit, font);
+        ui_apply_fonts(state->source_combo, font);
+        ui_apply_fonts(state->mode_combo, font);
+        ui_apply_fonts(state->algo_combo, font);
+        ui_apply_fonts(state->verify_check, font);
+        ui_apply_fonts(state->delete_check, font);
+        ui_apply_fonts(state->status, font);
+        ui_apply_fonts(state->log_edit, font);
+        ui_theme_common(state->input_edit);
+        ui_theme_common(state->output_edit);
+        ui_theme_common(state->source_combo);
+        ui_theme_common(state->mode_combo);
+        ui_theme_common(state->algo_combo);
+        ui_theme_common(state->verify_check);
+        ui_theme_common(state->delete_check);
+        ui_theme_common(state->log_edit);
         DragAcceptFiles(hwnd, TRUE);
         log_append(state->log_edit, "Mosaic Desktop ready.");
         log_append(state->log_edit, "Uses Windows Compression API for file compression.");
+        ui_layout(hwnd, state);
         return 0;
     }
     case WM_COMMAND:
@@ -1063,6 +1218,32 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             set_status(state, lvl);
         }
         break;
+    case WM_SIZE:
+        if (state) ui_layout(hwnd, state);
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        paint_ui(hwnd, hdc);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORLISTBOX: {
+        HDC hdc = (HDC)wparam;
+        HWND child = (HWND)lparam;
+        if (child == state->log_edit) {
+            SetTextColor(hdc, LOG_FG);
+            SetBkColor(hdc, LOG_BG);
+            return (INT_PTR)g_ui.log_brush;
+        }
+        SetTextColor(hdc, g_ui.text_color);
+        SetBkColor(hdc, APP_BG);
+        return (INT_PTR)g_ui.edit_brush;
+    }
     case WM_DROPFILES: {
         HDROP drop = (HDROP)wparam;
         UINT count = DragQueryFileA(drop, 0xFFFFFFFF, NULL, 0);
@@ -1079,6 +1260,14 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         return 0;
     }
     case WM_DESTROY:
+        DeleteObject(g_ui.title_font);
+        DeleteObject(g_ui.header_font);
+        DeleteObject(g_ui.body_font);
+        DeleteObject(g_ui.bg_brush);
+        DeleteObject(g_ui.card_brush);
+        DeleteObject(g_ui.log_brush);
+        DeleteObject(g_ui.edit_brush);
+        DeleteObject(g_ui.border_brush);
         free(state);
         PostQuitMessage(0);
         return 0;

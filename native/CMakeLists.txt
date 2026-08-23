@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.1.3.1 LANGUAGES C CXX)
+project(mosaic VERSION 0.1.3.2 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -84,7 +84,7 @@ mosaic_warnings(mosaic-compress-compare)
 if(WIN32)
   add_executable(mosaic-desktop ${CMAKE_CURRENT_SOURCE_DIR}/src/mosaic_desktop.c)
   target_include_directories(mosaic-desktop PRIVATE ${MOSAIC_INCLUDE})
-  target_link_libraries(mosaic-desktop PRIVATE mosaic_static Cabinet comdlg32 comctl32 user32 gdi32 shell32)
+  target_link_libraries(mosaic-desktop PRIVATE mosaic_static Cabinet comdlg32 comctl32 user32 gdi32 shell32 UxTheme)
   mosaic_warnings(mosaic-desktop)
   set_target_properties(mosaic-desktop PROPERTIES WIN32_EXECUTABLE YES)
 

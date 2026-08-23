@@ -3,7 +3,7 @@
   <Package
     Name="Mosaic Compressor"
     Manufacturer="Mosaic"
-    Version="0.1.3.1"
+    Version="0.1.3.2"
     UpgradeCode="{7C9E2F13-2D7F-4B6A-9F0A-42D8C2B32D61}"
     Language="1033"
     InstallerVersion="500">
