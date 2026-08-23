@@ -76,6 +76,7 @@ For another agent, service, or automation pipeline:
 - keep tokenizer lifecycle outside request handlers when possible;
 - preconfigure packs and seal the tokenizer during startup;
 - use the batch executor for independent inputs and the streaming APIs for progressive work;
+- use `mosaicd --print-config` or `GET /v1/config` when you need the resolved service profile for automation or host-adaptive launch decisions;
 - surface resource-limit responses as explicit, user-visible operational outcomes.
 
 ## What not to assume
