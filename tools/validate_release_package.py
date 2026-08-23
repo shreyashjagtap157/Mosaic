@@ -44,7 +44,7 @@ def main():
         with tarfile.open(archive,'r:gz') as tf:tf.extractall(temp,filter='data')
         roots=[p for p in temp.iterdir() if p.is_dir()]
         if len(roots)!=1:raise SystemExit('archive must contain exactly one root directory')
-        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';registry_http=d/'bin/mosaic-registry-http';mosaicd=d/'bin/mosaicd';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
+        d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';registry_http=d/'bin/mosaic-registry-http';mosaicd=d/'bin/mosaicd';mosaicd_client=d/'bin/mosaicd_client.py';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
         for rel in [
@@ -56,9 +56,14 @@ def main():
             'examples/integration/README.md',
             'examples/integration/low_memory_embed.c',
             'examples/integration/low_memory_embed.py',
+            'examples/integration/mosaicd_client.py',
         ]:
             if not (d/rel).exists():
                 raise SystemExit(f'packaged release doc missing: {rel}')
+        if not mosaicd_client.exists():
+            raise SystemExit('packaged mosaicd client helper missing')
+        if run([sys.executable, str(mosaicd_client), '--help']) is None:
+            raise SystemExit('packaged mosaicd client helper not executable')
         py_wheel=d/'python'/f'mosaic_tokenizer-{VERSION}-py3-none-any.whl'
         if not py_wheel.exists(): raise SystemExit('packaged Python wheel missing')
         py_target=temp/'python-install';py_target.mkdir()

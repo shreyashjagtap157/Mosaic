@@ -20,6 +20,7 @@
 - enrich the service schema endpoint with concrete request and response shapes for the main `mosaicd` API operations;
 - align the service runtime and validator so `GET /v1/version`, `GET /v1/metrics`, and the stream/batch detection responses are described with concrete schema shapes instead of generic placeholders;
 - add a tiny reusable Python `mosaicd` client helper and exercise it in the service validator so other apps and agents have a ready-made HTTP integration path;
+- ship the reusable `mosaicd` client helper in the release bundle and surface it in the top-level README as a supported integration convenience;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;

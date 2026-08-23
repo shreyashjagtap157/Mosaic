@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import json
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -77,3 +79,21 @@ class MosaicdClient:
 
     def cancel_stream(self, session_id: str) -> dict[str, Any]:
         return self._request(f"/v1/streams/{session_id}", method="DELETE").data
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="mosaicd_client", description="Tiny reusable HTTP client for the Mosaic service")
+    parser.add_argument("--base-url", required=True, help="Base URL of the mosaicd service")
+    parser.add_argument("--bearer-token", help="Bearer token for authenticated endpoints")
+    parser.add_argument("--openapi", action="store_true", help="Fetch and print the service OpenAPI document")
+    args = parser.parse_args(argv)
+    client = MosaicdClient(args.base_url, bearer_token=args.bearer_token)
+    if args.openapi:
+        print(json.dumps(client.openapi(), sort_keys=True))
+        return 0
+    parser.print_help(sys.stdout)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
