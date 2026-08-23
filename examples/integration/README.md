@@ -20,3 +20,12 @@ These examples show the recommended embedding shape for other apps, agents, and 
 - enabling the low-memory defaults;
 - using the sealed tokenizer and online stream APIs;
 - keeping ownership inside the wrapper.
+
+## Desktop
+
+The Windows desktop package demonstrates:
+
+- installing the GUI compressor as an end-user app;
+- keeping a built-in self-test for non-interactive verification;
+- shipping the tokenizer CLI for automation;
+- bundling the public header, packs, and release docs for SDK-style reuse.
