@@ -9,3 +9,4 @@ Low-end desktop measurements should prefer the native `mosaic-low-memory-bench` 
 For a ready-to-fill constrained example, see `benches/low_memory_4gb.toml`.
 For a convenience runner that executes the benchmark and writes a filled record, use `tools/run_low_memory_profile.py`. Its default output goes under `benches/low_memory_4gb.runs/`, which is ignored by Git except for the folder marker.
 For a companion machine-profile capture, use `tools/record_machine_profile.py` or `make low-memory-machine-profile`.
+For one-step capture of both, use `make low-memory-evidence`.
