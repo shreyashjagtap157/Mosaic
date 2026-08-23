@@ -130,6 +130,20 @@ class ServiceState:
             },
             "components": {
                 "schemas": {
+                    "ErrorResponse": {
+                        "type": "object",
+                        "properties": {
+                            "error": {
+                                "type": "object",
+                                "properties": {
+                                    "code": {"type": "string"},
+                                    "message": {"type": "string"},
+                                },
+                                "required": ["code", "message"],
+                            }
+                        },
+                        "required": ["error"],
+                    },
                     "VersionResponse": {
                         "type": "object",
                         "properties": {
@@ -154,7 +168,54 @@ class ServiceState:
                         },
                         "required": ["service_api", "host", "port", "service_profile"],
                     },
-                    "MetricsResponse": {"type": "object"},
+                    "MetricsResponse": {
+                        "type": "object",
+                        "properties": {
+                            "service": {
+                                "type": "object",
+                                "properties": {
+                                    "requests": {"type": "integer", "minimum": 0},
+                                    "failures": {"type": "integer", "minimum": 0},
+                                    "busy_rejections": {"type": "integer", "minimum": 0},
+                                    "auth_rejections": {"type": "integer", "minimum": 0},
+                                    "bytes_in": {"type": "integer", "minimum": 0},
+                                    "bytes_out": {"type": "integer", "minimum": 0},
+                                    "uptime_seconds": {"type": "integer", "minimum": 0},
+                                    "low_memory": {"type": "boolean"},
+                                    "max_concurrency": {"type": "integer", "minimum": 1},
+                                    "max_request_bytes": {"type": "integer", "minimum": 1},
+                                    "stream_sessions": {"type": "integer", "minimum": 0},
+                                    "max_stream_sessions": {"type": "integer", "minimum": 1},
+                                },
+                                "required": ["requests", "failures", "busy_rejections", "auth_rejections", "bytes_in", "bytes_out", "uptime_seconds", "low_memory", "max_concurrency", "max_request_bytes", "stream_sessions", "max_stream_sessions"],
+                            },
+                            "native": {
+                                "type": "object",
+                                "properties": {
+                                    "encode_calls": {"type": "integer", "minimum": 0},
+                                    "decode_calls": {"type": "integer", "minimum": 0},
+                                    "bytes_in": {"type": "integer", "minimum": 0},
+                                    "bytes_out": {"type": "integer", "minimum": 0},
+                                    "tokens_out": {"type": "integer", "minimum": 0},
+                                    "failures": {"type": "integer", "minimum": 0},
+                                    "resource_rejections": {"type": "integer", "minimum": 0},
+                                },
+                                "required": ["encode_calls", "decode_calls", "bytes_in", "bytes_out", "tokens_out", "failures", "resource_rejections"],
+                            },
+                            "executor": {
+                                "type": "object",
+                                "properties": {
+                                    "batches": {"type": "integer", "minimum": 0},
+                                    "items": {"type": "integer", "minimum": 0},
+                                    "succeeded_items": {"type": "integer", "minimum": 0},
+                                    "failed_items": {"type": "integer", "minimum": 0},
+                                    "input_bytes": {"type": "integer", "minimum": 0},
+                                },
+                                "required": ["batches", "items", "succeeded_items", "failed_items", "input_bytes"],
+                            },
+                        },
+                        "required": ["service", "native", "executor"],
+                    },
                     "BytesRequest": {
                         "type": "object",
                         "properties": {"data_base64": {"type": "string"}},
@@ -175,18 +236,71 @@ class ServiceState:
                         "properties": {"data_base64": {"type": "string"}},
                         "required": ["data_base64"],
                     },
-                    "DetectResponse": {"type": "object"},
-                    "SecurityResponse": {"type": "object"},
+                    "DetectResponse": {
+                        "type": "object",
+                        "properties": {
+                            "detection": {
+                                "type": "object",
+                                "properties": {
+                                    "matched": {"type": "boolean"},
+                                    "available": {"type": "boolean"},
+                                    "score": {"type": "integer"},
+                                    "margin": {"type": "integer"},
+                                    "language": {"type": "string"},
+                                },
+                                "required": ["matched", "available", "score", "margin", "language"],
+                            }
+                        },
+                        "required": ["detection"],
+                    },
+                    "SecurityResponse": {
+                        "type": "object",
+                        "properties": {
+                            "findings": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"type": "integer", "minimum": 0},
+                                        "script_id": {"type": "integer", "minimum": 0},
+                                        "start": {"type": "integer", "minimum": 0},
+                                        "length": {"type": "integer", "minimum": 0},
+                                    },
+                                    "required": ["kind", "script_id", "start", "length"],
+                                },
+                            }
+                        },
+                        "required": ["findings"],
+                    },
                     "BatchRequest": {
                         "type": "object",
                         "properties": {"items_base64": {"type": "array", "items": {"type": "string"}}},
                         "required": ["items_base64"],
                     },
-                    "BatchResponse": {"type": "object"},
+                    "BatchResponse": {
+                        "type": "object",
+                        "properties": {
+                            "results": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {"type": "integer"},
+                                        "ids": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 4294967295}},
+                                    },
+                                    "required": ["status", "ids"],
+                                },
+                            }
+                        },
+                        "required": ["results"],
+                    },
                     "StreamCreateResponse": {
                         "type": "object",
-                        "properties": {"session_id": {"type": "string"}},
-                        "required": ["session_id"],
+                        "properties": {
+                            "session_id": {"type": "string"},
+                            "pending_bytes": {"type": "integer", "minimum": 0},
+                        },
+                        "required": ["session_id", "pending_bytes"],
                     },
                     "StreamPushResponse": {
                         "type": "object",
@@ -440,6 +554,13 @@ class Handler(BaseHTTPRequestHandler):
                     "executor_workers": self.state.config.executor_workers,
                     "executor_queue": self.state.config.executor_queue,
                     "max_concurrency": self.state.config.max_concurrency,
+                    "max_request_bytes": self.state.config.max_request_bytes,
+                    "max_decode_ids": self.state.config.max_decode_ids,
+                    "max_batch_items": self.state.config.max_batch_items,
+                    "max_batch_bytes": self.state.config.max_batch_bytes,
+                    "max_stream_sessions": self.state.config.max_stream_sessions,
+                    "stream_pending_bytes": self.state.config.stream_pending_bytes,
+                    "stream_idle_seconds": self.state.config.stream_idle_seconds,
                 },
             })
             return

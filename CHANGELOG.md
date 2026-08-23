@@ -18,6 +18,7 @@
 - add a compact unauthenticated `GET /openapi.json` service schema so launchers and agents can discover the `mosaicd` contract machine-readably;
 - document the service schema endpoint in the integration guide, support matrix, and README so embedders can find it alongside the config-discovery endpoints;
 - enrich the service schema endpoint with concrete request and response shapes for the main `mosaicd` API operations;
+- align the service runtime and validator so `GET /v1/version`, `GET /v1/metrics`, and the stream/batch detection responses are described with concrete schema shapes instead of generic placeholders;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;

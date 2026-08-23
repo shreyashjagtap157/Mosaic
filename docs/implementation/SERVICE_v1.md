@@ -13,7 +13,7 @@
 - `GET /v1/version` includes a `service_profile` object so callers can detect whether the service is running in low-memory mode and what ceilings were selected.
 - `GET /v1/config` returns the active service profile and concrete ceilings in a machine-readable form for embedders and ops tooling.
 - `mosaicd --print-config` writes the same resolved configuration to stdout and exits without starting the server.
-- `GET /openapi.json` publishes a machine-readable service schema with the core request and response shapes for launchers, agents, and ops tooling.
+- `GET /openapi.json` publishes a machine-readable service schema with the core request, response, and error shapes for launchers, agents, and ops tooling.
 
 ## Endpoints
 

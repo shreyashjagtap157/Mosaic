@@ -78,19 +78,19 @@ def main() -> int:
                 raise SystemExit("liveness endpoint failed")
             status, schema = request(base + "/openapi.json")
             schemas = schema.get("components", {}).get("schemas", {})
-            if status != 200 or schema.get("openapi") != "3.1.0" or "/v1/config" not in schema.get("paths", {}) or "ServiceProfile" not in schemas or "EncodeResponse" not in schemas or "StreamPushResponse" not in schemas:
+            if status != 200 or schema.get("openapi") != "3.1.0" or "/v1/config" not in schema.get("paths", {}) or "ServiceProfile" not in schemas or "EncodeResponse" not in schemas or "StreamPushResponse" not in schemas or "MetricsResponse" not in schemas or "ErrorResponse" not in schemas:
                 raise SystemExit("openapi document failed")
             status, _ = request(base + "/v1/version")
             if status != 401:
                 raise SystemExit("auth was not enforced")
             status, ver = request(base + "/v1/version", token="secret")
-            if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True or ver["service_profile"]["low_memory"] is not False:
+            if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True or ver["service_profile"]["low_memory"] is not False or ver["service_profile"]["max_request_bytes"] != server.state.config.max_request_bytes:
                 raise SystemExit("version/identity endpoint failed")
             status, config = request(base + "/v1/config", token="secret")
             if status != 200 or config["service_profile"]["low_memory"] is not False or config["service_profile"]["max_concurrency"] != server.state.config.max_concurrency:
                 raise SystemExit("service config endpoint failed")
             status, metrics = request(base + "/v1/metrics", token="secret")
-            if status != 200 or metrics["service"]["low_memory"] is not False:
+            if status != 200 or metrics["service"]["low_memory"] is not False or metrics["executor"]["batches"] != 0 or metrics["native"]["encode_calls"] != 0:
                 raise SystemExit("default service profile metadata missing")
             samples = [b"hello world", "नमस्ते 日本".encode(), bytes([0, 1, 0xFF, 0x80, 10])]
             for data in samples:
@@ -170,7 +170,7 @@ def main() -> int:
             finally:
                 server.state.admission.release()
             status, metrics = request(base + "/v1/metrics", token="secret")
-            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or metrics["service"]["low_memory"] is not False or "native" not in metrics or "executor" not in metrics:
+            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or metrics["service"]["low_memory"] is not False or "native" not in metrics or "executor" not in metrics or "batches" not in metrics["executor"] or "encode_calls" not in metrics["native"]:
                 raise SystemExit("metrics endpoint failed")
             low_server = build_server(t, ServiceConfig.low_memory())
             if low_server.state.config.low_memory_mode is not True or low_server.state.snapshot()["service"]["low_memory"] is not True:
