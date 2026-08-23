@@ -558,6 +558,7 @@ MOSAIC_API mosaic_status mosaic_tokenizer_get_observer(const mosaic_tokenizer *t
 
 /* Runtime policy and immutable publication. Configure before sealing, then share read-only across threads. */
 MOSAIC_API void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits);
+MOSAIC_API void mosaic_runtime_limits_low_memory_default(mosaic_runtime_limits *out_limits);
 MOSAIC_API mosaic_status mosaic_tokenizer_set_runtime_limits(mosaic_tokenizer *tokenizer, const mosaic_runtime_limits *limits);
 MOSAIC_API mosaic_status mosaic_tokenizer_get_runtime_limits(const mosaic_tokenizer *tokenizer, mosaic_runtime_limits *out_limits);
 MOSAIC_API mosaic_status mosaic_tokenizer_seal(mosaic_tokenizer *tokenizer);
@@ -629,6 +630,7 @@ MOSAIC_API mosaic_status mosaic_subbyte_extract_u64(const uint8_t *source, size_
  * Batch calls may execute concurrently on one executor; result order always matches input order.
  * The caller must not free the executor while a batch call is active. */
 MOSAIC_API void mosaic_executor_config_default(mosaic_executor_config *out_config);
+MOSAIC_API void mosaic_executor_config_low_memory_default(mosaic_executor_config *out_config);
 MOSAIC_API mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosaic_executor **out_executor);
 MOSAIC_API mosaic_status mosaic_executor_encode_batch(mosaic_executor *executor, const mosaic_tokenizer *tokenizer,
                                            const mosaic_batch_input *inputs, size_t input_count,

@@ -130,12 +130,18 @@ def _candidate_library_paths(explicit: Optional[os.PathLike[str] | str]):
     if env:
         yield str(Path(env).expanduser().resolve())
     here = Path(__file__).resolve()
+    project_root = next((parent for parent in here.parents if (parent / "Cargo.toml").exists()), None)
     # Source/release tree candidates.
     for parent in here.parents:
         yield str(parent / "lib" / "libmosaic.so")
         yield str(parent / "lib" / "libmosaic.dylib")
         yield str(parent / "bin" / "mosaic.dll")
         yield str(parent / "build" / "libmosaic.so")
+        if project_root is not None and parent == project_root:
+            yield str(parent / "build" / "preset-core-release" / "native" / "mosaic.dll")
+            yield str(parent / "build" / "preset-full-release" / "native" / "mosaic.dll")
+            yield str(parent / "build" / "cmake" / "Release" / "mosaic.dll")
+            yield str(parent / "build" / "native" / "mosaic.dll")
     found = ctypes.util.find_library("mosaic")
     if found:
         yield found
@@ -173,6 +179,7 @@ def configure_library(lib: C.CDLL) -> None:
     lib.mosaic_tokenizer_runtime_identity.argtypes = [C.c_void_p, u8p]; lib.mosaic_tokenizer_runtime_identity.restype = C.c_int
     lib.mosaic_tokenizer_get_capabilities.argtypes = [C.c_void_p, C.POINTER(CTokenizerCapabilities)]; lib.mosaic_tokenizer_get_capabilities.restype = C.c_int
     lib.mosaic_runtime_limits_default.argtypes = [C.POINTER(CRuntimeLimits)]
+    lib.mosaic_runtime_limits_low_memory_default.argtypes = [C.POINTER(CRuntimeLimits)]
     lib.mosaic_tokenizer_set_runtime_limits.argtypes = [C.c_void_p, C.POINTER(CRuntimeLimits)]; lib.mosaic_tokenizer_set_runtime_limits.restype = C.c_int
     lib.mosaic_tokenizer_get_runtime_limits.argtypes = [C.c_void_p, C.POINTER(CRuntimeLimits)]; lib.mosaic_tokenizer_get_runtime_limits.restype = C.c_int
     lib.mosaic_tokenizer_seal.argtypes = [C.c_void_p]; lib.mosaic_tokenizer_seal.restype = C.c_int
@@ -204,6 +211,7 @@ def configure_library(lib: C.CDLL) -> None:
     lib.mosaic_token_document_deserialize.argtypes = [u8p, C.c_size_t, C.POINTER(C.c_void_p)]; lib.mosaic_token_document_deserialize.restype = C.c_int
     lib.mosaic_token_document_free.argtypes = [C.c_void_p]
     lib.mosaic_executor_config_default.argtypes = [C.POINTER(CExecutorConfig)]
+    lib.mosaic_executor_config_low_memory_default.argtypes = [C.POINTER(CExecutorConfig)]
     lib.mosaic_executor_create.argtypes = [C.POINTER(CExecutorConfig), C.POINTER(C.c_void_p)]; lib.mosaic_executor_create.restype = C.c_int
     lib.mosaic_executor_encode_batch.argtypes = [C.c_void_p, C.c_void_p, C.POINTER(CBatchInput), C.c_size_t, C.POINTER(C.POINTER(CBatchResult))]; lib.mosaic_executor_encode_batch.restype = C.c_int
     lib.mosaic_batch_results_free.argtypes = [C.POINTER(CBatchResult), C.c_size_t]

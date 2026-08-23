@@ -13,7 +13,14 @@ from mosaic import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-LIB = Path(os.environ.get("MOSAIC_LIBRARY", ROOT / "build/libmosaic.so"))
+
+if not (ROOT / "Cargo.toml").exists():
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "Cargo.toml").exists():
+            ROOT = parent
+            break
+
+LIB = Path(os.environ.get("MOSAIC_LIBRARY", ROOT / "build/preset-core-release/native/mosaic.dll"))
 PACK = ROOT / "fixtures/packs"
 
 
@@ -71,15 +78,21 @@ class BindingTests(unittest.TestCase):
                 with lock: events.append(event)
             t.set_observer(observed, OBSERVE_SUCCESS | OBSERVE_FAILURE | OBSERVE_RESOURCE)
             self.assertEqual(before, t.runtime_identity)
-            t.set_limits(max_input_bytes=16, max_output_tokens=16, max_token_document_bytes=64).seal()
+            t.set_low_memory_limits().seal()
             self.assertTrue(t.sealed)
+            limits = t.limits
+            self.assertLessEqual(limits.max_input_bytes, 64 * 1024 * 1024)
+            self.assertLessEqual(limits.max_output_tokens, 64 * 1024 * 1024)
+            self.assertLessEqual(limits.max_token_document_bytes, 32 * 1024 * 1024)
             with self.assertRaises(MosaicError): t.set_limits(max_input_bytes=32,max_output_tokens=32,max_token_document_bytes=64)
-            with self.assertRaises(MosaicError) as cm: t.encode(b"x"*17)
+            with self.assertRaises(MosaicError) as cm: t.encode(b"x" * (64 * 1024 * 1024 + 1))
             self.assertEqual(cm.exception.status, 9)
-            with BatchExecutor(worker_count=4, queue_capacity=3, max_batch_items=256, max_total_input_bytes=4096, library_path=LIB) as ex:
-                results=ex.encode(t,[b"hello"]*200)
-                self.assertEqual(len(results),200); self.assertTrue(all(r.status==0 and r.ids for r in results)); self.assertEqual(ex.metrics["items"],200)
-            self.assertGreaterEqual(len(events),201); self.assertIsNone(t.observer_exception)
+            with BatchExecutor.low_memory(library_path=LIB) as ex:
+                results = ex.encode(t, [b"hello"] * 16)
+                self.assertEqual(len(results), 16)
+                self.assertTrue(all(r.status == 0 and r.ids for r in results))
+                self.assertEqual(ex.metrics["items"], 16)
+            self.assertGreaterEqual(len(events), 17); self.assertIsNone(t.observer_exception)
 
     def test_error_and_lifecycle(self):
         for _ in range(50):

@@ -5,6 +5,7 @@ The supported Python package is a thin `ctypes` wrapper over the stable Mosaic C
 ## Library resolution
 
 Resolution order is explicit `library_path`, `MOSAIC_LIBRARY`, a native library adjacent to the packaged release tree, then the platform library search path. Production services SHOULD pass an absolute library path or control `MOSAIC_LIBRARY`.
+The loader also recognizes common preset build-tree locations on Windows so local development and CI can run against the current checkout without extra environment setup.
 
 ## Ownership
 
@@ -13,6 +14,8 @@ All buffers returned by Mosaic are copied into immutable Python values before `m
 ## Surface
 
 0.25 exposes integrated tokenizer pack attachment, exact encode/decode and token spans, automatic language routing, grapheme/security/normalization/lexer views, TokenDocument creation and cold serialization, runtime limits/sealing/metrics, bounded batch execution, and the metadata-only observer.
+
+For constrained desktops, the binding now exposes explicit low-memory helpers: `Tokenizer.set_low_memory_limits()` and `BatchExecutor.low_memory()`. These map to the native low-resource defaults and are intended for 4 GB-class personal machines or similar bounded environments.
 
 Observer callbacks are retained strongly for the tokenizer lifetime. Exceptions are caught inside the `ctypes` callback and exposed through `Tokenizer.observer_exception`; they are never allowed to unwind through C.
 

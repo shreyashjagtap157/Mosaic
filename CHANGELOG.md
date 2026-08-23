@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- add explicit low-memory native defaults for runtime limits and executor sizing;
+- expose Python convenience helpers for low-resource operation and make library discovery robust against preset build-tree layouts on Windows;
+- add tests covering the constrained profile and improve binding-path resolution for local integration use;
+- record the space-grade completion plan/spec in-repo so remaining work stays explicit and measurable.
+
 ## 0.1.3.0 — 2026-08-10
 
 Mixed-language span-routing candidate minor.

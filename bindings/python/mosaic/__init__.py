@@ -294,6 +294,11 @@ class Tokenizer(_LibraryBound):
     @property
     def limits(self) -> RuntimeLimits:
         c=CRuntimeLimits(); c.struct_size=C.sizeof(c); self._check(self._lib.mosaic_tokenizer_get_runtime_limits(self._handle,C.byref(c)),"limits"); return RuntimeLimits(int(c.max_input_bytes),int(c.max_output_tokens),int(c.max_token_document_bytes))
+    def set_low_memory_limits(self) -> "Tokenizer":
+        limits = CRuntimeLimits()
+        self._lib.mosaic_runtime_limits_low_memory_default(C.byref(limits))
+        self._check(self._lib.mosaic_tokenizer_set_runtime_limits(self._handle, C.byref(limits)), "set_low_memory_limits")
+        return self
     def seal(self) -> "Tokenizer": self._check(self._lib.mosaic_tokenizer_seal(self._handle),"seal"); return self
     @property
     def metrics(self) -> RuntimeMetrics:
@@ -371,6 +376,17 @@ class Tokenizer(_LibraryBound):
 class BatchExecutor(_LibraryBound):
     def __init__(self, *, worker_count:int=4, queue_capacity:int=1024, max_batch_items:int=65536, max_total_input_bytes:int=1<<30, library_path=None):
         lib=load_library(library_path);super().__init__(lib);cfg=CExecutorConfig();lib.mosaic_executor_config_default(C.byref(cfg));cfg.worker_count=worker_count;cfg.queue_capacity=queue_capacity;cfg.max_batch_items=max_batch_items;cfg.max_total_input_bytes=max_total_input_bytes;h=C.c_void_p();self._check(lib.mosaic_executor_create(C.byref(cfg),C.byref(h)),"executor_create");self._handle=h
+    @classmethod
+    def low_memory(cls, *, library_path=None) -> "BatchExecutor":
+        lib = load_library(library_path)
+        cfg = CExecutorConfig()
+        lib.mosaic_executor_config_low_memory_default(C.byref(cfg))
+        handle = C.c_void_p()
+        inst = cls.__new__(cls)
+        _LibraryBound.__init__(inst, lib)
+        inst._check(lib.mosaic_executor_create(C.byref(cfg), C.byref(handle)), "executor_create")
+        inst._handle = handle
+        return inst
     def close(self):
         if self._handle and self._handle.value:self._lib.mosaic_executor_free(self._handle);self._handle=C.c_void_p()
     def __enter__(self):return self

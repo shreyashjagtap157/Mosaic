@@ -89,6 +89,11 @@ void mosaic_executor_config_default(mosaic_executor_config *out_config) {
     *out_config = (mosaic_executor_config){sizeof *out_config, 0u, 4u, 1024u, 65536u, 1024ull * 1024ull * 1024ull};
 }
 
+void mosaic_executor_config_low_memory_default(mosaic_executor_config *out_config) {
+    if (!out_config) return;
+    *out_config = (mosaic_executor_config){sizeof *out_config, 0u, 1u, 64u, 4096u, 64ull * 1024ull * 1024ull};
+}
+
 mosaic_status mosaic_executor_create(const mosaic_executor_config *config, mosaic_executor **out_executor) {
     if (!config || !out_executor || config->struct_size < sizeof *config || config->flags ||
         !config->worker_count || config->worker_count > MOSAIC_EXECUTOR_MAX_WORKERS ||

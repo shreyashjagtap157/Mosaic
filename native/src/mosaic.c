@@ -4060,6 +4060,13 @@ void mosaic_runtime_limits_default(mosaic_runtime_limits *out_limits) {
         1024ull * 1024ull * 1024ull};
 }
 
+void mosaic_runtime_limits_low_memory_default(mosaic_runtime_limits *out_limits) {
+    if (!out_limits) return;
+    *out_limits = (mosaic_runtime_limits){sizeof *out_limits, 0u,
+        64ull * 1024ull * 1024ull, 64ull * 1024ull * 1024ull,
+        32ull * 1024ull * 1024ull};
+}
+
 mosaic_status mosaic_tokenizer_set_runtime_limits(mosaic_tokenizer *tokenizer, const mosaic_runtime_limits *limits) {
     if (!tokenizer || !limits || limits->struct_size < sizeof *limits || limits->flags ||
         !limits->max_input_bytes || !limits->max_output_tokens || !limits->max_token_document_bytes)
