@@ -73,6 +73,7 @@ Recommended flow:
 For another agent, service, or automation pipeline:
 
 - prefer the C ABI for a stable low-level integration contract;
+- prefer `tools/mosaicd_client.py` when you want a tiny Python HTTP client for the `mosaicd` service itself;
 - keep tokenizer lifecycle outside request handlers when possible;
 - preconfigure packs and seal the tokenizer during startup;
 - use the batch executor for independent inputs and the streaming APIs for progressive work;

@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "bindings" / "python"))
 
 from mosaic import Tokenizer  # noqa: E402
+from mosaicd_client import MosaicdClient  # noqa: E402
 from mosaicd import ServiceConfig, build_server  # noqa: E402
 
 
@@ -73,6 +74,7 @@ def main() -> int:
         thread.start()
         try:
             base = f"http://127.0.0.1:{server.server_address[1]}"
+            client = MosaicdClient(base, bearer_token="secret")
             status, live = request(base + "/health/live")
             if status != 200 or live != {"status": "live"}:
                 raise SystemExit("liveness endpoint failed")
@@ -92,6 +94,13 @@ def main() -> int:
             status, metrics = request(base + "/v1/metrics", token="secret")
             if status != 200 or metrics["service"]["low_memory"] is not False or metrics["executor"]["batches"] != 0 or metrics["native"]["encode_calls"] != 0:
                 raise SystemExit("default service profile metadata missing")
+            client_schema = client.openapi()
+            if client_schema["components"]["schemas"]["MetricsResponse"]["required"] != ["service", "native", "executor"]:
+                raise SystemExit("client openapi fetch failed")
+            if client.version()["service_profile"]["max_decode_ids"] != server.state.config.max_decode_ids:
+                raise SystemExit("client version fetch failed")
+            if client.config()["service_profile"]["stream_idle_seconds"] != server.state.config.stream_idle_seconds:
+                raise SystemExit("client config fetch failed")
             samples = [b"hello world", "नमस्ते 日本".encode(), bytes([0, 1, 0xFF, 0x80, 10])]
             for data in samples:
                 b64 = base64.b64encode(data).decode()
@@ -101,6 +110,10 @@ def main() -> int:
                 status, dec = request(base + "/v1/decode", method="POST", value={"ids": enc["ids"]}, token="secret")
                 if status != 200 or base64.b64decode(dec["data_base64"]) != data:
                     raise SystemExit("decode mismatch")
+                if tuple(client.encode(data)["ids"]) != tuple(enc["ids"]):
+                    raise SystemExit("client encode mismatch")
+                if base64.b64decode(client.decode(enc["ids"])["data_base64"]) != data:
+                    raise SystemExit("client decode mismatch")
             batch = [b"batch one", "नमस्ते".encode(), bytes([0, 255, 1]), b""]
             status, batched = request(base + "/v1/encode-batch", method="POST", value={"items_base64":[base64.b64encode(x).decode() for x in batch]}, token="secret")
             if status != 200 or len(batched.get("results", [])) != len(batch):
@@ -108,6 +121,9 @@ def main() -> int:
             for item, result in zip(batch, batched["results"]):
                 if result["status"] != 0 or tuple(result["ids"]) != t.encode(item):
                     raise SystemExit("batch encode ordering/result mismatch")
+            client_batch = client.encode_batch(batch)
+            if len(client_batch.get("results", [])) != len(batch):
+                raise SystemExit("client batch encode failed")
             streamed = (b"streaming mosaic " * 20) + bytes([0, 255, 128, 1])
             status, created = request(base + "/v1/streams", method="POST", value={}, token="secret")
             if status != 200 or not created.get("session_id"):
@@ -128,6 +144,13 @@ def main() -> int:
             stream_ids.extend(finished["ids"])
             if tuple(stream_ids) != t.encode(streamed):
                 raise SystemExit("service stream/full tokenization mismatch")
+            client_created = client.create_stream()
+            client_sid = client_created["session_id"]
+            client_push = client.push_stream(client_sid, streamed[:32])
+            if client_push["consumed"] <= 0:
+                raise SystemExit("client stream push failed")
+            if not client.finish_stream(client_sid).get("finished"):
+                raise SystemExit("client stream finish failed")
             # Cancellation is explicit and subsequent use fails closed.
             status, created = request(base + "/v1/streams", method="POST", value={}, token="secret"); cancel_id=created["session_id"]
             status, cancelled = request(base + f"/v1/streams/{cancel_id}", method="DELETE", token="secret")
@@ -138,9 +161,13 @@ def main() -> int:
             status, det = request(base + "/v1/detect", method="POST", value={"data_base64": base64.b64encode(text).decode()}, token="secret")
             if status != 200 or det["detection"]["language"] != t.detect(text).language:
                 raise SystemExit("detector mismatch")
+            if client.detect(text)["detection"]["language"] != t.detect(text).language:
+                raise SystemExit("client detect mismatch")
             status, sec = request(base + "/v1/security", method="POST", value={"data_base64": base64.b64encode("abc\u202Edef".encode()).decode()}, token="secret")
             if status != 200 or not isinstance(sec["findings"], list):
                 raise SystemExit("security endpoint failed")
+            if not isinstance(client.security("abc\u202Edef".encode())["findings"], list):
+                raise SystemExit("client security failed")
             status, _ = request(base + "/v1/encode", method="POST", value={"data_base64": base64.b64encode(b"x" * 900).decode()}, token="secret")
             if status != 413:
                 raise SystemExit("request-size limit did not fail closed")
