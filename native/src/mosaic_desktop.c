@@ -118,6 +118,8 @@ static int collect_folder_entries(const char *root, const char *rel, MosaicEntry
 static int serialize_entries(const MosaicEntry *entries, size_t count, const char *root_name, uint8_t **out, size_t *out_len);
 static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, uint8_t **out_bytes, size_t *out_len);
 static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes, DWORD *error_out);
+static int path_exists_dir(const char *path);
+static int path_exists_file(const char *path);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
 static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len);
 static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len);
@@ -141,11 +143,24 @@ static void set_status(AppState *state, const char *text) {
     if (state && state->status) SetWindowTextA(state->status, text ? text : "");
 }
 
+static SourceKind source_kind_from_path(const char *path) {
+    return (path && *path && path_exists_dir(path)) ? SOURCE_KIND_FOLDER : SOURCE_KIND_FILE;
+}
+
+static void sync_source_kind_controls(AppState *state, const char *path) {
+    if (!state) return;
+    state->source_kind = source_kind_from_path(path);
+    if (state->source_combo) {
+        SendMessageA(state->source_combo, CB_SETCURSEL, (WPARAM)state->source_kind, 0);
+    }
+}
+
 static void set_input_path(AppState *state, const char *path) {
     if (!state) return;
     strncpy(state->input_path, path ? path : "", sizeof(state->input_path) - 1);
     state->input_path[sizeof(state->input_path) - 1] = '\0';
     set_text(state->input_edit, state->input_path);
+    sync_source_kind_controls(state, state->input_path);
 }
 
 static void set_output_path(AppState *state, const char *path) {
@@ -1221,11 +1236,12 @@ static void compress_selected(AppState *state) {
     }
     state->algorithm = algorithm_from_selection(state->algo_combo);
     state->level = level_from_track(state->level_track);
-    if (state->source_kind == SOURCE_KIND_FOLDER && !path_exists_dir(input_path)) {
+    SourceKind source_kind = source_kind_from_path(input_path);
+    if (source_kind == SOURCE_KIND_FOLDER && !path_exists_dir(input_path)) {
         log_append(state->log_edit, "Pick a folder source first.");
         goto done;
     }
-    if (state->source_kind == SOURCE_KIND_FILE && !path_exists_file(input_path)) {
+    if (source_kind == SOURCE_KIND_FILE && !path_exists_file(input_path)) {
         log_append(state->log_edit, "Pick a file source first.");
         goto done;
     }
@@ -1242,7 +1258,7 @@ static void compress_selected(AppState *state) {
             goto done;
         }
     }
-    err = write_archive_v2(input_path, state->source_kind == SOURCE_KIND_FOLDER, state->algorithm, &archive_blob, &archive_blob_len, &serialized_len, errbuf, sizeof(errbuf));
+    err = write_archive_v2(input_path, source_kind == SOURCE_KIND_FOLDER, state->algorithm, &archive_blob, &archive_blob_len, &serialized_len, errbuf, sizeof(errbuf));
     if (err != ERROR_SUCCESS) {
         log_append(state->log_edit, errbuf[0] ? errbuf : "Compression failed.");
         goto done;
@@ -1272,14 +1288,14 @@ static void compress_selected(AppState *state) {
             log_append(state->log_edit, "Could not prepare verification temp output.");
             goto done;
         }
-        if (!verify_archive_roundtrip(input_path, state->source_kind == SOURCE_KIND_FOLDER, output_path, verify_output, state->algorithm, errbuf, sizeof(errbuf))) {
+        if (!verify_archive_roundtrip(input_path, source_kind_from_path(input_path) == SOURCE_KIND_FOLDER, output_path, verify_output, state->algorithm, errbuf, sizeof(errbuf))) {
             log_append(state->log_edit, errbuf[0] ? errbuf : "Verification failed.");
             goto done;
         }
     }
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Compressed %s using %s level %lu", state->source_kind == SOURCE_KIND_FOLDER ? "folder" : "file", algorithm_name(state->algorithm), (unsigned long)state->level);
+        _snprintf(line, sizeof(line), "Compressed %s using %s level %lu", source_kind == SOURCE_KIND_FOLDER ? "folder" : "file", algorithm_name(state->algorithm), (unsigned long)state->level);
         log_append(state->log_edit, line);
         set_status(state, "Archive written");
     }
@@ -1517,8 +1533,6 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             char path[MAX_PATH];
             DragQueryFileA(drop, 0, path, MAX_PATH);
             set_input_path(state, path);
-            state->source_kind = path_exists_dir(path) ? SOURCE_KIND_FOLDER : SOURCE_KIND_FILE;
-            SendMessageA(state->source_combo, CB_SETCURSEL, (WPARAM)state->source_kind, 0);
             if (state->source_kind == SOURCE_KIND_FOLDER) {
                 set_output_for_input(state, path, ".mzc");
             }
