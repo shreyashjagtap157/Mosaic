@@ -19,7 +19,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UsePreviousAppDir=no
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\bin\{#AppExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -28,10 +28,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\..\dist\windows\stage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
-Name: "{group}\Mosaic Compressor Self-Test"; Filename: "{app}\mosaic-desktop-selftest.exe"
-Name: "{group}\Mosaic Tokenizer"; Filename: "{app}\mosaic-tokenizer.exe"
-Name: "{autodesktop}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\Mosaic Compressor"; Filename: "{app}\bin\{#AppExeName}"
+Name: "{group}\Mosaic Compressor Self-Test"; Filename: "{app}\bin\mosaic-desktop-selftest.exe"
+Name: "{group}\Mosaic Tokenizer"; Filename: "{app}\bin\mosaic-tokenizer.exe"
+Name: "{autodesktop}\Mosaic Compressor"; Filename: "{app}\bin\{#AppExeName}"
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Launch Mosaic Compressor"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bin\{#AppExeName}"; Description: "Launch Mosaic Compressor"; Flags: nowait postinstall skipifsilent
