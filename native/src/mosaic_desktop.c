@@ -26,6 +26,7 @@
 #define ID_SOURCE_KIND 1012
 #define ID_VERIFY_CHECK 1013
 #define ID_MODE_COMBO 1015
+#define ID_INSPECT 1016
 
 #define APP_BG RGB(247, 249, 252)
 #define CARD_BG RGB(255, 255, 255)
@@ -57,6 +58,8 @@ typedef struct AppState {
     HWND level_track;
     HWND verify_check;
     HWND safety_note;
+    HWND archive_list;
+    HWND inspect_button;
     HWND status;
     HWND log_edit;
     DWORD algorithm;
@@ -115,10 +118,14 @@ static int serialize_entries(const MosaicEntry *entries, size_t count, const cha
 static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, uint8_t **out_bytes, size_t *out_len);
 static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes, DWORD *error_out);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
+static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len);
+static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len);
 static int utf8_from_wide(const wchar_t *input, char **out_text);
 static int write_archive_v2(const char *source_path, int is_folder, DWORD algorithm, uint8_t **archive_blob, size_t *archive_blob_len, size_t *serialized_len_out, char *error_buf, size_t error_cap);
 static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_name, size_t root_cap, MosaicEntry **entries, size_t *entry_count, char *error_buf, size_t error_cap);
 static int restore_archive_entries(const char *output_path, MosaicEntry *entries, size_t count);
+static void archive_list_clear(HWND list);
+static void archive_list_add_entries(HWND list, const char *archive_path, MosaicEntry *entries, size_t count);
 
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
@@ -201,6 +208,100 @@ static void ui_theme_common(HWND control) {
 static void draw_card(HDC hdc, const RECT *rc);
 static void draw_section_label(HDC hdc, int x, int y, const char *text);
 
+static void archive_list_clear(HWND list) {
+    SendMessageA(list, LVM_DELETEALLITEMS, 0, 0);
+}
+
+static void archive_list_add_entries(HWND list, const char *archive_path, MosaicEntry *entries, size_t count) {
+    char size_buf[64];
+    char kind_buf[32];
+    LVITEMA item;
+    int i;
+    archive_list_clear(list);
+    for (i = 0; i < (int)count; ++i) {
+        ZeroMemory(&item, sizeof(item));
+        item.mask = LVIF_TEXT;
+        item.iItem = i;
+        item.iSubItem = 0;
+        item.pszText = entries[i].path;
+        SendMessageA(list, LVM_INSERTITEMA, 0, (LPARAM)&item);
+        _snprintf(kind_buf, sizeof(kind_buf), "%s", entries[i].is_dir ? "Folder" : "File");
+        _snprintf(size_buf, sizeof(size_buf), "%lu", (unsigned long)entries[i].size);
+        ZeroMemory(&item, sizeof(item));
+        item.iSubItem = 1;
+        item.pszText = kind_buf;
+        SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
+        ZeroMemory(&item, sizeof(item));
+        item.iSubItem = 2;
+        item.pszText = size_buf;
+        SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
+    }
+    (void)archive_path;
+}
+
+static void inspect_selected_archive(AppState *state) {
+    char *input_path = NULL;
+    size_t in_len = 0;
+    uint8_t *input = NULL, *output = NULL;
+    MosaicEntry *entries = NULL;
+    size_t entry_count = 0;
+    char root_name[MAX_PATH];
+    char errbuf[160];
+    MosaicArchiveHeader header;
+    if (!state || !get_window_text_alloc(state->input_edit, &input_path, &in_len)) {
+        log_append(state->log_edit, "Read paths failed.");
+        goto done;
+    }
+    if (!read_file(input_path, &input, &in_len) || in_len < sizeof(header)) {
+        log_append(state->log_edit, "Could not read archive.");
+        goto done;
+    }
+    memcpy(&header, input, sizeof(header));
+    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
+        log_append(state->log_edit, "Not a Mosaic archive.");
+        goto done;
+    }
+    if (!decompress_blob_exact(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output, NULL)) {
+        log_append(state->log_edit, "Decompression failed.");
+        goto done;
+    }
+    if (!parse_archive_v2(output, (size_t)header.original_size, root_name, sizeof(root_name), &entries, &entry_count, errbuf, sizeof(errbuf))) {
+        log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
+        goto done;
+    }
+    archive_list_add_entries(state->archive_list, input_path, entries, entry_count);
+    {
+        char line[256];
+        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries)", input_path, (unsigned long)entry_count);
+        log_append(state->log_edit, line);
+    }
+    set_status(state, "Archive inspected");
+done:
+    if (entries) {
+        for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+        free(entries);
+    }
+    free(input);
+    free(output);
+    free(input_path);
+}
+
+static void archive_list_init(HWND list) {
+    LVCOLUMNA col;
+    ListView_SetExtendedListViewStyle(list, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+    ZeroMemory(&col, sizeof(col));
+    col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+    col.cx = 220;
+    col.pszText = "Path";
+    ListView_InsertColumn(list, 0, &col);
+    col.cx = 80;
+    col.pszText = "Type";
+    ListView_InsertColumn(list, 1, &col);
+    col.cx = 90;
+    col.pszText = "Size";
+    ListView_InsertColumn(list, 2, &col);
+}
+
 static void ui_layout(HWND hwnd, AppState *state) {
     RECT rc;
     int margin = 24;
@@ -223,7 +324,9 @@ static void ui_layout(HWND hwnd, AppState *state) {
     MoveWindow(state->algo_combo, x_right, y + 36, card_w - 20, 28, TRUE);
     MoveWindow(state->level_track, x_right, y + 96, card_w - 20, 34, TRUE);
     MoveWindow(state->verify_check, x_right, y + 150, card_w - 20, 24, TRUE);
-    MoveWindow(state->safety_note, x_right, y + 178, card_w - 20, 40, TRUE);
+    MoveWindow(state->inspect_button, x_right, y + 178, 120, 28, TRUE);
+    MoveWindow(state->safety_note, x_right + 128, y + 178, card_w - 148, 40, TRUE);
+    MoveWindow(state->archive_list, x_right, y + 220, card_w - 20, 150, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_COMPRESS), margin, rc.bottom - 124, 120, 34, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_DECOMPRESS), margin + 132, rc.bottom - 124, 120, 34, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_CLEAR), margin + 264, rc.bottom - 124, 120, 34, TRUE);
@@ -260,6 +363,7 @@ static void paint_ui(HWND hwnd, HDC hdc) {
     draw_section_label(hdc, 580, 116, "Compression profile");
     draw_section_label(hdc, 580, 176, "Compression level");
     draw_section_label(hdc, 580, 230, "Safety note");
+    draw_section_label(hdc, 580, 324, "Archive browser");
 }
 
 static void draw_card(HDC hdc, const RECT *rc) {
@@ -1202,7 +1306,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         SendMessageA(state->level_track, TBM_SETPOS, TRUE, 3);
         state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
         SendMessageA(state->verify_check, BM_SETCHECK, BST_CHECKED, 0);
+        state->inspect_button = CreateWindowA("BUTTON", "Inspect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_INSPECT, NULL, NULL);
         state->safety_note = CreateWindowA("STATIC", "Source deletion is disabled in this build.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->archive_list = CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
         CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
@@ -1214,7 +1320,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         ui_apply_fonts(state->mode_combo, font);
         ui_apply_fonts(state->algo_combo, font);
         ui_apply_fonts(state->verify_check, font);
+        ui_apply_fonts(state->inspect_button, font);
         ui_apply_fonts(state->safety_note, font);
+        ui_apply_fonts(state->archive_list, font);
         ui_apply_fonts(state->status, font);
         ui_apply_fonts(state->log_edit, font);
         ui_theme_common(state->input_edit);
@@ -1223,8 +1331,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         ui_theme_common(state->mode_combo);
         ui_theme_common(state->algo_combo);
         ui_theme_common(state->verify_check);
+        ui_theme_common(state->inspect_button);
         ui_theme_common(state->safety_note);
+        ui_theme_common(state->archive_list);
         ui_theme_common(state->log_edit);
+        archive_list_init(state->archive_list);
         DragAcceptFiles(hwnd, TRUE);
         log_append(state->log_edit, "Mosaic Desktop ready.");
         log_append(state->log_edit, "Uses Windows Compression API for file compression.");
@@ -1273,6 +1384,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         case ID_VERIFY_CHECK:
             state->verify_after = (IsDlgButtonChecked(hwnd, ID_VERIFY_CHECK) == BST_CHECKED);
             return 0;
+        case ID_INSPECT: inspect_selected_archive(state); return 0;
         case ID_COMPRESS: compress_selected(state); return 0;
         case ID_DECOMPRESS: decompress_selected(state); return 0;
         case ID_CLEAR: SetWindowTextA(state->log_edit, ""); set_status(state, "Ready"); return 0;
