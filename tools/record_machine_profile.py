@@ -19,7 +19,17 @@ def run_text(command: list[str]) -> str:
     return subprocess.check_output(command, text=True).strip()
 
 
+def powershell(query: str) -> str:
+    return run_text(["powershell", "-NoProfile", "-Command", query])
+
+
 def windows_cpu() -> str:
+    try:
+        text = powershell("(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)")
+        if text:
+            return text
+    except Exception:
+        pass
     try:
         return run_text(["wmic", "cpu", "get", "Name", "/value"]).split("=", 1)[1].strip()
     except Exception:
@@ -27,6 +37,12 @@ def windows_cpu() -> str:
 
 
 def windows_memory_bytes() -> int:
+    try:
+        text = powershell("(Get-CimInstance Win32_ComputerSystem | Select-Object -First 1 -ExpandProperty TotalPhysicalMemory)")
+        if text:
+            return int(text)
+    except Exception:
+        pass
     try:
         text = run_text(["wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value"])
         return int(text.split("=", 1)[1].strip())
