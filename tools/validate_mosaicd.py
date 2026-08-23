@@ -77,7 +77,8 @@ def main() -> int:
             if status != 200 or live != {"status": "live"}:
                 raise SystemExit("liveness endpoint failed")
             status, schema = request(base + "/openapi.json")
-            if status != 200 or schema.get("openapi") != "3.1.0" or "/v1/config" not in schema.get("paths", {}) or "ServiceProfile" not in schema.get("components", {}).get("schemas", {}):
+            schemas = schema.get("components", {}).get("schemas", {})
+            if status != 200 or schema.get("openapi") != "3.1.0" or "/v1/config" not in schema.get("paths", {}) or "ServiceProfile" not in schemas or "EncodeResponse" not in schemas or "StreamPushResponse" not in schemas:
                 raise SystemExit("openapi document failed")
             status, _ = request(base + "/v1/version")
             if status != 401:
