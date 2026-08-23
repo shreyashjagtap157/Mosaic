@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
 
-cmake --build $BuildDir --config $Config --target mosaic_shared mosaic-desktop
+cmake --build $BuildDir --config $Config --target mosaic_shared mosaic-desktop mosaic-desktop-selftest mosaic-tokenizer mosaic-compress-compare
 cmake --install $BuildDir --config $Config --prefix $StageDir
 
 $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"

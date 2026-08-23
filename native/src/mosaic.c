@@ -5134,7 +5134,7 @@ static void print_lex_tokens(const mosaic_lex_token *tokens, size_t count) {
     printf("lexical_tokens=%zu\n", count);
     for (size_t i = 0; i < count; ++i) {
         printf("lex kind=%s kind_id=%u flags=%u start=%" PRIu64 " length=%" PRIu64 "\n",
-               lex_kind_name(tokens[i].kind), (unsigned)tokens[i].kind, (unsigned)tokens[i].flags,
+               lex_kind_name((uint16_t)tokens[i].kind), (unsigned)tokens[i].kind, (unsigned)tokens[i].flags,
                tokens[i].start, tokens[i].length);
     }
 }

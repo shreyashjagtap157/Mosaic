@@ -25,13 +25,12 @@ UninstallDisplayIcon={app}\{#AppExeName}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\..\dist\windows\stage\bin\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\windows\stage\bin\mosaic.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\windows\stage\share\mosaic\packs\*"; DestDir: "{app}\share\mosaic\packs"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\..\dist\windows\stage\include\mosaic.h"; DestDir: "{app}\include"; Flags: ignoreversion
+Source: "..\..\dist\windows\stage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\Mosaic Compressor Self-Test"; Filename: "{app}\mosaic-desktop-selftest.exe"
+Name: "{group}\Mosaic Tokenizer"; Filename: "{app}\mosaic-tokenizer.exe"
 Name: "{autodesktop}\Mosaic Compressor"; Filename: "{app}\{#AppExeName}"
 
 [Run]

@@ -355,7 +355,7 @@ endif()
 if(TARGET mosaic-desktop-selftest)
   list(APPEND MOSAIC_INSTALL_TARGETS mosaic-desktop-selftest)
 endif()
-if(NOT WIN32)
+if(TARGET mosaic-tokenizer)
   list(APPEND MOSAIC_INSTALL_TARGETS mosaic-tokenizer)
 endif()
 if(TARGET mosaic_trust_static)
@@ -389,3 +389,10 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/hi-v1.mpack
         ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/ja-v1.mpack
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/packs/language)
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../README.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../CHANGELOG.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../SECURITY.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../SUPPORT.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../docs/implementation/RELEASE_ENGINEERING_v1.md
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/mosaic/docs)

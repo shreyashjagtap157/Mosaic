@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- expand the Windows install tree and installer packaging so the staged app now includes the main CLI, desktop self-test, comparison harness, public headers, shared/runtime binaries, release docs, and reference packs;
 - add explicit low-memory native defaults for runtime limits and executor sizing;
 - expose Python convenience helpers for low-resource operation and make library discovery robust against preset build-tree layouts on Windows;
 - add native low-memory smoke and benchmark coverage in the build and test runners, plus tests covering the constrained profile and improve binding-path resolution for local integration use;
