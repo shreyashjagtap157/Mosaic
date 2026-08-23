@@ -868,7 +868,6 @@ static void set_output_for_input(AppState *state, const char *input_path, const 
 static void apply_selected_source_path(AppState *state, const char *path) {
     if (!state || !path || !*path) return;
     set_input_path(state, path);
-    set_output_for_input(state, path, ".mzc");
     update_source_browse_caption(state);
 }
 
