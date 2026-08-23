@@ -63,7 +63,7 @@ def main() -> int:
             if status != 401:
                 raise SystemExit("auth was not enforced")
             status, ver = request(base + "/v1/version", token="secret")
-            if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True:
+            if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True or ver["service_profile"]["low_memory"] is not False:
                 raise SystemExit("version/identity endpoint failed")
             status, metrics = request(base + "/v1/metrics", token="secret")
             if status != 200 or metrics["service"]["low_memory"] is not False:
@@ -151,6 +151,8 @@ def main() -> int:
             low_server = build_server(t, ServiceConfig.low_memory())
             if low_server.state.config.low_memory_mode is not True or low_server.state.snapshot()["service"]["low_memory"] is not True:
                 raise SystemExit("low-memory service profile did not propagate")
+            if low_server.state.tokenizer.sealed is False:
+                raise SystemExit("low-memory service server did not preserve tokenizer state")
             low_server.server_close()
             req = urllib.request.Request(base + "/metrics", headers={"Authorization":"Bearer secret"})
             with urllib.request.urlopen(req, timeout=5) as r:

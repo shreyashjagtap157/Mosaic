@@ -316,6 +316,12 @@ class Handler(BaseHTTPRequestHandler):
                 "runtime_identity_sha256": t.runtime_identity.hex(),
                 "capabilities": t.capabilities,
                 "sealed": t.sealed,
+                "service_profile": {
+                    "low_memory": self.state.config.low_memory_mode,
+                    "executor_workers": self.state.config.executor_workers,
+                    "executor_queue": self.state.config.executor_queue,
+                    "max_concurrency": self.state.config.max_concurrency,
+                },
             })
             return
         if self.path == "/metrics":

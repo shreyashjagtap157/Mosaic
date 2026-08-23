@@ -10,6 +10,7 @@
 - native calls are serialized through the service state lock because the current public tokenizer contract does not promise concurrent calls on one tokenizer handle;
 - multiple service processes may be used when process-level parallelism is required;
 - request bodies are never written to service logs by default.
+- `GET /v1/version` includes a `service_profile` object so callers can detect whether the service is running in low-memory mode and what ceilings were selected.
 
 ## Endpoints
 
