@@ -34,6 +34,7 @@ def main() -> int:
     run([python(), "tools/validate_release_matrix.py"])
     run([python(), "tools/validate_open_gates.py"])
     run([python(), "tools/validate_space_grade_docs.py"])
+    run([python(), "tools/validate_release_index.py"])
     run([python(), "tools/validate_windows_package.py"])
     run([python(), "tools/validate_low_memory_profile.py"])
     run([python(), "tools/set_version.py", "--check"])
