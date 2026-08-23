@@ -68,6 +68,8 @@ typedef struct AppState {
     SourceKind source_kind;
     ArchiveMode archive_mode;
     int verify_after;
+    int output_path_auto;
+    int suppress_output_change;
     char input_path[MAX_PATH];
     char output_path[MAX_PATH];
 } AppState;
@@ -121,6 +123,7 @@ static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t i
 static int path_exists_dir(const char *path);
 static int path_exists_file(const char *path);
 static void set_output_for_input(AppState *state, const char *input_path, const char *suffix);
+static void set_output_path_auto(AppState *state, const char *path);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
 static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len);
 static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len);
@@ -162,7 +165,7 @@ static void set_input_path(AppState *state, const char *path) {
     state->input_path[sizeof(state->input_path) - 1] = '\0';
     set_text(state->input_edit, state->input_path);
     sync_source_kind_controls(state, state->input_path);
-    if (state->input_path[0] && state->output_edit && GetWindowTextLengthA(state->output_edit) == 0) {
+    if (state->input_path[0] && state->output_edit && (state->output_path_auto || GetWindowTextLengthA(state->output_edit) == 0)) {
         set_output_for_input(state, state->input_path, ".mzc");
     }
 }
@@ -171,7 +174,15 @@ static void set_output_path(AppState *state, const char *path) {
     if (!state) return;
     strncpy(state->output_path, path ? path : "", sizeof(state->output_path) - 1);
     state->output_path[sizeof(state->output_path) - 1] = '\0';
+    state->suppress_output_change = 1;
     set_text(state->output_edit, state->output_path);
+    state->suppress_output_change = 0;
+}
+
+static void set_output_path_auto(AppState *state, const char *path) {
+    if (!state) return;
+    state->output_path_auto = 1;
+    set_output_path(state, path);
 }
 
 static int utf8_to_wide_alloc(const char *input, wchar_t **out_text) {
@@ -640,7 +651,7 @@ static void suggest_output_from_input(const char *input_path, char *out_path, si
 static void set_output_for_input(AppState *state, const char *input_path, const char *suffix) {
     if (!state || !input_path || !*input_path) return;
     suggest_output_from_input(input_path, state->output_path, sizeof(state->output_path), suffix);
-    set_text(state->output_edit, state->output_path);
+    set_output_path_auto(state, state->output_path);
 }
 
 static int path_exists_dir(const char *path) {
@@ -1475,6 +1486,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             char path[MAX_PATH];
             if (file_dialog_save(hwnd, path, sizeof(path), NULL)) {
                 set_output_path(state, path);
+                state->output_path_auto = 0;
                 log_append(state->log_edit, "Output selected.");
                 set_status(state, "Archive target selected");
             }
@@ -1489,6 +1501,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             return 0;
         case ID_VERIFY_CHECK:
             state->verify_after = (IsDlgButtonChecked(hwnd, ID_VERIFY_CHECK) == BST_CHECKED);
+            return 0;
+        case ID_OUTPUT_EDIT:
+            if (HIWORD(wparam) == EN_CHANGE && !state->suppress_output_change) {
+                state->output_path_auto = 0;
+            }
             return 0;
         case ID_INSPECT: inspect_selected_archive(state); return 0;
         case ID_TEST: test_selected_archive(state); return 0;
@@ -1537,9 +1554,6 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             char path[MAX_PATH];
             DragQueryFileA(drop, 0, path, MAX_PATH);
             set_input_path(state, path);
-            if (state->source_kind == SOURCE_KIND_FOLDER) {
-                set_output_for_input(state, path, ".mzc");
-            }
             log_append(state->log_edit, "Input dropped.");
             set_status(state, "Input loaded");
         }
