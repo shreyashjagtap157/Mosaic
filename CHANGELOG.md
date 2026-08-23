@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add a release notes and qualification index under `docs/release/` so the current evidence trail is easier to navigate;
 - add a Windows packaging qualification note so the installer evidence is recorded alongside the release docs;
 - add a Windows package validator for the staged installer tree and wire it into the standard release-readiness path;
 - add a release-readiness validator for the space-grade boundary docs and wire it into the standard readiness path;
