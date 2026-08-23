@@ -53,6 +53,9 @@ def main():
             f'docs/release/QUALIFICATION_{VERSION}_WINDOWS_PACKAGE.md',
             'docs/release/RELEASE_NOTES_1.0.0.md',
             'docs/release/RELEASE_NOTES_1.0.1.md',
+            'examples/integration/README.md',
+            'examples/integration/low_memory_embed.c',
+            'examples/integration/low_memory_embed.py',
         ]:
             if not (d/rel).exists():
                 raise SystemExit(f'packaged release doc missing: {rel}')

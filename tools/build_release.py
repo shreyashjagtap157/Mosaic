@@ -89,7 +89,7 @@ def main()->int:
     machine=platform.machine().lower().replace('amd64','x86_64');osname='linux' if platform.system()=='Linux' else platform.system().lower();tag=os.environ.get('MOSAIC_RELEASE_TAG') or f'{osname}-{machine}'
     name=f'mosaic-tokenizer-{VERSION}-{tag}';dist=ROOT/'dist';dist.mkdir(exist_ok=True);stage=dist/name
     if stage.exists():shutil.rmtree(stage)
-    for d in ['bin','lib','include','share/mosaic/packs/language','share/mosaic/packs/detector','share/mosaic/packs/lexer','share/mosaic/trust','share/mosaic','share/pkgconfig','docs','docs/release','examples/authoring','python']:(stage/d).mkdir(parents=True,exist_ok=True)
+    for d in ['bin','lib','include','share/mosaic/packs/language','share/mosaic/packs/detector','share/mosaic/packs/lexer','share/mosaic/trust','share/mosaic','share/pkgconfig','docs','docs/release','examples/authoring','examples/integration','python']:(stage/d).mkdir(parents=True,exist_ok=True)
     trust_enabled = TRUST_DLL.exists() and TRUST_STATIC.exists()
     core_copies = [(BIN,stage/'bin/mosaic-tokenizer'),(CORE_DLL,stage/'lib/libmosaic.so'),(CORE_STATIC,stage/'lib/libmosaic.a'),(ROOT/'native/include/mosaic.h',stage/'include/mosaic.h'),(MODEL,stage/'share/mosaic/packs/model-v2.mpack'),(UNICODE,stage/'share/mosaic/packs/unicode17-v1.mpack'),(DETECTOR,stage/'share/mosaic/packs/detector/reference-v1.mpack'),(SECURITY,stage/'share/mosaic/packs/security17-v1.mpack'),(NORMALIZATION,stage/'share/mosaic/packs/normalization16-v1.mpack'),(ROOT/'README.md',stage/'README.md'),(ROOT/'tools/mosaic_author.py',stage/'bin/mosaic-author'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic-registry'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic_registry.py'),(ROOT/'tools/mosaic_registry_http.py',stage/'bin/mosaic-registry-http'),(ROOT/'tools/mosaicd.py',stage/'bin/mosaicd')]
     for src,dst in core_copies:shutil.copy2(src,dst)
@@ -105,6 +105,8 @@ def main()->int:
         shutil.copy2(ROOT/'fixtures/trust/conformance-ed25519.pub',stage/'share/mosaic/trust/conformance-ed25519.pub')
         shutil.copy2(ROOT/'fixtures/packs/model-v2.mpack.sig',stage/'share/mosaic/trust/model-v2.mpack.sig')
     for ex in sorted((ROOT/'examples/authoring').glob('*.json')): shutil.copy2(ex,stage/'examples/authoring'/ex.name)
+    for ex in [ROOT/'examples/integration/README.md', ROOT/'examples/integration/low_memory_embed.c', ROOT/'examples/integration/low_memory_embed.py']:
+        if ex.exists(): shutil.copy2(ex,stage/'examples/integration'/ex.name)
     py_wheel=ROOT/f'dist/python/mosaic_tokenizer-{VERSION}-py3-none-any.whl'
     shutil.copy2(py_wheel,stage/'python'/py_wheel.name)
     shutil.copy2(ROOT/'docs/implementation/AUTHORING_0.5.md',stage/'docs/AUTHORING.md')
