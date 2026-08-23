@@ -33,6 +33,7 @@ from mosaic import BatchExecutor, MosaicError, Tokenizer, __version__ as SDK_VER
 class ServiceConfig:
     host: str = "127.0.0.1"
     port: int = 8787
+    low_memory_mode: bool = False
     max_request_bytes: int = 8 << 20
     max_decode_ids: int = 4_000_000
     max_concurrency: int = 32
@@ -49,6 +50,7 @@ class ServiceConfig:
     @classmethod
     def low_memory(cls) -> "ServiceConfig":
         return cls(
+            low_memory_mode=True,
             max_request_bytes=1 << 20,
             max_decode_ids=256_000,
             max_concurrency=4,
@@ -118,6 +120,7 @@ class ServiceState:
                 "bytes_in": self.bytes_in,
                 "bytes_out": self.bytes_out,
                 "uptime_seconds": int(time.monotonic() - self.started),
+                "low_memory": self.config.low_memory_mode,
                 "max_concurrency": self.config.max_concurrency,
                 "max_request_bytes": self.config.max_request_bytes,
                 "stream_sessions": len(self.sessions),
@@ -515,6 +518,7 @@ def main() -> int:
             server.socket = ctx.wrap_socket(server.socket, server_side=True)
         host, port = server.server_address[:2]
         print(json.dumps({"event": "listening", "host": host, "port": port, "tls": bool(a.tls_cert), "native_version": t.native_version}, sort_keys=True), flush=True)
+        print(json.dumps({"event": "service-profile", "low_memory": cfg.low_memory, "executor_workers": cfg.executor_workers, "executor_queue": cfg.executor_queue, "max_concurrency": cfg.max_concurrency}, sort_keys=True), flush=True)
         try:
             server.serve_forever(poll_interval=0.25)
         except KeyboardInterrupt:

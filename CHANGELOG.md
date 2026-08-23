@@ -10,6 +10,7 @@
 - add a Windows package validator for the staged installer tree and wire it into the standard release-readiness path;
 - add a release-readiness validator for the space-grade boundary docs and wire it into the standard readiness path;
 - add an explicit `mosaicd --low-memory` service mode with bounded defaults for constrained desktops and coverage in the service validator;
+- make the low-memory `mosaicd` profile observable in startup and metrics metadata, and document it in the support matrix and integration guide;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;

@@ -271,6 +271,7 @@ If you are embedding Mosaic into another agent, app, or service:
 - prefer the native C ABI or the Python binding;
 - create, configure, and seal tokenizers before sharing them across threads;
 - use the runtime limits API or the low-memory defaults for constrained desktops;
+- pass `--low-memory` to `mosaicd` when you want the service wrapper to advertise and apply a constrained-desktop profile automatically;
 - treat all returned buffers as owned by Mosaic until released with `mosaic_free()` or the Python wrapper equivalent;
 - prefer streaming APIs when you do not need the entire result materialized at once;
 - treat `MOSAIC_ERROR_RESOURCE_LIMIT` as a normal, expected failure mode for bounded environments.

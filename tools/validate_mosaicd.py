@@ -49,7 +49,7 @@ def main() -> int:
             t.add_language(lang)
         t.set_detector(detector).set_security(security).seal()
         low = ServiceConfig.low_memory()
-        if (low.executor_workers, low.executor_queue, low.max_batch_items, low.max_stream_sessions) != (1, 8, 256, 32):
+        if (low.low_memory_mode, low.executor_workers, low.executor_queue, low.max_batch_items, low.max_stream_sessions) != (True, 1, 8, 256, 32):
             raise SystemExit("low-memory service preset changed unexpectedly")
         server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1, max_batch_items=8, max_batch_bytes=512, executor_workers=2, executor_queue=8, max_stream_sessions=2, stream_pending_bytes=128, stream_idle_seconds=30.0))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -65,6 +65,9 @@ def main() -> int:
             status, ver = request(base + "/v1/version", token="secret")
             if status != 200 or ver["native_version"] != t.native_version or ver["sealed"] is not True:
                 raise SystemExit("version/identity endpoint failed")
+            status, metrics = request(base + "/v1/metrics", token="secret")
+            if status != 200 or metrics["service"]["low_memory"] is not False:
+                raise SystemExit("default service profile metadata missing")
             samples = [b"hello world", "नमस्ते 日本".encode(), bytes([0, 1, 0xFF, 0x80, 10])]
             for data in samples:
                 b64 = base64.b64encode(data).decode()
@@ -143,8 +146,12 @@ def main() -> int:
             finally:
                 server.state.admission.release()
             status, metrics = request(base + "/v1/metrics", token="secret")
-            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or "native" not in metrics or "executor" not in metrics:
+            if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or metrics["service"]["low_memory"] is not False or "native" not in metrics or "executor" not in metrics:
                 raise SystemExit("metrics endpoint failed")
+            low_server = build_server(t, ServiceConfig.low_memory())
+            if low_server.state.config.low_memory_mode is not True or low_server.state.snapshot()["service"]["low_memory"] is not True:
+                raise SystemExit("low-memory service profile did not propagate")
+            low_server.server_close()
             req = urllib.request.Request(base + "/metrics", headers={"Authorization":"Bearer secret"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 text = r.read().decode("ascii")
