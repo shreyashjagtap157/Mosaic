@@ -13,6 +13,7 @@
 - `GET /v1/version` includes a `service_profile` object so callers can detect whether the service is running in low-memory mode and what ceilings were selected.
 - `GET /v1/config` returns the active service profile and concrete ceilings in a machine-readable form for embedders and ops tooling.
 - `mosaicd --print-config` writes the same resolved configuration to stdout and exits without starting the server.
+- `GET /openapi.json` publishes a compact machine-readable service schema for launchers, agents, and ops tooling.
 
 ## Endpoints
 
@@ -20,6 +21,7 @@ Unauthenticated operational endpoints:
 
 - `GET /health/live`
 - `GET /health/ready`
+- `GET /openapi.json`
 
 Authenticated API endpoints when a bearer token is configured:
 

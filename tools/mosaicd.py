@@ -103,6 +103,55 @@ class ServiceState:
         self.bytes_in = 0
         self.bytes_out = 0
 
+    def openapi(self) -> dict[str, Any]:
+        return {
+            "openapi": "3.1.0",
+            "info": {
+                "title": "Mosaic Service API",
+                "version": "1",
+                "description": "Bounded HTTP service over the Mosaic native runtime.",
+            },
+            "paths": {
+                "/health/live": {"get": {"summary": "Liveness probe", "responses": {"200": {"description": "Live"}}}},
+                "/health/ready": {"get": {"summary": "Readiness probe", "responses": {"200": {"description": "Ready"}}}},
+                "/v1/version": {"get": {"summary": "Service identity", "responses": {"200": {"description": "Version and runtime identity"}}}},
+                "/v1/config": {"get": {"summary": "Resolved service config", "responses": {"200": {"description": "Resolved service profile"}}}},
+                "/v1/metrics": {"get": {"summary": "JSON metrics", "responses": {"200": {"description": "Service, native, and executor metrics"}}}},
+                "/v1/encode": {"post": {"summary": "Encode bytes", "responses": {"200": {"description": "Token IDs"}}}},
+                "/v1/encode-batch": {"post": {"summary": "Encode a batch", "responses": {"200": {"description": "Ordered batch results"}}}},
+                "/v1/decode": {"post": {"summary": "Decode token IDs", "responses": {"200": {"description": "Original bytes"}}}},
+                "/v1/detect": {"post": {"summary": "Detect language", "responses": {"200": {"description": "Detection result"}}}},
+                "/v1/encode-auto": {"post": {"summary": "Auto-route encoding", "responses": {"200": {"description": "Auto-routed token IDs"}}}},
+                "/v1/security": {"post": {"summary": "Security scan", "responses": {"200": {"description": "Security findings"}}}},
+                "/v1/streams": {"post": {"summary": "Create stream", "responses": {"200": {"description": "Resumable stream session"}}}},
+                "/v1/streams/{id}/push": {"post": {"summary": "Push stream bytes", "responses": {"200": {"description": "Stream progress"}}}},
+                "/v1/streams/{id}/finish": {"post": {"summary": "Finish stream", "responses": {"200": {"description": "Final stream result"}}}},
+                "/v1/streams/{id}": {"delete": {"summary": "Cancel stream", "responses": {"200": {"description": "Cancelled"}}}},
+            },
+            "components": {
+                "schemas": {
+                    "ServiceProfile": {
+                        "type": "object",
+                        "properties": {
+                            "low_memory": {"type": "boolean"},
+                            "executor_workers": {"type": "integer", "minimum": 1},
+                            "executor_queue": {"type": "integer", "minimum": 1},
+                            "max_concurrency": {"type": "integer", "minimum": 1},
+                            "max_request_bytes": {"type": "integer", "minimum": 1},
+                            "max_decode_ids": {"type": "integer", "minimum": 1},
+                            "max_batch_items": {"type": "integer", "minimum": 1},
+                            "max_batch_bytes": {"type": "integer", "minimum": 1},
+                            "max_stream_sessions": {"type": "integer", "minimum": 1},
+                            "stream_pending_bytes": {"type": "integer", "minimum": 1},
+                            "stream_idle_seconds": {"type": "number", "minimum": 0.0},
+                        },
+                        "required": ["low_memory", "executor_workers", "executor_queue", "max_concurrency", "max_request_bytes", "max_decode_ids", "max_batch_items", "max_batch_bytes", "max_stream_sessions", "stream_pending_bytes", "stream_idle_seconds"],
+                    },
+                    "OpenApiDocument": {"type": "object"},
+                }
+            },
+        }
+
     def record(self, *, failed: bool = False, input_bytes: int = 0, output_bytes: int = 0) -> None:
         with self.metrics_lock:
             self.requests += 1
@@ -302,6 +351,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/health/ready":
             self._send_json(HTTPStatus.OK, {"status": "ready", "native_version": self.state.tokenizer.native_version})
+            return
+        if self.path == "/openapi.json":
+            self._send_json(HTTPStatus.OK, self.state.openapi())
             return
         if not self._authorized():
             self._error(HTTPStatus.UNAUTHORIZED, "unauthorized", "valid bearer token required")
