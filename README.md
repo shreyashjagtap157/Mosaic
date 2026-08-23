@@ -250,6 +250,8 @@ The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the C
 
 On Windows, `tools/package_windows_app.ps1` builds the installable desktop package and emits `dist/windows/MosaicCompressorSetup-<version>-x64.exe` from the same staged app tree. That installer includes the desktop app, self-test, tokenizer CLI, comparison harness, public header, shared library, packs, and release docs. The matching evidence note is `docs/release/QUALIFICATION_0.1.3.0_WINDOWS_PACKAGE.md`. Release notes and qualification reports are indexed in `docs/release/README.md`.
 
+If you prefer the repo-native task runner, use `make windows-package` to build the installer and `make windows-package-verify` to check the staged tree and installer metadata.
+
 ## Rust status
 
 Stable Rust remains the intended primary implementation language. The local Windows workspace is pinned to Rust 1.97.1 and passes rustfmt, strict Clippy, workspace tests, and the `mosaic-core` no-default-features gate. Bounded nightly Miri coverage on `mosaic-core` and `mosaic-pack` also passes on the current Windows host via `tools/validate_miri.py`. A bounded nightly fuzz smoke across the four bundled harnesses also passes via `tools/validate_fuzz.py`. Full cargo-fuzz campaigns, macOS, ARM64, and race-detector support-matrix jobs remain separate stable-generation gates.

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add repo-native `make windows-package` and `make windows-package-verify` entry points for the Windows installer flow;
 - add a release index validator so the current release notes and qualification reports stay discoverable and synchronized;
 - add a release notes and qualification index under `docs/release/` so the current evidence trail is easier to navigate;
 - add a Windows packaging qualification note so the installer evidence is recorded alongside the release docs;

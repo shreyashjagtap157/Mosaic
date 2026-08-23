@@ -23,16 +23,21 @@ def main() -> int:
     require(makefile, "tools/validate_release_readiness.py --skip-package", "Makefile readiness command")
     require(makefile, "tools/validate_release_readiness.py --skip-miri --skip-package", "Makefile fast readiness command")
     require(makefile, "tools/validate_release_readiness.py --build-release --archive dist/mosaic-tokenizer-$(VERSION)-linux-x86_64.tar.gz", "Makefile release command")
+    require(makefile, "windows-package:", "Makefile Windows packaging target")
+    require(makefile, "windows-package-verify:", "Makefile Windows packaging verification target")
 
     require(workflow, "python tools/validate_release_readiness.py --build-release", "release workflow readiness command")
 
     require(doc, "consolidated local entrypoint is `tools/validate_release_readiness.py`", "release engineering doc")
     require(doc, "release-qualification workflow now calls the same entrypoint", "release engineering workflow note")
     require(doc, "docs/implementation/EXTERNAL_QUALIFICATION.md", "release engineering external gate note")
+    require(doc, "make windows-package", "release engineering Windows packaging note")
 
     require(readme, "make release-readiness", "README release-readiness target")
     require(readme, "make release-readiness-fast", "README fast readiness target")
     require(readme, "python tools/validate_release_readiness.py", "README readiness command")
+    require(readme, "make windows-package", "README Windows packaging target")
+    require(readme, "make windows-package-verify", "README Windows packaging verification target")
     require(external, "Required external gates", "external qualification checklist")
 
     print("OK: release matrix entries are aligned across Makefile, workflow, README, and release engineering docs")

@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VERSION := $(shell $(PYTHON) -c "print(open('VERSION', encoding='utf-8').read().strip())")
 
-.PHONY: all native test qualify release release-readiness release-readiness-fast low-memory-profile low-memory-machine-profile low-memory-evidence fixtures clean rust-check status
+.PHONY: all native test qualify release release-readiness release-readiness-fast windows-package windows-package-verify low-memory-profile low-memory-machine-profile low-memory-evidence fixtures clean rust-check status
 
 all: native
 
@@ -58,6 +58,12 @@ release-readiness:
 
 release-readiness-fast:
 	$(PYTHON) tools/validate_release_readiness.py --skip-miri --skip-package
+
+windows-package:
+	$(PYTHON) tools/package_windows_app.ps1
+
+windows-package-verify:
+	$(PYTHON) tools/validate_windows_package.py
 
 low-memory-profile:
 	$(PYTHON) tools/run_low_memory_profile.py
