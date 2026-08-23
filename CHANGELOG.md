@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add a Windows packaging qualification note so the installer evidence is recorded alongside the release docs;
 - add a Windows package validator for the staged installer tree and wire it into the standard release-readiness path;
 - add a release-readiness validator for the space-grade boundary docs and wire it into the standard readiness path;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
