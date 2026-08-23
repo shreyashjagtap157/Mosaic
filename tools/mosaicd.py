@@ -46,6 +46,21 @@ class ServiceConfig:
     stream_pending_bytes: int = 1 << 20
     stream_idle_seconds: float = 300.0
 
+    @classmethod
+    def low_memory(cls) -> "ServiceConfig":
+        return cls(
+            max_request_bytes=1 << 20,
+            max_decode_ids=256_000,
+            max_concurrency=4,
+            executor_workers=1,
+            executor_queue=8,
+            max_batch_items=256,
+            max_batch_bytes=8 << 20,
+            max_stream_sessions=32,
+            stream_pending_bytes=64 << 10,
+            stream_idle_seconds=60.0,
+        )
+
 
 class StreamSession:
     def __init__(self, stream):
@@ -447,6 +462,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-stream-sessions", type=int, default=1024)
     p.add_argument("--stream-pending-bytes", type=int, default=1 << 20)
     p.add_argument("--stream-idle-seconds", type=float, default=300.0)
+    p.add_argument("--low-memory", action="store_true", help="use conservative service defaults for constrained desktops")
     p.add_argument("--bearer-token", default=os.environ.get("MOSAICD_BEARER_TOKEN"))
     p.add_argument("--tls-cert", type=Path)
     p.add_argument("--tls-key", type=Path)
@@ -474,11 +490,22 @@ def main() -> int:
         if a.normalization:
             t.set_normalization(a.normalization)
         t.seal()
+        defaults = ServiceConfig.low_memory() if a.low_memory else ServiceConfig()
         cfg = ServiceConfig(
-            host=a.host, port=a.port, max_request_bytes=a.max_request_bytes, max_decode_ids=a.max_decode_ids,
-            max_concurrency=a.max_concurrency, socket_timeout_seconds=a.socket_timeout, bearer_token=a.bearer_token,
-            executor_workers=a.executor_workers, executor_queue=a.executor_queue, max_batch_items=a.max_batch_items, max_batch_bytes=a.max_batch_bytes,
-            max_stream_sessions=a.max_stream_sessions, stream_pending_bytes=a.stream_pending_bytes, stream_idle_seconds=a.stream_idle_seconds,
+            host=a.host,
+            port=a.port,
+            max_request_bytes=defaults.max_request_bytes if a.low_memory else a.max_request_bytes,
+            max_decode_ids=defaults.max_decode_ids if a.low_memory else a.max_decode_ids,
+            max_concurrency=defaults.max_concurrency if a.low_memory else a.max_concurrency,
+            socket_timeout_seconds=a.socket_timeout,
+            bearer_token=a.bearer_token,
+            executor_workers=defaults.executor_workers if a.low_memory else a.executor_workers,
+            executor_queue=defaults.executor_queue if a.low_memory else a.executor_queue,
+            max_batch_items=defaults.max_batch_items if a.low_memory else a.max_batch_items,
+            max_batch_bytes=defaults.max_batch_bytes if a.low_memory else a.max_batch_bytes,
+            max_stream_sessions=defaults.max_stream_sessions if a.low_memory else a.max_stream_sessions,
+            stream_pending_bytes=defaults.stream_pending_bytes if a.low_memory else a.stream_pending_bytes,
+            stream_idle_seconds=defaults.stream_idle_seconds if a.low_memory else a.stream_idle_seconds,
         )
         server = build_server(t, cfg)
         if a.tls_cert:

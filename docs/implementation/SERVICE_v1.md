@@ -46,6 +46,7 @@ The service enforces:
 - maximum active resumable stream sessions;
 - maximum unresolved bytes per online stream and idle-session expiry;
 - bounded concurrent admitted requests;
+- an explicit `--low-memory` mode that lowers service, batch, and stream ceilings for constrained desktops;
 - socket timeout;
 - optional constant-time bearer-token comparison;
 - optional TLS server mode with TLS 1.2 minimum;

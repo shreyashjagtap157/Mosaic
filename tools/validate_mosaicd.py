@@ -48,6 +48,9 @@ def main() -> int:
         for lang in languages:
             t.add_language(lang)
         t.set_detector(detector).set_security(security).seal()
+        low = ServiceConfig.low_memory()
+        if (low.executor_workers, low.executor_queue, low.max_batch_items, low.max_stream_sessions) != (1, 8, 256, 32):
+            raise SystemExit("low-memory service preset changed unexpectedly")
         server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1, max_batch_items=8, max_batch_bytes=512, executor_workers=2, executor_queue=8, max_stream_sessions=2, stream_pending_bytes=128, stream_idle_seconds=30.0))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
