@@ -3,6 +3,8 @@
 #include <commdlg.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 #include <compressapi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,17 +22,40 @@
 #define ID_COMPRESS 1009
 #define ID_DECOMPRESS 1010
 #define ID_CLEAR 1011
+#define ID_SOURCE_KIND 1012
+#define ID_VERIFY_CHECK 1013
+#define ID_DELETE_CHECK 1014
+#define ID_MODE_COMBO 1015
+
+typedef enum SourceKind {
+    SOURCE_KIND_FILE = 0,
+    SOURCE_KIND_FOLDER = 1
+} SourceKind;
+
+typedef enum ArchiveMode {
+    ARCHIVE_MODE_ADD_REPLACE = 0,
+    ARCHIVE_MODE_ADD_SKIP = 1,
+    ARCHIVE_MODE_UPDATE_NEWER = 2
+} ArchiveMode;
 
 typedef struct AppState {
     HWND hwnd;
     HWND input_edit;
     HWND output_edit;
+    HWND source_combo;
+    HWND mode_combo;
     HWND algo_combo;
     HWND level_track;
+    HWND verify_check;
+    HWND delete_check;
     HWND status;
     HWND log_edit;
     DWORD algorithm;
     DWORD level;
+    SourceKind source_kind;
+    ArchiveMode archive_mode;
+    int verify_after;
+    int delete_after;
     char input_path[MAX_PATH];
     char output_path[MAX_PATH];
 } AppState;
@@ -43,6 +68,34 @@ typedef struct ArchiveConfig {
     const char *output_path;
     int roundtrip;
 } ArchiveConfig;
+
+typedef struct MosaicEntry {
+    int is_dir;
+    char path[MAX_PATH * 2];
+    uint8_t *bytes;
+    size_t size;
+} MosaicEntry;
+
+typedef struct MosaicArchiveHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t algorithm;
+    uint32_t level;
+    uint64_t original_size;
+    uint64_t compressed_size;
+    uint32_t checksum32;
+} MosaicArchiveHeader;
+
+static int append_entry(MosaicEntry **entries, size_t *count, size_t *cap, const MosaicEntry *entry);
+static int collect_folder_entries(const char *root, const char *rel, MosaicEntry **entries, size_t *count, size_t *cap);
+static int serialize_entries(const MosaicEntry *entries, size_t count, const char *root_name, uint8_t **out, size_t *out_len);
+static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, uint8_t **out_bytes, size_t *out_len);
+static DWORD decompress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes);
+static uint32_t crc32_bytes(const uint8_t *data, size_t len);
+static int utf8_from_wide(const wchar_t *input, char **out_text);
+static int write_archive_v2(const char *source_path, int is_folder, DWORD algorithm, uint8_t **archive_blob, size_t *archive_blob_len, size_t *serialized_len_out, char *error_buf, size_t error_cap);
+static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_name, size_t root_cap, MosaicEntry **entries, size_t *entry_count, char *error_buf, size_t error_cap);
+static int restore_archive_entries(const char *output_path, MosaicEntry *entries, size_t count);
 
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
@@ -104,32 +157,76 @@ done:
     return ok;
 }
 
-static int file_dialog_open(HWND owner, char *out_path, size_t out_cap, const char *filter) {
-    OPENFILENAMEA ofn;
-    ZeroMemory(&ofn, sizeof(ofn));
+static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int save_mode, int folder_mode) {
+    HRESULT hr;
+    IFileDialog *dlg = NULL;
+    COMDLG_FILTERSPEC spec[] = {
+        {L"Mosaic Archive", L"*.mzc"},
+        {L"All Files", L"*.*"},
+    };
+    DWORD opts = 0;
     ZeroMemory(out_path, out_cap);
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = owner;
-    ofn.lpstrFile = out_path;
-    ofn.nMaxFile = (DWORD)out_cap;
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    return GetOpenFileNameA(&ofn);
+    hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return 0;
+    hr = folder_mode ? CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileDialog, (void **)&dlg)
+                     : (save_mode ? CoCreateInstance(&CLSID_FileSaveDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileDialog, (void **)&dlg)
+                                  : CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileDialog, (void **)&dlg));
+    if (FAILED(hr) || !dlg) {
+        if (hr == S_OK) CoUninitialize();
+        return 0;
+    }
+    dlg->lpVtbl->SetTitle(dlg, folder_mode ? L"Select a source folder" : (save_mode ? L"Select archive output" : L"Select a source file"));
+    dlg->lpVtbl->SetOkButtonLabel(dlg, L"Select");
+    if (!save_mode) {
+        dlg->lpVtbl->SetFileTypes(dlg, (UINT)(sizeof(spec) / sizeof(spec[0])), spec);
+    }
+    if (folder_mode) {
+        dlg->lpVtbl->GetOptions(dlg, &opts);
+        dlg->lpVtbl->SetOptions(dlg, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    } else if (save_mode) {
+        dlg->lpVtbl->GetOptions(dlg, &opts);
+        dlg->lpVtbl->SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_OVERWRITEPROMPT);
+    } else {
+        dlg->lpVtbl->GetOptions(dlg, &opts);
+        dlg->lpVtbl->SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+    }
+    hr = dlg->lpVtbl->Show(dlg, owner);
+    if (SUCCEEDED(hr)) {
+        IShellItem *item = NULL;
+        hr = dlg->lpVtbl->GetResult(dlg, &item);
+        if (SUCCEEDED(hr) && item) {
+            PWSTR wide = NULL;
+            hr = item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &wide);
+            if (SUCCEEDED(hr) && wide) {
+                if (utf8_from_wide(wide, &out_path)) {
+                    CoTaskMemFree(wide);
+                    item->lpVtbl->Release(item);
+                    dlg->lpVtbl->Release(dlg);
+                    CoUninitialize();
+                    return 1;
+                }
+                CoTaskMemFree(wide);
+            }
+            item->lpVtbl->Release(item);
+        }
+    }
+    dlg->lpVtbl->Release(dlg);
+    CoUninitialize();
+    return 0;
+}
+
+static int folder_dialog_open(HWND owner, char *out_path, size_t out_cap) {
+    return modern_file_dialog(owner, out_path, out_cap, 0, 1);
 }
 
 static int file_dialog_save(HWND owner, char *out_path, size_t out_cap, const char *filter) {
-    OPENFILENAMEA ofn;
-    ZeroMemory(&ofn, sizeof(ofn));
-    ZeroMemory(out_path, out_cap);
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = owner;
-    ofn.lpstrFile = out_path;
-    ofn.nMaxFile = (DWORD)out_cap;
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
-    return GetSaveFileNameA(&ofn);
+    (void)filter;
+    return modern_file_dialog(owner, out_path, out_cap, 1, 0);
+}
+
+static int file_dialog_open(HWND owner, char *out_path, size_t out_cap, const char *filter) {
+    (void)filter;
+    return modern_file_dialog(owner, out_path, out_cap, 0, 0);
 }
 
 static int has_suffix(const char *path, const char *suffix) {
@@ -158,15 +255,366 @@ static void set_output_for_input(AppState *state, const char *input_path, const 
     set_text(state->output_edit, state->output_path);
 }
 
-typedef struct MosaicArchiveHeader {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t algorithm;
-    uint32_t level;
-    uint64_t original_size;
-    uint64_t compressed_size;
-    uint32_t checksum32;
-} MosaicArchiveHeader;
+static int path_exists_dir(const char *path) {
+    DWORD attr = GetFileAttributesA(path);
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static int path_exists_file(const char *path) {
+    DWORD attr = GetFileAttributesA(path);
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static void basename_from_path(const char *path, char *out, size_t cap) {
+    const char *base = path;
+    const char *slash = strrchr(path, '\\');
+    const char *fslash = strrchr(path, '/');
+    if (slash && fslash) base = slash > fslash ? slash + 1 : fslash + 1;
+    else if (slash) base = slash + 1;
+    else if (fslash) base = fslash + 1;
+    strncpy(out, base, cap - 1);
+    out[cap - 1] = '\0';
+}
+
+static int ensure_parent_dirs(const char *path) {
+    char buf[MAX_PATH * 2];
+    size_t i;
+    strncpy(buf, path, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    for (i = 3; buf[i] != '\0'; ++i) {
+        if (buf[i] == '\\' || buf[i] == '/') {
+            char save = buf[i];
+            buf[i] = '\0';
+            CreateDirectoryA(buf, NULL);
+            buf[i] = save;
+        }
+    }
+    return 1;
+}
+
+static int append_entry(MosaicEntry **entries, size_t *count, size_t *cap, const MosaicEntry *entry) {
+    if (*count >= *cap) {
+        size_t next = (*cap == 0) ? 16u : (*cap * 2u);
+        MosaicEntry *grown = (MosaicEntry *)realloc(*entries, next * sizeof(MosaicEntry));
+        if (!grown) return 0;
+        *entries = grown;
+        *cap = next;
+    }
+    (*entries)[(*count)++] = *entry;
+    return 1;
+}
+
+static int collect_folder_entries(const char *root, const char *rel, MosaicEntry **entries, size_t *count, size_t *cap) {
+    char search[MAX_PATH * 2];
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+    if (rel && *rel) snprintf(search, sizeof(search), "%s\\%s\\*", root, rel);
+    else snprintf(search, sizeof(search), "%s\\*", root);
+    h = FindFirstFileA(search, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 1;
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        MosaicEntry entry;
+        char child_rel[MAX_PATH * 2];
+        char child_abs[MAX_PATH * 2];
+        ZeroMemory(&entry, sizeof(entry));
+        if (rel && *rel) snprintf(child_rel, sizeof(child_rel), "%s\\%s", rel, fd.cFileName);
+        else snprintf(child_rel, sizeof(child_rel), "%s", fd.cFileName);
+        if (rel && *rel) snprintf(child_abs, sizeof(child_abs), "%s\\%s\\%s", root, rel, fd.cFileName);
+        else snprintf(child_abs, sizeof(child_abs), "%s\\%s", root, fd.cFileName);
+        entry.is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        strncpy(entry.path, child_rel, sizeof(entry.path) - 1);
+        if (entry.is_dir) {
+            if (!append_entry(entries, count, cap, &entry)) { FindClose(h); return 0; }
+            if (!collect_folder_entries(root, child_rel, entries, count, cap)) { FindClose(h); return 0; }
+        } else {
+            if (!read_file(child_abs, &entry.bytes, &entry.size)) { FindClose(h); return 0; }
+            if (!append_entry(entries, count, cap, &entry)) { free(entry.bytes); FindClose(h); return 0; }
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return 1;
+}
+
+static int write_u32(uint8_t **buf, size_t *len, size_t *cap, uint32_t v) {
+    if (*len + sizeof(v) > *cap) {
+        size_t next = (*cap == 0) ? 1024u : (*cap * 2u);
+        while (*len + sizeof(v) > next) next *= 2u;
+        uint8_t *grown = (uint8_t *)realloc(*buf, next);
+        if (!grown) return 0;
+        *buf = grown;
+        *cap = next;
+    }
+    memcpy(*buf + *len, &v, sizeof(v));
+    *len += sizeof(v);
+    return 1;
+}
+
+static int write_u64(uint8_t **buf, size_t *len, size_t *cap, uint64_t v) {
+    return write_u32(buf, len, cap, (uint32_t)(v & 0xFFFFFFFFu)) &&
+           write_u32(buf, len, cap, (uint32_t)(v >> 32));
+}
+
+static int write_bytes(uint8_t **buf, size_t *len, size_t *cap, const void *src, size_t src_len) {
+    if (*len + src_len > *cap) {
+        size_t next = (*cap == 0) ? 1024u : (*cap * 2u);
+        while (*len + src_len > next) next *= 2u;
+        uint8_t *grown = (uint8_t *)realloc(*buf, next);
+        if (!grown) return 0;
+        *buf = grown;
+        *cap = next;
+    }
+    memcpy(*buf + *len, src, src_len);
+    *len += src_len;
+    return 1;
+}
+
+static int serialize_entries(const MosaicEntry *entries, size_t count, const char *root_name, uint8_t **out, size_t *out_len) {
+    uint8_t *buf = NULL;
+    size_t len = 0, cap = 0;
+    size_t i;
+    size_t root_len = root_name ? strlen(root_name) : 0;
+    if (!write_u32(&buf, &len, &cap, 0x31434D5A) || !write_u32(&buf, &len, &cap, 1)) goto fail;
+    if (!write_u32(&buf, &len, &cap, (uint32_t)root_len) || !write_bytes(&buf, &len, &cap, root_name ? root_name : "", root_len)) goto fail;
+    if (!write_u32(&buf, &len, &cap, (uint32_t)count)) goto fail;
+    for (i = 0; i < count; ++i) {
+        uint32_t path_len = (uint32_t)strlen(entries[i].path);
+        if (!write_u32(&buf, &len, &cap, (uint32_t)entries[i].is_dir)) goto fail;
+        if (!write_u32(&buf, &len, &cap, path_len) || !write_bytes(&buf, &len, &cap, entries[i].path, path_len)) goto fail;
+        if (!write_u64(&buf, &len, &cap, (uint64_t)entries[i].size)) goto fail;
+        if (entries[i].size && !write_bytes(&buf, &len, &cap, entries[i].bytes, entries[i].size)) goto fail;
+    }
+    *out = buf;
+    *out_len = len;
+    return 1;
+fail:
+    free(buf);
+    return 0;
+}
+
+static int read_u32(const uint8_t **p, size_t *remain, uint32_t *out) {
+    if (*remain < sizeof(uint32_t)) return 0;
+    memcpy(out, *p, sizeof(uint32_t));
+    *p += sizeof(uint32_t);
+    *remain -= sizeof(uint32_t);
+    return 1;
+}
+
+static int read_u64(const uint8_t **p, size_t *remain, uint64_t *out) {
+    uint32_t lo, hi;
+    if (!read_u32(p, remain, &lo) || !read_u32(p, remain, &hi)) return 0;
+    *out = ((uint64_t)hi << 32) | lo;
+    return 1;
+}
+
+static int read_bytes(const uint8_t **p, size_t *remain, void *dst, size_t dst_len) {
+    if (*remain < dst_len) return 0;
+    memcpy(dst, *p, dst_len);
+    *p += dst_len;
+    *remain -= dst_len;
+    return 1;
+}
+
+static int is_safe_relative_path(const char *path) {
+    const char *p = path;
+    if (!path || !*path) return 0;
+    if (path[0] == '\\' || path[0] == '/' || strchr(path, ':')) return 0;
+    while (*p) {
+        if ((p[0] == '.' && p[1] == '.' && (p[2] == '\\' || p[2] == '/' || p[2] == '\0'))) return 0;
+        ++p;
+    }
+    return 1;
+}
+
+static int join_under_root(const char *root, const char *rel, char *out, size_t cap) {
+    if (!is_safe_relative_path(rel)) return 0;
+    snprintf(out, cap, "%s\\%s", root, rel);
+    return 1;
+}
+
+static int write_archive_v2(const char *source_path, int is_folder, DWORD algorithm, uint8_t **archive_blob, size_t *archive_blob_len, size_t *serialized_len_out, char *error_buf, size_t error_cap) {
+    MosaicEntry *entries = NULL;
+    size_t entry_count = 0, entry_cap = 0;
+    uint8_t *serialized = NULL;
+    size_t serialized_len = 0;
+    char root_name[MAX_PATH];
+    if (is_folder) {
+        if (!collect_folder_entries(source_path, NULL, &entries, &entry_count, &entry_cap)) { snprintf(error_buf, error_cap, "scan folder failed"); goto fail; }
+        basename_from_path(source_path, root_name, sizeof(root_name));
+    } else {
+        MosaicEntry one;
+        ZeroMemory(&one, sizeof(one));
+        basename_from_path(source_path, root_name, sizeof(root_name));
+        strncpy(one.path, root_name, sizeof(one.path) - 1);
+        if (!read_file(source_path, &one.bytes, &one.size)) { snprintf(error_buf, error_cap, "read input failed"); goto fail; }
+        if (!append_entry(&entries, &entry_count, &entry_cap, &one)) { free(one.bytes); snprintf(error_buf, error_cap, "out of memory"); goto fail; }
+    }
+    if (!serialize_entries(entries, entry_count, root_name, &serialized, &serialized_len)) { snprintf(error_buf, error_cap, "serialize failed"); goto fail; }
+    if (compress_buffer(algorithm, serialized, serialized_len, archive_blob, archive_blob_len) != ERROR_SUCCESS) { snprintf(error_buf, error_cap, "compress failed"); goto fail; }
+    if (serialized_len_out) *serialized_len_out = serialized_len;
+    free(serialized);
+    for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+    free(entries);
+    return 1;
+fail:
+    free(serialized);
+    for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+    free(entries);
+    return 0;
+}
+
+static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_name, size_t root_cap, MosaicEntry **entries, size_t *entry_count, char *error_buf, size_t error_cap) {
+    const uint8_t *p = blob;
+    size_t remain = blob_len;
+    uint32_t magic = 0, version = 0, root_len = 0, count = 0;
+    if (!read_u32(&p, &remain, &magic) || !read_u32(&p, &remain, &version) || !read_u32(&p, &remain, &root_len)) goto bad;
+    if (magic != 0x31434D5A || version != 1 || root_len >= root_cap || !read_bytes(&p, &remain, root_name, root_len)) goto bad;
+    root_name[root_len] = '\0';
+    if (!read_u32(&p, &remain, &count)) goto bad;
+    *entries = (MosaicEntry *)calloc(count ? count : 1, sizeof(MosaicEntry));
+    if (!*entries) goto bad;
+    *entry_count = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t is_dir = 0, path_len = 0;
+        uint64_t data_len = 0;
+        if (!read_u32(&p, &remain, &is_dir) || !read_u32(&p, &remain, &path_len)) goto bad;
+        if (path_len >= sizeof((*entries)[i].path) || !read_bytes(&p, &remain, (*entries)[i].path, path_len)) goto bad;
+        (*entries)[i].path[path_len] = '\0';
+        if (!read_u64(&p, &remain, &data_len)) goto bad;
+        (*entries)[i].is_dir = (int)is_dir;
+        (*entries)[i].size = (size_t)data_len;
+        if (data_len) {
+            (*entries)[i].bytes = (uint8_t *)malloc((size_t)data_len);
+            if (!(*entries)[i].bytes || !read_bytes(&p, &remain, (*entries)[i].bytes, (size_t)data_len)) goto bad;
+        }
+    }
+    return 1;
+bad:
+    snprintf(error_buf, error_cap, "parse failed");
+    if (*entries) {
+        for (uint32_t i = 0; i < *entry_count; ++i) free((*entries)[i].bytes);
+        free(*entries);
+        *entries = NULL;
+    }
+    return 0;
+}
+
+static int restore_archive_entries(const char *output_path, MosaicEntry *entries, size_t count) {
+    char target[MAX_PATH * 2];
+    size_t i;
+    if (count == 1 && !entries[0].is_dir) {
+        return write_file(output_path, entries[0].bytes, entries[0].size);
+    }
+    CreateDirectoryA(output_path, NULL);
+    for (i = 0; i < count; ++i) {
+        if (!join_under_root(output_path, entries[i].path, target, sizeof(target))) return 0;
+        if (entries[i].is_dir) {
+            CreateDirectoryA(target, NULL);
+        } else {
+            ensure_parent_dirs(target);
+            if (!write_file(target, entries[i].bytes, entries[i].size)) return 0;
+        }
+    }
+    return 1;
+}
+
+static int compare_files_exact(const char *left_path, const char *right_path) {
+    return file_equals_path(left_path, right_path);
+}
+
+static int compare_directory_trees(const char *left_root, const char *right_root) {
+    char search_left[MAX_PATH * 2];
+    WIN32_FIND_DATAA left_fd;
+    HANDLE left_h;
+    snprintf(search_left, sizeof(search_left), "%s\\*", left_root);
+    left_h = FindFirstFileA(search_left, &left_fd);
+    if (left_h == INVALID_HANDLE_VALUE) {
+        return GetLastError() == ERROR_FILE_NOT_FOUND;
+    }
+    do {
+        char left_child[MAX_PATH * 2];
+        char right_child[MAX_PATH * 2];
+        if (strcmp(left_fd.cFileName, ".") == 0 || strcmp(left_fd.cFileName, "..") == 0) continue;
+        snprintf(left_child, sizeof(left_child), "%s\\%s", left_root, left_fd.cFileName);
+        snprintf(right_child, sizeof(right_child), "%s\\%s", right_root, left_fd.cFileName);
+        if ((left_fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            DWORD attr = GetFileAttributesA(right_child);
+            if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                FindClose(left_h);
+                return 0;
+            }
+            if (!compare_directory_trees(left_child, right_child)) {
+                FindClose(left_h);
+                return 0;
+            }
+        } else {
+            DWORD attr = GetFileAttributesA(right_child);
+            if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                FindClose(left_h);
+                return 0;
+            }
+            if (!compare_files_exact(left_child, right_child)) {
+                FindClose(left_h);
+                return 0;
+            }
+        }
+    } while (FindNextFileA(left_h, &left_fd));
+    FindClose(left_h);
+    return 1;
+}
+
+static int verify_archive_roundtrip(const char *source_path, int is_folder, const char *archive_path, const char *output_path, DWORD algorithm, char *error_buf, size_t error_cap) {
+    uint8_t *archive = NULL;
+    uint8_t *payload = NULL;
+    MosaicEntry *entries = NULL;
+    size_t archive_len = 0, payload_len = 0, entry_count = 0;
+    MosaicArchiveHeader header;
+    char root_name[MAX_PATH];
+    int ok = 0;
+    if (!read_file(archive_path, &archive, &archive_len) || archive_len < sizeof(header)) {
+        snprintf(error_buf, error_cap, "verify read failed");
+        goto done;
+    }
+    memcpy(&header, archive, sizeof(header));
+    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != archive_len) {
+        snprintf(error_buf, error_cap, "verify archive header invalid");
+        goto done;
+    }
+    if (crc32_bytes(archive + sizeof(header), (size_t)header.compressed_size) != header.checksum32) {
+        snprintf(error_buf, error_cap, "verify archive checksum failed");
+        goto done;
+    }
+    if (header.algorithm != algorithm) {
+        snprintf(error_buf, error_cap, "verify algorithm mismatch");
+        goto done;
+    }
+    if (!decompress_buffer(header.algorithm, archive + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &payload)) {
+        snprintf(error_buf, error_cap, "verify decompress failed");
+        goto done;
+    }
+    payload_len = (size_t)header.original_size;
+    if (!parse_archive_v2(payload, payload_len, root_name, sizeof(root_name), &entries, &entry_count, error_buf, error_cap)) {
+        goto done;
+    }
+    if (!restore_archive_entries(output_path, entries, entry_count)) {
+        snprintf(error_buf, error_cap, "verify restore failed");
+        goto done;
+    }
+    if (is_folder) {
+        ok = compare_directory_trees(source_path, output_path);
+    } else {
+        ok = compare_files_exact(source_path, output_path);
+    }
+    if (!ok) snprintf(error_buf, error_cap, "verify roundtrip mismatch");
+done:
+    free(archive);
+    free(payload);
+    if (entries) {
+        for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+        free(entries);
+    }
+    return ok;
+}
 
 static DWORD algorithm_from_selection(HWND combo) {
     LRESULT idx = SendMessageA(combo, CB_GETCURSEL, 0, 0);
@@ -356,9 +804,14 @@ static void compress_selected(AppState *state) {
     char *input_path = NULL;
     char *output_path = NULL;
     size_t in_len = 0, out_len = 0;
-    uint8_t *input = NULL, *compressed = NULL, *payload = NULL;
-    MosaicArchiveHeader header;
+    uint8_t *archive_blob = NULL;
+    size_t archive_blob_len = 0;
+    size_t serialized_len = 0;
     DWORD err = ERROR_SUCCESS;
+    char errbuf[160];
+    char temp_dir[MAX_PATH];
+    char verify_output[MAX_PATH];
+    MosaicArchiveHeader header;
     if (!get_window_text_alloc(state->input_edit, &input_path, &in_len) || !get_window_text_alloc(state->output_edit, &output_path, &out_len)) {
         log_append(state->log_edit, "Read paths failed.");
         goto done;
@@ -368,39 +821,59 @@ static void compress_selected(AppState *state) {
         log_append(state->log_edit, "Output archive should use .mzc.");
         goto done;
     }
-    if (!read_file(input_path, &input, &in_len)) { log_append(state->log_edit, "Could not read input file."); goto done; }
     state->algorithm = algorithm_from_selection(state->algo_combo);
     state->level = level_from_track(state->level_track);
-    err = compress_buffer(state->algorithm, input, in_len, &compressed, &out_len);
-    if (err != ERROR_SUCCESS) {
-        char line[128];
-        _snprintf(line, sizeof(line), "Compression failed: %lu", (unsigned long)err);
-        log_append(state->log_edit, line);
+    if (state->source_kind == SOURCE_KIND_FOLDER && !path_exists_dir(input_path)) {
+        log_append(state->log_edit, "Pick a folder source first.");
         goto done;
     }
-    header.magic = 0x31434D5A; /* ZMC1 little-endian */
+    if (state->source_kind == SOURCE_KIND_FILE && !path_exists_file(input_path)) {
+        log_append(state->log_edit, "Pick a file source first.");
+        goto done;
+    }
+    err = write_archive_v2(input_path, state->source_kind == SOURCE_KIND_FOLDER, state->algorithm, &archive_blob, &archive_blob_len, &serialized_len, errbuf, sizeof(errbuf));
+    if (err != ERROR_SUCCESS) {
+        log_append(state->log_edit, errbuf[0] ? errbuf : "Compression failed.");
+        goto done;
+    }
+    header.magic = 0x31434D5A;
     header.version = 1;
     header.algorithm = state->algorithm;
     header.level = state->level;
-    header.original_size = (uint64_t)in_len;
-    header.compressed_size = (uint64_t)out_len;
-    payload = (uint8_t *)malloc(sizeof(header) + out_len);
-    if (!payload) { log_append(state->log_edit, "Out of memory."); goto done; }
-    memcpy(payload, &header, sizeof(header));
-    memcpy(payload + sizeof(header), compressed, out_len);
-    if (!write_file(output_path, payload, sizeof(header) + out_len)) {
-        log_append(state->log_edit, "Could not write compressed file.");
-        goto done;
+    header.original_size = (uint64_t)serialized_len;
+    header.compressed_size = (uint64_t)archive_blob_len;
+    header.checksum32 = crc32_bytes(archive_blob, archive_blob_len);
+    {
+        uint8_t *payload = (uint8_t *)malloc(sizeof(header) + archive_blob_len);
+        if (!payload) { log_append(state->log_edit, "Out of memory."); goto done; }
+        memcpy(payload, &header, sizeof(header));
+        memcpy(payload + sizeof(header), archive_blob, archive_blob_len);
+        if (!write_file(output_path, payload, sizeof(header) + archive_blob_len)) {
+            free(payload);
+            log_append(state->log_edit, "Could not write compressed file.");
+            goto done;
+        }
+        free(payload);
+    }
+    if (state->verify_after) {
+        DWORD temp_len = GetTempPathA(sizeof(temp_dir), temp_dir);
+        if (temp_len == 0 || temp_len >= sizeof(temp_dir) || !GetTempFileNameA(temp_dir, "mzc", 0, verify_output)) {
+            log_append(state->log_edit, "Could not prepare verification temp output.");
+            goto done;
+        }
+        if (!verify_archive_roundtrip(input_path, state->source_kind == SOURCE_KIND_FOLDER, output_path, verify_output, state->algorithm, errbuf, sizeof(errbuf))) {
+            log_append(state->log_edit, errbuf[0] ? errbuf : "Verification failed.");
+            goto done;
+        }
     }
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Compressed %zu bytes -> %zu bytes using %s level %lu", in_len, out_len + sizeof(header), algorithm_name(state->algorithm), (unsigned long)state->level);
+        _snprintf(line, sizeof(line), "Compressed %s using %s level %lu", state->source_kind == SOURCE_KIND_FOLDER ? "folder" : "file", algorithm_name(state->algorithm), (unsigned long)state->level);
         log_append(state->log_edit, line);
+        set_status(state, "Archive written");
     }
 done:
-    free(payload);
-    free(compressed);
-    free(input);
+    free(archive_blob);
     free(output_path);
     free(input_path);
 }
@@ -410,6 +883,10 @@ static void decompress_selected(AppState *state) {
     char *output_path = NULL;
     size_t in_len = 0, out_len = 0;
     uint8_t *input = NULL, *output = NULL;
+    MosaicEntry *entries = NULL;
+    size_t entry_count = 0;
+    char root_name[MAX_PATH];
+    char errbuf[160];
     MosaicArchiveHeader header;
     if (!get_window_text_alloc(state->input_edit, &input_path, &in_len) || !get_window_text_alloc(state->output_edit, &output_path, &out_len)) {
         log_append(state->log_edit, "Read paths failed.");
@@ -420,32 +897,44 @@ static void decompress_selected(AppState *state) {
         goto done;
     }
     memcpy(&header, input, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len || header.original_size == 0 || !algorithm_supported(header.algorithm)) {
+    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
         log_append(state->log_edit, "Not a Mosaic archive.");
         goto done;
     }
-    DWORD err = decompress_buffer(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output);
-    if (err != ERROR_SUCCESS) {
-        char line[128];
-        _snprintf(line, sizeof(line), "Decompression failed: %lu", (unsigned long)err);
-        log_append(state->log_edit, line);
+    if (header.compressed_size == 0 || header.original_size == 0) {
+        log_append(state->log_edit, "Archive header is invalid.");
         goto done;
     }
-    if (crc32_bytes(output, (size_t)header.original_size) != header.checksum32) {
+    if (crc32_bytes(input + sizeof(header), (size_t)header.compressed_size) != header.checksum32) {
         log_append(state->log_edit, "Archive integrity check failed.");
         goto done;
     }
-    if (!write_file(output_path, output, (size_t)header.original_size)) {
-        log_append(state->log_edit, "Could not write decompressed file.");
+    if (!decompress_buffer(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output)) {
+        log_append(state->log_edit, "Decompression failed.");
+        goto done;
+    }
+    if (!parse_archive_v2(output, (size_t)header.original_size, root_name, sizeof(root_name), &entries, &entry_count, errbuf, sizeof(errbuf))) {
+        log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
+        goto done;
+    }
+    if (state->delete_after) {
+        log_append(state->log_edit, "Delete-after-completion is enabled in the UI, but destructive actions are disabled in this build.");
+    }
+    if (!restore_archive_entries(output_path, entries, entry_count)) {
+        log_append(state->log_edit, "Could not write decompressed output.");
         goto done;
     }
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Decompressed %zu bytes from %s level %lu", (size_t)header.original_size, algorithm_name(header.algorithm), (unsigned long)header.level);
+        _snprintf(line, sizeof(line), "Decompressed archive to %s", output_path);
         log_append(state->log_edit, line);
+        set_status(state, "Archive extracted");
     }
 done:
-    free(output);
+    if (entries) {
+        for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+        free(entries);
+    }
     free(input);
     free(output_path);
     free(input_path);
@@ -459,32 +948,54 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state = (AppState *)cs->lpCreateParams;
         SetWindowLongPtrA(hwnd, GWLP_USERDATA, (LONG_PTR)state);
         state->hwnd = hwnd;
+        state->source_kind = SOURCE_KIND_FILE;
+        state->archive_mode = ARCHIVE_MODE_ADD_REPLACE;
+        state->verify_after = 1;
+        state->delete_after = 0;
         HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        CreateWindowA("STATIC", "Input file or archive", WS_CHILD | WS_VISIBLE, 12, 12, 150, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowA("STATIC", "Source file or folder", WS_CHILD | WS_VISIBLE, 12, 12, 150, 20, hwnd, NULL, NULL, NULL);
         state->input_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 12, 32, 460, 24, hwnd, (HMENU)ID_INPUT_EDIT, NULL, NULL);
-        CreateWindowA("BUTTON", "Browse", WS_CHILD | WS_VISIBLE, 480, 32, 80, 24, hwnd, (HMENU)ID_LOAD_INPUT, NULL, NULL);
-        CreateWindowA("STATIC", "Output file", WS_CHILD | WS_VISIBLE, 12, 64, 150, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowA("BUTTON", "Select", WS_CHILD | WS_VISIBLE, 480, 32, 80, 24, hwnd, (HMENU)ID_LOAD_INPUT, NULL, NULL);
+        CreateWindowA("STATIC", "Output archive", WS_CHILD | WS_VISIBLE, 12, 64, 150, 20, hwnd, NULL, NULL, NULL);
         state->output_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 12, 84, 460, 24, hwnd, (HMENU)ID_OUTPUT_EDIT, NULL, NULL);
-        CreateWindowA("BUTTON", "Save as", WS_CHILD | WS_VISIBLE, 480, 84, 80, 24, hwnd, (HMENU)ID_CHOOSE_OUTPUT, NULL, NULL);
-        CreateWindowA("STATIC", "Algorithm", WS_CHILD | WS_VISIBLE, 12, 118, 80, 18, hwnd, NULL, NULL, NULL);
-        state->algo_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 12, 136, 160, 160, hwnd, (HMENU)ID_ALGO_COMBO, NULL, NULL);
+        CreateWindowA("BUTTON", "Select", WS_CHILD | WS_VISIBLE, 480, 84, 80, 24, hwnd, (HMENU)ID_CHOOSE_OUTPUT, NULL, NULL);
+        CreateWindowA("STATIC", "Source type", WS_CHILD | WS_VISIBLE, 12, 118, 80, 18, hwnd, NULL, NULL, NULL);
+        state->source_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 12, 136, 160, 160, hwnd, (HMENU)ID_SOURCE_KIND, NULL, NULL);
+        SendMessageA(state->source_combo, CB_ADDSTRING, 0, (LPARAM)"File");
+        SendMessageA(state->source_combo, CB_ADDSTRING, 0, (LPARAM)"Folder");
+        SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
+        CreateWindowA("STATIC", "Archive mode", WS_CHILD | WS_VISIBLE, 190, 118, 100, 18, hwnd, NULL, NULL, NULL);
+        state->mode_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 190, 136, 180, 160, hwnd, (HMENU)ID_MODE_COMBO, NULL, NULL);
+        SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Add and replace");
+        SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Add and skip");
+        SendMessageA(state->mode_combo, CB_ADDSTRING, 0, (LPARAM)"Update newer");
+        SendMessageA(state->mode_combo, CB_SETCURSEL, 0, 0);
+        CreateWindowA("STATIC", "Algorithm", WS_CHILD | WS_VISIBLE, 12, 170, 80, 18, hwnd, NULL, NULL, NULL);
+        state->algo_combo = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 12, 188, 160, 160, hwnd, (HMENU)ID_ALGO_COMBO, NULL, NULL);
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"XPRESS_HUFF");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"XPRESS");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"MSZIP");
         SendMessageA(state->algo_combo, CB_ADDSTRING, 0, (LPARAM)"LZMS");
         SendMessageA(state->algo_combo, CB_SETCURSEL, 0, 0);
-        CreateWindowA("STATIC", "Level", WS_CHILD | WS_VISIBLE, 190, 118, 80, 18, hwnd, NULL, NULL, NULL);
-        state->level_track = CreateWindowA(TRACKBAR_CLASSA, "", WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 190, 136, 180, 30, hwnd, (HMENU)ID_LEVEL_TRACK, NULL, NULL);
+        CreateWindowA("STATIC", "Level", WS_CHILD | WS_VISIBLE, 190, 170, 80, 18, hwnd, NULL, NULL, NULL);
+        state->level_track = CreateWindowA(TRACKBAR_CLASSA, "", WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 190, 188, 180, 30, hwnd, (HMENU)ID_LEVEL_TRACK, NULL, NULL);
         SendMessageA(state->level_track, TBM_SETRANGE, TRUE, MAKELPARAM(0, 5));
         SendMessageA(state->level_track, TBM_SETPOS, TRUE, 3);
-        CreateWindowA("BUTTON", "Compress", WS_CHILD | WS_VISIBLE, 12, 176, 100, 28, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
-        CreateWindowA("BUTTON", "Decompress", WS_CHILD | WS_VISIBLE, 120, 176, 100, 28, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
-        CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE, 228, 176, 100, 28, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
-        state->status = CreateWindowA("STATIC", "Ready", WS_CHILD | WS_VISIBLE, 12, 212, 548, 18, hwnd, (HMENU)ID_STATUS, NULL, NULL);
-        state->log_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, 12, 236, 548, 172, hwnd, (HMENU)ID_LOG_EDIT, NULL, NULL);
+        state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 12, 224, 160, 20, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
+        SendMessageA(state->verify_check, BM_SETCHECK, BST_CHECKED, 0);
+        state->delete_check = CreateWindowA("BUTTON", "Delete source after completion", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 190, 224, 210, 20, hwnd, (HMENU)ID_DELETE_CHECK, NULL, NULL);
+        CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE, 12, 250, 100, 28, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
+        CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE, 120, 250, 100, 28, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
+        CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE, 228, 250, 100, 28, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
+        state->status = CreateWindowA("STATIC", "Ready", WS_CHILD | WS_VISIBLE, 12, 286, 548, 18, hwnd, (HMENU)ID_STATUS, NULL, NULL);
+        state->log_edit = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, 12, 310, 548, 142, hwnd, (HMENU)ID_LOG_EDIT, NULL, NULL);
         SendMessageA(state->input_edit, WM_SETFONT, (WPARAM)font, TRUE);
         SendMessageA(state->output_edit, WM_SETFONT, (WPARAM)font, TRUE);
+        SendMessageA(state->source_combo, WM_SETFONT, (WPARAM)font, TRUE);
+        SendMessageA(state->mode_combo, WM_SETFONT, (WPARAM)font, TRUE);
         SendMessageA(state->algo_combo, WM_SETFONT, (WPARAM)font, TRUE);
+        SendMessageA(state->verify_check, WM_SETFONT, (WPARAM)font, TRUE);
+        SendMessageA(state->delete_check, WM_SETFONT, (WPARAM)font, TRUE);
         SendMessageA(state->status, WM_SETFONT, (WPARAM)font, TRUE);
         SendMessageA(state->log_edit, WM_SETFONT, (WPARAM)font, TRUE);
         DragAcceptFiles(hwnd, TRUE);
@@ -496,12 +1007,23 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         switch (LOWORD(wparam)) {
         case ID_LOAD_INPUT: {
             char path[MAX_PATH];
-            const char *filter = "All Files\0*.*\0";
-            if (file_dialog_open(hwnd, path, sizeof(path), filter)) {
-                set_text(state->input_edit, path);
-                set_output_for_input(state, path, ".mzc");
-                log_append(state->log_edit, "Input selected.");
-                set_status(state, "Input loaded");
+            if (state->source_kind == SOURCE_KIND_FOLDER) {
+                if (folder_dialog_open(hwnd, path, sizeof(path))) {
+                    SendMessageA(state->source_combo, CB_SETCURSEL, 1, 0);
+                    set_text(state->input_edit, path);
+                    set_output_for_input(state, path, ".mzc");
+                    log_append(state->log_edit, "Folder selected.");
+                    set_status(state, "Folder loaded");
+                }
+            } else {
+                const char *filter = "All Files\0*.*\0";
+                if (file_dialog_open(hwnd, path, sizeof(path), filter)) {
+                    SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
+                    set_text(state->input_edit, path);
+                    set_output_for_input(state, path, ".mzc");
+                    log_append(state->log_edit, "Input selected.");
+                    set_status(state, "Input loaded");
+                }
             }
             return 0;
         }
@@ -512,9 +1034,23 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 set_text(state->output_edit, path);
                 strncpy(state->output_path, path, sizeof(state->output_path) - 1);
                 log_append(state->log_edit, "Output selected.");
+                set_status(state, "Archive target selected");
             }
             return 0;
         }
+        case ID_SOURCE_KIND:
+            state->source_kind = (SourceKind)SendMessageA(state->source_combo, CB_GETCURSEL, 0, 0);
+            log_append(state->log_edit, state->source_kind == SOURCE_KIND_FOLDER ? "Folder mode selected." : "File mode selected.");
+            return 0;
+        case ID_MODE_COMBO:
+            state->archive_mode = (ArchiveMode)SendMessageA(state->mode_combo, CB_GETCURSEL, 0, 0);
+            return 0;
+        case ID_VERIFY_CHECK:
+            state->verify_after = (IsDlgButtonChecked(hwnd, ID_VERIFY_CHECK) == BST_CHECKED);
+            return 0;
+        case ID_DELETE_CHECK:
+            state->delete_after = (IsDlgButtonChecked(hwnd, ID_DELETE_CHECK) == BST_CHECKED);
+            return 0;
         case ID_COMPRESS: compress_selected(state); return 0;
         case ID_DECOMPRESS: decompress_selected(state); return 0;
         case ID_CLEAR: SetWindowTextA(state->log_edit, ""); set_status(state, "Ready"); return 0;
@@ -534,6 +1070,8 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             char path[MAX_PATH];
             DragQueryFileA(drop, 0, path, MAX_PATH);
             set_text(state->input_edit, path);
+            state->source_kind = path_exists_dir(path) ? SOURCE_KIND_FOLDER : SOURCE_KIND_FILE;
+            SendMessageA(state->source_combo, CB_SETCURSEL, (WPARAM)state->source_kind, 0);
             log_append(state->log_edit, "Input dropped.");
             set_status(state, "Input loaded");
         }
