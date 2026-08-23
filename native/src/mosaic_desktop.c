@@ -1479,7 +1479,10 @@ static void compress_selected(AppState *state) {
     }
     state->algorithm = algorithm_from_selection(state->algo_combo);
     state->level = level_from_track(state->level_track);
-    SourceKind source_kind = source_kind_from_path(input_path);
+    SourceKind source_kind = state->source_kind;
+    if (!path_exists_dir(input_path) && !path_exists_file(input_path)) {
+        source_kind = source_kind_from_path(input_path);
+    }
     if (source_kind == SOURCE_KIND_FOLDER && !path_exists_dir(input_path)) {
         log_append(state->log_edit, "Pick a folder source first.");
         goto done;
@@ -1790,7 +1793,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         if (count > 0) {
             char path[MAX_PATH];
             DragQueryFileA(drop, 0, path, MAX_PATH);
-            set_input_path(state, path);
+            apply_selected_source_path(state, path);
             log_append(state->log_edit, "Input dropped.");
             set_status(state, "Input loaded");
         }
