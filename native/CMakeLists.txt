@@ -288,6 +288,12 @@ if(BUILD_TESTING)
   add_test(NAME runtime-policy COMMAND mosaic-runtime-policy-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures/packs/language/en-v1.mpack)
 
+  add_executable(mosaic-low-memory-smoke ${MOSAIC_TEST_DIR}/low_memory_smoke.c)
+  target_include_directories(mosaic-low-memory-smoke PRIVATE ${MOSAIC_INCLUDE})
+  target_link_libraries(mosaic-low-memory-smoke PRIVATE mosaic_static Threads::Threads)
+  mosaic_warnings(mosaic-low-memory-smoke)
+  add_test(NAME low-memory COMMAND mosaic-low-memory-smoke ${MOSAIC_MODEL_PACK} ${MOSAIC_UNICODE_PACK})
+
   add_executable(mosaic-executor-smoke ${MOSAIC_TEST_DIR}/executor_smoke.c)
   target_include_directories(mosaic-executor-smoke PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-executor-smoke PRIVATE mosaic_static Threads::Threads)

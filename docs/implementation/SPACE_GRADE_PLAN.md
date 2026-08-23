@@ -40,6 +40,7 @@ Current artifacts:
 - `docs/implementation/PYTHON_BINDING_0.25.md` binding integration notes;
 - `examples/integration/low_memory_embed.py`;
 - `examples/integration/low_memory_embed.c`.
+- native `low_memory_smoke` conformance coverage in the build and test runners.
 
 ### B. Low-resource mode
 

@@ -272,3 +272,5 @@ If you are embedding Mosaic into another agent, app, or service:
 - treat `MOSAIC_ERROR_RESOURCE_LIMIT` as a normal, expected failure mode for bounded environments.
 
 See `examples/integration/` for small end-to-end embedding samples in both C and Python.
+
+The native build also includes a `low-memory` smoke test that exercises the constrained desktop defaults from the ABI.
