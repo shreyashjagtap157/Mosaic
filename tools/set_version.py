@@ -24,6 +24,8 @@ FILES = {
     "capi_doc": ROOT / "docs/implementation/API_C_1.0.md",
     "status": ROOT / "docs/implementation/STATUS.md",
     "threat_model": ROOT / "docs/security/THREAT_MODEL.md",
+    "inno_setup": ROOT / "packaging/windows/MosaicDesktop.iss",
+    "wix": ROOT / "packaging/windows/MosaicDesktop.wxs",
 }
 
 
@@ -70,6 +72,8 @@ def expected_occurrences(version: str) -> dict[str, str]:
         "capi_doc": f"The native C ABI is independently versioned from the Mosaic product release. The current product candidate `{version}` exposes frozen C ABI `1.1.0`.",
         "status": f"**{version} — universal tokenization and token-native processing platform candidate.**",
         "threat_model": f"Status: frozen enterprise candidate baseline; current product release {version}.",
+        "inno_setup": f'#define AppVersion "{version}"',
+        "wix": f'Version="{version}"',
     }
 
 
@@ -158,6 +162,8 @@ def set_version(version: str) -> None:
         r'^Status: frozen enterprise candidate baseline; current product release [0-9]+(?:\.[0-9]+){2,3}\.$',
         f"Status: frozen enterprise candidate baseline; current product release {version}.",
     )
+    replace_regex(FILES["inno_setup"], r'^#define AppVersion "[^"]+"$', f'#define AppVersion "{version}"')
+    replace_regex(FILES["wix"], r'^    Version="[^"]+"$', f'    Version="{version}"')
 
 
 def main() -> int:

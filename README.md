@@ -4,9 +4,9 @@ Mosaic-µ is a universal tokenization and token-native processing project built 
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
 
-## Candidate tokenizer: 0.1.3.7
+## Candidate tokenizer: 0.1.3.8
 
-Mosaic Tokenizer 0.1.3.7 is the current pre-stable enterprise candidate tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
+Mosaic Tokenizer 0.1.3.8 is the current pre-stable enterprise candidate tokenizer and token-processing runtime. It includes deterministic authoring, compatibility, Unicode/security/normalization, exact incremental processing, rich TokenDocument projections, multiscale storage, bounded caching, trust/registry control-plane support, sealed runtime policies, cold Token IR, bounded parallel execution, and privacy-preserving observability:
 
 - exact arbitrary-byte encode/decode;
 - mandatory 256-byte fallback, therefore no unknown source bytes;
@@ -50,7 +50,7 @@ Mosaic Tokenizer 0.1.3.7 is the current pre-stable enterprise candidate tokenize
 
 All prior releases remain preserved by Git tags. The old three-component tags are historical milestone/release identifiers; the canonical product version now follows the four-part `S.M.N.P` policy in `docs/VERSIONING_POLICY.md`. The 0.13–0.24 historical line added rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Canonical tokenization semantics remain version 2. The enterprise freeze established C ABI 1.0.0, optional trust ABI 1.0.0, and the binary-format contracts under `abi/`; `0.1.3.0` advances the native C ABI to 1.1.0 with additive span-routing entry points. Those contract versions remain independent of the product release number.
 
-Mosaic `0.1.3.7` is the current **universal tokenization and token-native processing platform candidate**. The qualified production implementation is the native C runtime on the platforms already exercised; the dependency-minimal Windows Clang preset and pinned Rust 1.97.1 workspace gate now pass, while macOS/Miri/fuzz/race-detector and remaining support-matrix gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period.
+Mosaic `0.1.3.8` is the current **universal tokenization and token-native processing platform candidate**. The qualified production implementation is the native C runtime on the platforms already exercised; the dependency-minimal Windows Clang preset and pinned Rust 1.97.1 workspace gate now pass, while macOS/Miri/fuzz/race-detector and remaining support-matrix gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period.
 
 ## What ships today
 
@@ -248,7 +248,7 @@ make release
 
 The generated `dist/mosaic-tokenizer-<version>-<platform>.tar.gz` contains the CLI, libraries, public header, exact model/Unicode packs, English/Hindi/Japanese reference language packs, reference detector pack, Unicode-17 security pack, Unicode-16 normalization pack, runtime fingerprint manifest, checksums, and release/API documentation.
 
-On Windows, `tools/package_windows_app.ps1` builds the installable desktop package and emits `dist/windows/MosaicCompressorSetup-<version>-x64.exe` from the same staged app tree. That installer includes the desktop app, self-test, tokenizer CLI, comparison harness, public header, shared library, packs, and release docs. The matching evidence note is `docs/release/QUALIFICATION_0.1.3.7_WINDOWS_PACKAGE.md`. Release notes and qualification reports are indexed in `docs/release/README.md`.
+On Windows, `tools/package_windows_app.ps1` builds the installable desktop package and emits `dist/windows/MosaicCompressorSetup-<version>-x64.exe` from the same staged app tree. That installer includes the desktop app, self-test, tokenizer CLI, comparison harness, public header, shared library, packs, and release docs. The matching evidence note is `docs/release/QUALIFICATION_0.1.3.8_WINDOWS_PACKAGE.md`. Release notes and qualification reports are indexed in `docs/release/README.md`.
 
 The packaging script keeps only the latest `MosaicCompressorSetup-*.exe` in `dist/windows` for testing, and the installer is configured as a normal upgrade path so newer versions replace the installed binaries while user settings remain outside the install tree.
 

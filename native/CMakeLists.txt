@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mosaic VERSION 0.1.3.7 LANGUAGES C CXX)
+project(mosaic VERSION 0.1.3.8 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -92,6 +92,15 @@ if(WIN32)
   target_include_directories(mosaic-desktop-selftest PRIVATE ${MOSAIC_INCLUDE})
   target_link_libraries(mosaic-desktop-selftest PRIVATE Cabinet)
   mosaic_warnings(mosaic-desktop-selftest)
+
+  if(BUILD_TESTING)
+    add_executable(mosaic-desktop-archive-edit-test ${CMAKE_CURRENT_SOURCE_DIR}/../conformance/c/desktop_archive_edit_test.c)
+    target_include_directories(mosaic-desktop-archive-edit-test PRIVATE ${MOSAIC_INCLUDE})
+    target_link_libraries(mosaic-desktop-archive-edit-test PRIVATE mosaic_static Cabinet comdlg32 comctl32 user32 gdi32 shell32 UxTheme)
+    mosaic_warnings(mosaic-desktop-archive-edit-test)
+    add_test(NAME desktop-archive-edit COMMAND mosaic-desktop-archive-edit-test
+      ${CMAKE_CURRENT_BINARY_DIR}/desktop-archive-edit-fixture.mzc)
+  endif()
 endif()
 
 if(MOSAIC_BUILD_TRUST AND OpenSSL_FOUND)
@@ -343,6 +352,7 @@ if(BUILD_TESTING)
   add_test(NAME malformed COMMAND mosaic-malformed-smoke ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
   add_test(NAME compress-compare COMMAND mosaic-compress-compare
+    --output-dir ${CMAKE_CURRENT_BINARY_DIR}/compress-compare
     ${MOSAIC_MODEL_PACK}
     ${MOSAIC_UNICODE_PACK}
     ${CMAKE_CURRENT_SOURCE_DIR}/../README.md)

@@ -13,7 +13,7 @@ from ._ffi import (
 )
 from .service import MosaicdClient, MosaicdClientError
 
-__version__ = "0.1.3.7"
+__version__ = "0.1.3.8"
 
 OK = 0
 ERROR_RESOURCE_LIMIT = 9

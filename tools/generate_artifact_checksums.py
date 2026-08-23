@@ -29,6 +29,8 @@ def included(root: Path, path: Path) -> bool:
         return False
     if rel.parts and rel.parts[0] in EXCLUDED_TOP:
         return False
+    if rel.parts and rel.parts[0].startswith('.codex-'):
+        return False
     if len(rel.parts) >= 2 and rel.parts[0] == 'fuzz' and rel.parts[1] in {'target', 'artifacts', 'corpus'}:
         return False
     return path.is_file()

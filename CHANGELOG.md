@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.1.3.8 — 2026-08-23
+
+Desktop archive-edit integrity and workflow patch.
+
+- make archive inspection and testing reject checksum failures, impossible size fields, unsafe member paths, invalid entry types, decompressed-length mismatches, and trailing payload data;
+- make archive removal support true multi-selection and recursively remove descendants of selected folders;
+- preserve every prior archive by generating collision-free edited archive names, then refresh the browser against the newly written archive;
+- prevent stale browser selections from being applied after the active archive path changes;
+- add a native Windows regression test for archive-edit selection, path safety, strict parsing, decompression length, and edited-name collision behavior;
+- make the comparison CTest use an explicit build-local output path so it is reproducible from its configured working directory;
+- synchronize Inno Setup and WiX package versions through the canonical version tool.
+
 - add a Windows installer proof line to the 1.0.0 qualification note so the stable-release evidence trail reflects the staged package path;
 - add repo-native `make windows-package` and `make windows-package-verify` entry points for the Windows installer flow;
 - add a release index validator so the current release notes and qualification reports stay discoverable and synchronized;

@@ -30,6 +30,10 @@
 #define ID_TEST 1017
 #define ID_REMOVE_SELECTED 1018
 
+#define MOSAIC_ARCHIVE_MAGIC 0x31434D5Au
+#define MOSAIC_ARCHIVE_HEADER_VERSION 1u
+#define MOSAIC_ARCHIVE_PAYLOAD_VERSION 2u
+
 #define APP_BG RGB(247, 249, 252)
 #define CARD_BG RGB(255, 255, 255)
 #define TEXT_PRIMARY RGB(25, 32, 44)
@@ -76,6 +80,7 @@ typedef struct AppState {
     char output_path[MAX_PATH];
     char last_source_dir[MAX_PATH];
     char last_output_dir[MAX_PATH];
+    char inspected_archive_path[MAX_PATH * 2];
 } AppState;
 
 typedef struct UiState {
@@ -130,6 +135,7 @@ static int path_exists_file(const char *path);
 static void set_output_for_input(AppState *state, const char *input_path, const char *suffix);
 static void set_output_path_auto(AppState *state, const char *path);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
+static int archive_header_is_valid(const MosaicArchiveHeader *header, const uint8_t *archive, size_t archive_len);
 static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len);
 static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len);
 static int write_file(const char *path, const uint8_t *bytes, size_t len);
@@ -145,6 +151,8 @@ static void apply_write_time(const char *path, const FILETIME *write_time);
 static void format_filetime_utc(const FILETIME *ft, char *out, size_t cap);
 static int archive_list_get_selected(HWND list, int **indices_out, int *count_out);
 static void path_dirname_copy(const char *path, char *out, size_t cap);
+static int archive_entry_is_selected(const MosaicEntry *entries, size_t entry_count, size_t index, const int *selected, int selected_count);
+static int make_edited_archive_path(const char *archive_path, char *out, size_t cap);
 
 static void log_append(HWND edit, const char *text) {
     int len = GetWindowTextLengthA(edit);
@@ -435,7 +443,7 @@ static int load_selected_archive(AppState *state, char **archive_path_out, Mosai
         goto fail;
     }
     memcpy(&header, input, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
+    if (!archive_header_is_valid(&header, input, in_len)) {
         snprintf(error_buf, error_cap, "not a Mosaic archive");
         goto fail;
     }
@@ -486,14 +494,17 @@ static void inspect_selected_archive(AppState *state) {
     MosaicEntry *entries = NULL;
     size_t entry_count = 0;
     char errbuf[160];
-        if (!load_selected_archive(state, &archive_path, NULL, NULL, 0, &entries, &entry_count, errbuf, sizeof(errbuf))) {
+    state->inspected_archive_path[0] = '\0';
+    if (!load_selected_archive(state, &archive_path, NULL, NULL, 0, &entries, &entry_count, errbuf, sizeof(errbuf))) {
         log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
         goto done;
     }
     archive_list_add_entries(state->archive_list, archive_path, entries, entry_count);
+    strncpy(state->inspected_archive_path, archive_path, sizeof(state->inspected_archive_path) - 1);
+    state->inspected_archive_path[sizeof(state->inspected_archive_path) - 1] = '\0';
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries, no embedded timestamps)", archive_path, (unsigned long)entry_count);
+        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries)", archive_path, (unsigned long)entry_count);
         log_append(state->log_edit, line);
     }
     set_status(state, "Archive inspected");
@@ -523,8 +534,6 @@ static void remove_selected_archive_entries(AppState *state) {
     MosaicArchiveHeader header;
     char errbuf[160];
     char output_path[MAX_PATH * 2];
-    const char *base = NULL;
-    size_t prefix_len = 0;
     if (!archive_list_get_selected(state->archive_list, &selected, &selected_count) || selected_count == 0) {
         log_append(state->log_edit, "Select one or more archive entries to remove.");
         free(selected);
@@ -536,16 +545,18 @@ static void remove_selected_archive_entries(AppState *state) {
         free(archive_path);
         return;
     }
+    if (state->inspected_archive_path[0] == '\0' || _stricmp(state->inspected_archive_path, archive_path) != 0) {
+        log_append(state->log_edit, "The selected archive changed. Inspect it again before removing entries.");
+        set_status(state, "Reinspect archive");
+        goto done;
+    }
     filtered = (MosaicEntry *)calloc(entry_count ? entry_count : 1, sizeof(MosaicEntry));
     if (!filtered) {
         log_append(state->log_edit, "Out of memory.");
         goto done;
     }
     for (size_t i = 0; i < entry_count; ++i) {
-        int remove = 0;
-        for (int j = 0; j < selected_count; ++j) {
-            if (selected[j] == (int)i) { remove = 1; break; }
-        }
+        int remove = archive_entry_is_selected(entries, entry_count, i, selected, selected_count);
         if (remove) continue;
         filtered[filtered_count++] = entries[i];
         entries[i].bytes = NULL;
@@ -563,9 +574,10 @@ static void remove_selected_archive_entries(AppState *state) {
         log_append(state->log_edit, "Failed to compress edited archive.");
         goto done;
     }
-    header.version = 2;
-    header.original_size = (uint32_t)serialized_len;
-    header.compressed_size = (uint32_t)compressed_len;
+    header.version = MOSAIC_ARCHIVE_HEADER_VERSION;
+    header.original_size = (uint64_t)serialized_len;
+    header.compressed_size = (uint64_t)compressed_len;
+    header.checksum32 = crc32_bytes(compressed, compressed_len);
     payload_len = sizeof(header) + compressed_len;
     payload = (uint8_t *)malloc(payload_len ? payload_len : 1);
     if (!payload) {
@@ -574,16 +586,9 @@ static void remove_selected_archive_entries(AppState *state) {
     }
     memcpy(payload, &header, sizeof(header));
     memcpy(payload + sizeof(header), compressed, compressed_len);
-    base = strrchr(archive_path, '\\');
-    if (!base) base = strrchr(archive_path, '/');
-    if (base) {
-        prefix_len = (size_t)(base - archive_path);
-        if (prefix_len >= sizeof(output_path) - 32) prefix_len = sizeof(output_path) - 33;
-        memcpy(output_path, archive_path, prefix_len);
-        output_path[prefix_len] = '\0';
-        snprintf(output_path + prefix_len, sizeof(output_path) - prefix_len, "\\%.*s.edited.mzc", (int)strcspn(base + 1, "."), base + 1);
-    } else {
-        snprintf(output_path, sizeof(output_path), "%.*s.edited.mzc", (int)strcspn(archive_path, "."), archive_path);
+    if (!make_edited_archive_path(archive_path, output_path, sizeof(output_path))) {
+        log_append(state->log_edit, "Could not create a safe edited-archive path.");
+        goto done;
     }
     if (!write_file(output_path, payload, payload_len)) {
         log_append(state->log_edit, "Failed to write edited archive.");
@@ -593,7 +598,12 @@ static void remove_selected_archive_entries(AppState *state) {
     state->output_path_auto = 0;
     archive_list_clear(state->archive_list);
     inspect_selected_archive(state);
-    log_append(state->log_edit, "Removed selected entries into a new archive.");
+    {
+        char line[320];
+        _snprintf(line, sizeof(line), "Removed %lu entries into %s; the original archive was preserved.",
+                  (unsigned long)(entry_count - filtered_count), output_path);
+        log_append(state->log_edit, line);
+    }
     set_status(state, "Archive edited");
 done:
     free(payload);
@@ -609,6 +619,51 @@ done:
     }
     free(selected);
     free(archive_path);
+}
+
+static int archive_entry_is_selected(const MosaicEntry *entries, size_t entry_count, size_t index, const int *selected, int selected_count) {
+    size_t path_len;
+    if (!entries || index >= entry_count || !selected) return 0;
+    for (int j = 0; j < selected_count; ++j) {
+        int selected_index = selected[j];
+        if (selected_index < 0 || (size_t)selected_index >= entry_count) continue;
+        if ((size_t)selected_index == index) return 1;
+        if (!entries[selected_index].is_dir) continue;
+        path_len = strlen(entries[selected_index].path);
+        if (strncmp(entries[index].path, entries[selected_index].path, path_len) == 0 &&
+            (entries[index].path[path_len] == '\\' || entries[index].path[path_len] == '/')) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int make_edited_archive_path(const char *archive_path, char *out, size_t cap) {
+    const char *slash;
+    const char *dot;
+    size_t stem_len;
+    int suffix = 0;
+    if (!archive_path || !*archive_path || !out || cap == 0) return 0;
+    slash = strrchr(archive_path, '\\');
+    if (!slash) slash = strrchr(archive_path, '/');
+    dot = strrchr(archive_path, '.');
+    if (!dot || (slash && dot < slash)) dot = archive_path + strlen(archive_path);
+    stem_len = (size_t)(dot - archive_path);
+    for (;;) {
+        int written;
+        DWORD path_error;
+        if (suffix == 0) {
+            written = _snprintf(out, cap, "%.*s.edited.mzc", (int)stem_len, archive_path);
+        } else {
+            written = _snprintf(out, cap, "%.*s.edited-%d.mzc", (int)stem_len, archive_path, suffix);
+        }
+        if (written < 0 || (size_t)written >= cap) return 0;
+        if (GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES) {
+            path_error = GetLastError();
+            return path_error == ERROR_FILE_NOT_FOUND || path_error == ERROR_PATH_NOT_FOUND;
+        }
+        if (++suffix == 10000) return 0;
+    }
 }
 
 static void test_selected_archive(AppState *state) {
@@ -1040,7 +1095,7 @@ static int serialize_entries(const MosaicEntry *entries, size_t count, const cha
     size_t len = 0, cap = 0;
     size_t i;
     size_t root_len = root_name ? strlen(root_name) : 0;
-    if (!write_u32(&buf, &len, &cap, 0x31434D5A) || !write_u32(&buf, &len, &cap, 2)) goto fail;
+    if (!write_u32(&buf, &len, &cap, MOSAIC_ARCHIVE_MAGIC) || !write_u32(&buf, &len, &cap, MOSAIC_ARCHIVE_PAYLOAD_VERSION)) goto fail;
     if (!write_u32(&buf, &len, &cap, (uint32_t)root_len) || !write_bytes(&buf, &len, &cap, root_name ? root_name : "", root_len)) goto fail;
     if (!write_u32(&buf, &len, &cap, (uint32_t)count)) goto fail;
     for (i = 0; i < count; ++i) {
@@ -1135,9 +1190,10 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
     size_t remain = blob_len;
     uint32_t magic = 0, version = 0, root_len = 0, count = 0;
     if (!read_u32(&p, &remain, &magic) || !read_u32(&p, &remain, &version) || !read_u32(&p, &remain, &root_len)) goto bad;
-    if (magic != 0x31434D5A || (version != 1 && version != 2) || root_len >= root_cap || !read_bytes(&p, &remain, root_name, root_len)) goto bad;
+    if (magic != MOSAIC_ARCHIVE_MAGIC || (version != 1 && version != MOSAIC_ARCHIVE_PAYLOAD_VERSION) || root_len >= root_cap || !read_bytes(&p, &remain, root_name, root_len)) goto bad;
     root_name[root_len] = '\0';
     if (!read_u32(&p, &remain, &count)) goto bad;
+    if ((uint64_t)count > (uint64_t)remain / (version >= 2 ? 24u : 16u)) goto bad;
     *entries = (MosaicEntry *)calloc(count ? count : 1, sizeof(MosaicEntry));
     if (!*entries) goto bad;
     *entry_count = count;
@@ -1145,10 +1201,12 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
         uint32_t is_dir = 0, path_len = 0;
         uint64_t data_len = 0, write_time = 0;
         if (!read_u32(&p, &remain, &is_dir) || !read_u32(&p, &remain, &path_len)) goto bad;
-        if (path_len >= sizeof((*entries)[i].path) || !read_bytes(&p, &remain, (*entries)[i].path, path_len)) goto bad;
+        if (is_dir > 1 || path_len >= sizeof((*entries)[i].path) || !read_bytes(&p, &remain, (*entries)[i].path, path_len)) goto bad;
         (*entries)[i].path[path_len] = '\0';
+        if (!is_safe_relative_path((*entries)[i].path)) goto bad;
         if (!read_u64(&p, &remain, &data_len)) goto bad;
         if (version >= 2 && !read_u64(&p, &remain, &write_time)) goto bad;
+        if (data_len > (uint64_t)SIZE_MAX || data_len > (uint64_t)remain || (is_dir && data_len != 0)) goto bad;
         (*entries)[i].is_dir = (int)is_dir;
         (*entries)[i].size = (size_t)data_len;
         (*entries)[i].write_time.dwLowDateTime = (DWORD)(write_time & 0xFFFFFFFFu);
@@ -1158,6 +1216,7 @@ static int parse_archive_v2(const uint8_t *blob, size_t blob_len, char *root_nam
             if (!(*entries)[i].bytes || !read_bytes(&p, &remain, (*entries)[i].bytes, (size_t)data_len)) goto bad;
         }
     }
+    if (remain != 0) goto bad;
     return 1;
 bad:
     snprintf(error_buf, error_cap, "parse failed");
@@ -1250,12 +1309,8 @@ static int verify_archive_roundtrip(const char *source_path, int is_folder, cons
         goto done;
     }
     memcpy(&header, archive, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != archive_len) {
+    if (!archive_header_is_valid(&header, archive, archive_len)) {
         snprintf(error_buf, error_cap, "verify archive header invalid");
-        goto done;
-    }
-    if (crc32_bytes(archive + sizeof(header), (size_t)header.compressed_size) != header.checksum32) {
-        snprintf(error_buf, error_cap, "verify archive checksum failed");
         goto done;
     }
     if (header.algorithm != algorithm) {
@@ -1333,6 +1388,14 @@ static uint32_t crc32_bytes(const uint8_t *data, size_t len) {
     return ~crc;
 }
 
+static int archive_header_is_valid(const MosaicArchiveHeader *header, const uint8_t *archive, size_t archive_len) {
+    if (!header || !archive || archive_len < sizeof(*header)) return 0;
+    if (header->magic != MOSAIC_ARCHIVE_MAGIC || header->version != MOSAIC_ARCHIVE_HEADER_VERSION) return 0;
+    if (header->compressed_size > (uint64_t)SIZE_MAX || header->original_size > (uint64_t)SIZE_MAX) return 0;
+    if (header->compressed_size != (uint64_t)(archive_len - sizeof(*header))) return 0;
+    return crc32_bytes(archive + sizeof(*header), (size_t)header->compressed_size) == header->checksum32;
+}
+
 static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, uint8_t **out_bytes, size_t *out_len) {
     COMPRESSOR_HANDLE handle = NULL;
     if (!CreateCompressor(algorithm, NULL, &handle)) return GetLastError();
@@ -1387,6 +1450,12 @@ static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t i
         free(buf);
         CloseDecompressor(handle);
         if (error_out) *error_out = err;
+        return 0;
+    }
+    if (written != (SIZE_T)output_len) {
+        free(buf);
+        CloseDecompressor(handle);
+        if (error_out) *error_out = ERROR_INVALID_DATA;
         return 0;
     }
     CloseDecompressor(handle);
@@ -1445,13 +1514,13 @@ static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, si
         snprintf(error_buf, error_cap, "compress failed: %lu", (unsigned long)err);
         goto fail;
     }
-    header.magic = 0x31434D5A;
-    header.version = 1;
+    header.magic = MOSAIC_ARCHIVE_MAGIC;
+    header.version = MOSAIC_ARCHIVE_HEADER_VERSION;
     header.algorithm = cfg->algorithm;
     header.level = cfg->level;
     header.original_size = (uint64_t)input_len;
     header.compressed_size = (uint64_t)compressed_len;
-    header.checksum32 = crc32_bytes(input, input_len);
+    header.checksum32 = crc32_bytes(compressed, compressed_len);
     payload = (uint8_t *)malloc(sizeof(header) + compressed_len);
     if (!payload) {
         snprintf(error_buf, error_cap, "out of memory");
@@ -1543,8 +1612,8 @@ static void compress_selected(AppState *state) {
         log_append(state->log_edit, errbuf[0] ? errbuf : "Compression failed.");
         goto done;
     }
-    header.magic = 0x31434D5A;
-    header.version = 1;
+    header.magic = MOSAIC_ARCHIVE_MAGIC;
+    header.version = MOSAIC_ARCHIVE_HEADER_VERSION;
     header.algorithm = state->algorithm;
     header.level = state->level;
     header.original_size = (uint64_t)serialized_len;
@@ -1604,16 +1673,12 @@ static void decompress_selected(AppState *state) {
         goto done;
     }
     memcpy(&header, input, sizeof(header));
-    if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
+    if (!archive_header_is_valid(&header, input, in_len)) {
         log_append(state->log_edit, "Not a Mosaic archive.");
         goto done;
     }
     if (header.compressed_size == 0 || header.original_size == 0) {
         log_append(state->log_edit, "Archive header is invalid.");
-        goto done;
-    }
-    if (crc32_bytes(input + sizeof(header), (size_t)header.compressed_size) != header.checksum32) {
-        log_append(state->log_edit, "Archive integrity check failed.");
         goto done;
     }
     if (!decompress_blob_exact(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output, NULL)) {
@@ -1691,7 +1756,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state->remove_button = CreateWindowA("BUTTON", "Remove selected", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_REMOVE_SELECTED, NULL, NULL);
         CreateWindowA("BUTTON", "Test", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_TEST, NULL, NULL);
         state->safety_note = CreateWindowA("STATIC", "Source deletion is disabled in this build.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
-        state->archive_list = CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
+        state->archive_list = CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
         CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Extract", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_DECOMPRESS, NULL, NULL);
         CreateWindowA("BUTTON", "Clear log", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_CLEAR, NULL, NULL);
