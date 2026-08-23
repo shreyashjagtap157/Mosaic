@@ -270,3 +270,5 @@ If you are embedding Mosaic into another agent, app, or service:
 - treat all returned buffers as owned by Mosaic until released with `mosaic_free()` or the Python wrapper equivalent;
 - prefer streaming APIs when you do not need the entire result materialized at once;
 - treat `MOSAIC_ERROR_RESOURCE_LIMIT` as a normal, expected failure mode for bounded environments.
+
+See `examples/integration/` for small end-to-end embedding samples in both C and Python.

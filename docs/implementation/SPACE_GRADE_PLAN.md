@@ -34,6 +34,13 @@ Acceptance:
 - common integration patterns are documented from source creation to cleanup;
 - the examples use actual supported APIs and fail closed on bad input.
 
+Current artifacts:
+
+- `README.md` integration contract;
+- `docs/implementation/PYTHON_BINDING_0.25.md` binding integration notes;
+- `examples/integration/low_memory_embed.py`;
+- `examples/integration/low_memory_embed.c`.
+
 ### B. Low-resource mode
 
 Deliverables:
