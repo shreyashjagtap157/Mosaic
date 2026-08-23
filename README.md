@@ -274,3 +274,4 @@ If you are embedding Mosaic into another agent, app, or service:
 See `examples/integration/` for small end-to-end embedding samples in both C and Python.
 
 The native build also includes a `low-memory` smoke test that exercises the constrained desktop defaults from the ABI.
+For a full constrained-desktop evidence loop, use `make low-memory-profile` and `make low-memory-machine-profile` to capture the benchmark record and host metadata, then validate the manifest with `python tools/validate_low_memory_profile.py`.
