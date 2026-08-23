@@ -89,21 +89,37 @@ def main()->int:
     machine=platform.machine().lower().replace('amd64','x86_64');osname='linux' if platform.system()=='Linux' else platform.system().lower();tag=os.environ.get('MOSAIC_RELEASE_TAG') or f'{osname}-{machine}'
     name=f'mosaic-tokenizer-{VERSION}-{tag}';dist=ROOT/'dist';dist.mkdir(exist_ok=True);stage=dist/name
     if stage.exists():shutil.rmtree(stage)
-    for d in ['bin','lib','include','share/mosaic/packs/language','share/mosaic/packs/detector','share/mosaic/packs/lexer','share/mosaic/trust','share/mosaic','share/pkgconfig','docs','examples/authoring','python']:(stage/d).mkdir(parents=True,exist_ok=True)
-    for src,dst in [(BIN,stage/'bin/mosaic-tokenizer'),(CORE_DLL,stage/'lib/libmosaic.so'),(CORE_STATIC,stage/'lib/libmosaic.a'),(TRUST_DLL,stage/'lib/libmosaic_trust.so'),(TRUST_STATIC,stage/'lib/libmosaic_trust.a'),(ROOT/'native/include/mosaic.h',stage/'include/mosaic.h'),(ROOT/'native/include/mosaic_trust.h',stage/'include/mosaic_trust.h'),(MODEL,stage/'share/mosaic/packs/model-v2.mpack'),(UNICODE,stage/'share/mosaic/packs/unicode17-v1.mpack'),(DETECTOR,stage/'share/mosaic/packs/detector/reference-v1.mpack'),(SECURITY,stage/'share/mosaic/packs/security17-v1.mpack'),(NORMALIZATION,stage/'share/mosaic/packs/normalization16-v1.mpack'),(ROOT/'README.md',stage/'README.md'),(ROOT/'tools/mosaic_author.py',stage/'bin/mosaic-author'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic-registry'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic_registry.py'),(ROOT/'tools/mosaic_registry_http.py',stage/'bin/mosaic-registry-http'),(ROOT/'tools/mosaicd.py',stage/'bin/mosaicd')]:shutil.copy2(src,dst)
+    for d in ['bin','lib','include','share/mosaic/packs/language','share/mosaic/packs/detector','share/mosaic/packs/lexer','share/mosaic/trust','share/mosaic','share/pkgconfig','docs','docs/release','examples/authoring','python']:(stage/d).mkdir(parents=True,exist_ok=True)
+    trust_enabled = TRUST_DLL.exists() and TRUST_STATIC.exists()
+    core_copies = [(BIN,stage/'bin/mosaic-tokenizer'),(CORE_DLL,stage/'lib/libmosaic.so'),(CORE_STATIC,stage/'lib/libmosaic.a'),(ROOT/'native/include/mosaic.h',stage/'include/mosaic.h'),(MODEL,stage/'share/mosaic/packs/model-v2.mpack'),(UNICODE,stage/'share/mosaic/packs/unicode17-v1.mpack'),(DETECTOR,stage/'share/mosaic/packs/detector/reference-v1.mpack'),(SECURITY,stage/'share/mosaic/packs/security17-v1.mpack'),(NORMALIZATION,stage/'share/mosaic/packs/normalization16-v1.mpack'),(ROOT/'README.md',stage/'README.md'),(ROOT/'tools/mosaic_author.py',stage/'bin/mosaic-author'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic-registry'),(ROOT/'tools/mosaic_registry.py',stage/'bin/mosaic_registry.py'),(ROOT/'tools/mosaic_registry_http.py',stage/'bin/mosaic-registry-http'),(ROOT/'tools/mosaicd.py',stage/'bin/mosaicd')]
+    for src,dst in core_copies:shutil.copy2(src,dst)
+    if trust_enabled:
+        for src,dst in [(TRUST_DLL,stage/'lib/libmosaic_trust.so'),(TRUST_STATIC,stage/'lib/libmosaic_trust.a'),(ROOT/'native/include/mosaic_trust.h',stage/'include/mosaic_trust.h')]:
+            shutil.copy2(src,dst)
     if OPENSSL_STAGE:
         for src,dst in [(OPENSSL_STAGE/'lib/libcrypto.lib',stage/'lib/libcrypto.lib'),(OPENSSL_STAGE/'bin/libcrypto-3-x64.dll',stage/'bin/libcrypto-3-x64.dll')]:
             if src.exists(): shutil.copy2(src,dst)
     for ltag,path in LANGUAGES.items():shutil.copy2(path,stage/f'share/mosaic/packs/language/{ltag}-v1.mpack')
     for ltag,path in LEXERS.items():shutil.copy2(path,stage/f'share/mosaic/packs/lexer/{ltag}-v1.mpack')
-    shutil.copy2(ROOT/'fixtures/trust/conformance-ed25519.pub',stage/'share/mosaic/trust/conformance-ed25519.pub')
-    shutil.copy2(ROOT/'fixtures/packs/model-v2.mpack.sig',stage/'share/mosaic/trust/model-v2.mpack.sig')
+    if trust_enabled:
+        shutil.copy2(ROOT/'fixtures/trust/conformance-ed25519.pub',stage/'share/mosaic/trust/conformance-ed25519.pub')
+        shutil.copy2(ROOT/'fixtures/packs/model-v2.mpack.sig',stage/'share/mosaic/trust/model-v2.mpack.sig')
     for ex in sorted((ROOT/'examples/authoring').glob('*.json')): shutil.copy2(ex,stage/'examples/authoring'/ex.name)
     py_wheel=ROOT/f'dist/python/mosaic_tokenizer-{VERSION}-py3-none-any.whl'
     shutil.copy2(py_wheel,stage/'python'/py_wheel.name)
     shutil.copy2(ROOT/'docs/implementation/AUTHORING_0.5.md',stage/'docs/AUTHORING.md')
     shutil.copy2(ROOT/'docs/implementation/COMPATIBILITY_0.6.md',stage/'docs/COMPATIBILITY.md')
     shutil.copy2(ROOT/'docs/implementation/RUNTIME_POLICY_v1.md',stage/'docs/RUNTIME_POLICY.md')
+    release_index=ROOT/'docs/release/README.md'
+    if release_index.exists(): shutil.copy2(release_index,stage/'docs/release/README.md')
+    release_qualification=ROOT/f'docs/release/QUALIFICATION_{VERSION}.md'
+    if release_qualification.exists(): shutil.copy2(release_qualification,stage/f'docs/release/QUALIFICATION_{VERSION}.md')
+    release_windows_qualification=ROOT/f'docs/release/QUALIFICATION_{VERSION}_WINDOWS_PACKAGE.md'
+    if release_windows_qualification.exists(): shutil.copy2(release_windows_qualification,stage/f'docs/release/QUALIFICATION_{VERSION}_WINDOWS_PACKAGE.md')
+    release_notes_100=ROOT/'docs/release/RELEASE_NOTES_1.0.0.md'
+    if release_notes_100.exists(): shutil.copy2(release_notes_100,stage/'docs/release/RELEASE_NOTES_1.0.0.md')
+    release_notes_101=ROOT/'docs/release/RELEASE_NOTES_1.0.1.md'
+    if release_notes_101.exists(): shutil.copy2(release_notes_101,stage/'docs/release/RELEASE_NOTES_1.0.1.md')
     trust_doc=ROOT/'docs/implementation/TRUST_v1.md'
     if trust_doc.exists(): shutil.copy2(trust_doc,stage/'docs/TRUST.md')
     registry_doc=ROOT/'docs/implementation/REGISTRY_v1.md'
@@ -140,8 +156,12 @@ def main()->int:
     normalization_fingerprint=run(str(BIN),'fingerprint-normalization',str(MODEL),str(UNICODE),str(NORMALIZATION))
     lexer_fingerprints={t:run(str(BIN),'fingerprint-lexer',str(MODEL),str(UNICODE),str(p)) for t,p in LEXERS.items()}
     auto_fingerprint=run(str(BIN),'fingerprint-auto',str(MODEL),str(UNICODE),str(DETECTOR),*(str(LANGUAGES[t]) for t in ('en','hi','ja')))
-    manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':c_api_version(),'tokenizer_semantics_version':2,'tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'reference_security_fingerprint_sha256':security_fingerprint,'reference_normalization_fingerprint_sha256':normalization_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'security_pack':{'file':'security17-v1.mpack','sha256':sha(SECURITY),'unicode_version':'17.0.0'},'normalization_pack':{'file':'normalization16-v1.mpack','sha256':sha(NORMALIZATION),'unicode_version':'16.0.0','icu_generator_version':'76.1'},'trust':{'library':'libmosaic_trust','signature_algorithm':'Ed25519','conformance_public_key_sha256':sha(ROOT/'fixtures/trust/conformance-ed25519.pub'),'model_signature_sha256':sha(ROOT/'fixtures/packs/model-v2.mpack.sig')},'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'lexer_packs':{t:{'file':f'lexer/{t}-v1.mpack','sha256':sha(p),'tokenizer_fingerprint_sha256':lexer_fingerprints[t]} for t,p in LEXERS.items()},'python_binding':{'file':f'mosaic_tokenizer-{VERSION}-py3-none-any.whl','sha256':sha(py_wheel)},'artifacts':{}}
-    for rel in ['bin/mosaic-tokenizer','bin/mosaic-author','bin/mosaic-registry','bin/mosaic_registry.py','bin/mosaic-registry-http','bin/mosaicd','lib/libmosaic.so','lib/libmosaic.a','lib/libmosaic_trust.so','lib/libmosaic_trust.a','include/mosaic.h','include/mosaic_trust.h']:manifest['artifacts'][rel]=sha(stage/rel)
+    manifest={'release':'Mosaic Tokenizer','version':VERSION,'platform':tag,'c_api':c_api_version(),'tokenizer_semantics_version':2,'tokenizer_fingerprint_sha256':fingerprint,'reference_language_fingerprint_sha256':language_fingerprint,'reference_auto_fingerprint_sha256':auto_fingerprint,'reference_security_fingerprint_sha256':security_fingerprint,'reference_normalization_fingerprint_sha256':normalization_fingerprint,'model_pack':{'file':'model-v2.mpack','sha256':sha(MODEL)},'unicode_pack':{'file':'unicode17-v1.mpack','sha256':sha(UNICODE),'unicode_version':'17.0.0'},'detector_pack':{'file':'detector/reference-v1.mpack','sha256':sha(DETECTOR)},'security_pack':{'file':'security17-v1.mpack','sha256':sha(SECURITY),'unicode_version':'17.0.0'},'normalization_pack':{'file':'normalization16-v1.mpack','sha256':sha(NORMALIZATION),'unicode_version':'16.0.0','icu_generator_version':'76.1'},'trust_enabled':trust_enabled,'language_packs':{t:{'file':f'language/{t}-v1.mpack','sha256':sha(p)} for t,p in LANGUAGES.items()},'lexer_packs':{t:{'file':f'lexer/{t}-v1.mpack','sha256':sha(p),'tokenizer_fingerprint_sha256':lexer_fingerprints[t]} for t,p in LEXERS.items()},'python_binding':{'file':f'mosaic_tokenizer-{VERSION}-py3-none-any.whl','sha256':sha(py_wheel)},'artifacts':{}}
+    for rel in ['bin/mosaic-tokenizer','bin/mosaic-author','bin/mosaic-registry','bin/mosaic_registry.py','bin/mosaic-registry-http','bin/mosaicd','lib/libmosaic.so','lib/libmosaic.a','include/mosaic.h']:
+        manifest['artifacts'][rel]=sha(stage/rel)
+    if trust_enabled:
+        for rel in ['lib/libmosaic_trust.so','lib/libmosaic_trust.a','include/mosaic_trust.h']:
+            manifest['artifacts'][rel]=sha(stage/rel)
     (stage/'share/mosaic/release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n', encoding="utf-8")
     subprocess.run(invoke(ROOT/'tools/generate_sbom.py',str(stage),'--version',VERSION,'--output',str(stage/'share/mosaic/sbom.spdx.json')),cwd=ROOT,check=True)
     subprocess.run(invoke(ROOT/'tools/generate_provenance.py',str(stage),'--version',VERSION,'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256'),'--output',str(stage/'share/mosaic/provenance.intoto.json')),cwd=ROOT,check=True)

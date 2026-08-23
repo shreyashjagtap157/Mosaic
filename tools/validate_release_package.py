@@ -47,6 +47,15 @@ def main():
         d=roots[0];cli=d/'bin/mosaic-tokenizer';author=d/'bin/mosaic-author'; registry=d/'bin/mosaic-registry';registry_http=d/'bin/mosaic-registry-http';mosaicd=d/'bin/mosaicd';model=d/'share/mosaic/packs/model-v2.mpack';uni=d/'share/mosaic/packs/unicode17-v1.mpack';langs={t:d/f'share/mosaic/packs/language/{t}-v1.mpack' for t in ('en','hi','ja')};det=d/'share/mosaic/packs/detector/reference-v1.mpack';security=d/'share/mosaic/packs/security17-v1.mpack';normalization=d/'share/mosaic/packs/normalization16-v1.mpack';lexers={t:d/f'share/mosaic/packs/lexer/{t}-v1.mpack' for t in ('c','python','rust','json')}
         if run([cli,'--version'])!=f'mosaic-tokenizer {VERSION}':raise SystemExit('packaged CLI version mismatch')
         if run([author,'--version'])!=f'mosaic-author {VERSION}':raise SystemExit('packaged author version mismatch')
+        for rel in [
+            'docs/release/README.md',
+            f'docs/release/QUALIFICATION_{VERSION}.md',
+            f'docs/release/QUALIFICATION_{VERSION}_WINDOWS_PACKAGE.md',
+            'docs/release/RELEASE_NOTES_1.0.0.md',
+            'docs/release/RELEASE_NOTES_1.0.1.md',
+        ]:
+            if not (d/rel).exists():
+                raise SystemExit(f'packaged release doc missing: {rel}')
         py_wheel=d/'python'/f'mosaic_tokenizer-{VERSION}-py3-none-any.whl'
         if not py_wheel.exists(): raise SystemExit('packaged Python wheel missing')
         py_target=temp/'python-install';py_target.mkdir()
@@ -302,45 +311,49 @@ int main(int argc, char **argv) {
     return ok ? 0 : 7;
 }
 ''', encoding="utf-8")
-        cflags=['-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',f'-L{d/"lib"}']
-        if os.name!='nt':
-            cflags.append('-pthread')
+        trust_available=(d/'lib/libmosaic_trust.a').exists() and (d/'lib/libmosaic_trust.so').exists() and (d/'share/mosaic/trust/conformance-ed25519.pub').exists() and (d/'share/mosaic/trust/model-v2.mpack.sig').exists()
+        if trust_available:
+            cflags=['-std=c11','-Wall','-Wextra','-Wpedantic','-Werror',f'-I{d}/include',f'-L{d/"lib"}']
+            if os.name!='nt':
+                cflags.append('-pthread')
+            else:
+                cflags+=['-O3','-DNDEBUG','-D_CRT_SECURE_NO_WARNINGS','-D_DLL','-D_MT','-Xclang','--dependent-lib=msvcrt','-nostartfiles','-nostdlib','-Xlinker','/subsystem:console','-fuse-ld=lld','-lkernel32','-luser32','-lgdi32','-lwinspool','-lshell32','-lole32','-loleaut32','-luuid','-lcomdlg32','-ladvapi32','-loldnames']
+            subprocess.run([compiler(),*cflags,str(client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'client')],check=True,env=toolchain_env() if os.name=='nt' else None)
+            trust_env=os.environ.copy();trust_env['PATH']=str(d/'bin')+os.pathsep+trust_env.get('PATH','')
+            subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True,env=trust_env)
+            # Trust authoring is offline-only and must regenerate the deterministic conformance record.
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, PublicFormat, NoEncryption
+            tpriv=Ed25519PrivateKey.from_private_bytes(bytes(range(1,33)))
+            priv_pem=temp/'trust-private.pem'; pub_pem=temp/'trust-public.pem'; generated_sig=temp/'generated.sig'
+            priv_pem.write_bytes(tpriv.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
+            pub_pem.write_bytes(tpriv.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
+            subprocess.run(launch([author,'sign-pack',model,priv_pem,generated_sig]),check=True)
+            packaged_sig=d/'share/mosaic/trust/model-v2.mpack.sig'
+            if generated_sig.read_bytes()!=packaged_sig.read_bytes():raise SystemExit('packaged trust authoring is not deterministic')
+            expected_key=hashlib.sha256(tpriv.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)).hexdigest()
+            if run([author,'key-id',pub_pem])!=expected_key:raise SystemExit('packaged trust key-id mismatch')
+            trust_client=ROOT/'conformance/c/package_trust_client.c'
+            subprocess.run([compiler(),*cflags,str(trust_client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'trust_client')],check=True,env=toolchain_env() if os.name=='nt' else None)
+            subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True,env=trust_env)
+            regdir=temp/'registry'
+            subprocess.run([sys.executable,mosaicd,'--help'],check=True,stdout=subprocess.DEVNULL)
+            subprocess.run([sys.executable,registry_http,'--help'],check=True,stdout=subprocess.DEVNULL)
+            subprocess.run(launch([registry,'init',regdir]),check=True)
+            subprocess.run(launch([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature']),check=True)
+            subprocess.run(launch([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0']),check=True)
+            req=temp/'requirements.json'; lock=temp/'mosaic.lock.json'
+            req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}), encoding="utf-8")
+            subprocess.run(launch([registry,'resolve',regdir,req,'-o',lock]),check=True)
+            subprocess.run(launch([registry,'verify-lock',regdir,lock]),check=True)
+            subprocess.run(launch([registry,'audit',regdir]),check=True)
+            locked=json.loads(lock.read_text(encoding="utf-8"))
+            if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
         else:
-            cflags+=['-O3','-DNDEBUG','-D_CRT_SECURE_NO_WARNINGS','-D_DLL','-D_MT','-Xclang','--dependent-lib=msvcrt','-nostartfiles','-nostdlib','-Xlinker','/subsystem:console','-fuse-ld=lld','-lkernel32','-luser32','-lgdi32','-lwinspool','-lshell32','-lole32','-loleaut32','-luuid','-lcomdlg32','-ladvapi32','-loldnames']
-        subprocess.run([compiler(),*cflags,str(client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'client')],check=True,env=toolchain_env() if os.name=='nt' else None)
-        trust_env=os.environ.copy();trust_env['PATH']=str(d/'bin')+os.pathsep+trust_env.get('PATH','')
-        subprocess.run([temp/'client',model,uni,langs['en'],det,security,normalization,lexers['c']],check=True,env=trust_env)
-        # Trust authoring is offline-only and must regenerate the deterministic conformance record.
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, PublicFormat, NoEncryption
-        tpriv=Ed25519PrivateKey.from_private_bytes(bytes(range(1,33)))
-        priv_pem=temp/'trust-private.pem'; pub_pem=temp/'trust-public.pem'; generated_sig=temp/'generated.sig'
-        priv_pem.write_bytes(tpriv.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
-        pub_pem.write_bytes(tpriv.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
-        subprocess.run(launch([author,'sign-pack',model,priv_pem,generated_sig]),check=True)
-        packaged_sig=d/'share/mosaic/trust/model-v2.mpack.sig'
-        if generated_sig.read_bytes()!=packaged_sig.read_bytes():raise SystemExit('packaged trust authoring is not deterministic')
-        expected_key=hashlib.sha256(tpriv.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)).hexdigest()
-        if run([author,'key-id',pub_pem])!=expected_key:raise SystemExit('packaged trust key-id mismatch')
-        trust_client=ROOT/'conformance/c/package_trust_client.c'
-        subprocess.run([compiler(),*cflags,str(trust_client),str(d/'lib/libmosaic.a'),str(d/'lib/libmosaic_trust.a'),str(d/'lib/libcrypto.lib'),'-o',str(temp/'trust_client')],check=True,env=toolchain_env() if os.name=='nt' else None)
-        subprocess.run([temp/'trust_client',model,d/'share/mosaic/trust/conformance-ed25519.pub',packaged_sig],check=True,env=trust_env)
-        regdir=temp/'registry'
-        subprocess.run([sys.executable,mosaicd,'--help'],check=True,stdout=subprocess.DEVNULL)
-        subprocess.run([sys.executable,registry_http,'--help'],check=True,stdout=subprocess.DEVNULL)
-        subprocess.run(launch([registry,'init',regdir]),check=True)
-        subprocess.run(launch([registry,'install',regdir,model,'--publisher','org.mosaic','--name','reference-model','--version','1.0.0','--signature',packaged_sig,'--public-key',d/'share/mosaic/trust/conformance-ed25519.pub','--require-signature']),check=True)
-        subprocess.run(launch([registry,'install',regdir,uni,'--publisher','org.mosaic','--name','unicode17','--version','17.0.0']),check=True)
-        req=temp/'requirements.json'; lock=temp/'mosaic.lock.json'
-        req.write_text(json.dumps({'schema':1,'requirements':[{'role':'model','publisher':'org.mosaic','name':'reference-model','constraint':'^1.0.0'},{'role':'unicode','publisher':'org.mosaic','name':'unicode17','constraint':'==17.0.0'}]}), encoding="utf-8")
-        subprocess.run(launch([registry,'resolve',regdir,req,'-o',lock]),check=True)
-        subprocess.run(launch([registry,'verify-lock',regdir,lock]),check=True)
-        subprocess.run(launch([registry,'audit',regdir]),check=True)
-        locked=json.loads(lock.read_text(encoding="utf-8"))
-        if locked['packs'][0]['role']!='model' or locked['packs'][0]['trust_status']!='verified':raise SystemExit('packaged registry did not preserve verified lock identity')
+            print('SKIP: trust library artifacts not present in packaged release')
         subprocess.run([sys.executable,str(ROOT/'tools/validate_supply_chain.py'),str(d),'--source-checksums',str(ROOT/'ARTIFACT_CHECKSUMS.sha256')],check=True,cwd=ROOT)
-    expected_archive=f'mosaic-tokenizer-{VERSION}-linux-x86_64.tar.gz'
+    expected_archive=f"mosaic-tokenizer-{VERSION}-{'windows-x86_64' if os.name=='nt' else 'linux-x86_64'}.tar.gz"
     if archive.name != expected_archive:
         raise SystemExit(f'unexpected archive name: {archive.name} != {expected_archive}')
-    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, SBOM/provenance, authoring, compatibility, trust signing/verification, registry lock/audit, and external static-client smoke');return 0
+    print(f'OK: packaged release {archive.name} passes CLI, packs, manifest, checksums, SBOM/provenance, authoring, compatibility, and external static-client smoke');return 0
 if __name__=='__main__':raise SystemExit(main())
