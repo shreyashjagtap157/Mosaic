@@ -11,6 +11,7 @@ from ._ffi import (
     CLexToken, CNormalizedView, CObserverConfig, CRange, CRuntimeLimits, CRuntimeMetrics, CSecurityFinding,
     CSpanRoute, CToken, CTokenDocumentInfo, CTokenDocumentOptions, CTokenizerCapabilities, ObserverCallback, load_library,
 )
+from .service import MosaicdClient, MosaicdClientError
 
 __version__ = "0.1.3.0"
 
@@ -412,4 +413,5 @@ __all__ = [
     "TOKEN_DOCUMENT_MODEL", "TOKEN_DOCUMENT_GRAPHEMES", "TOKEN_DOCUMENT_SECURITY", "TOKEN_DOCUMENT_NORMALIZATION",
     "TOKEN_DOCUMENT_LEXICAL", "TOKEN_DOCUMENT_SEMANTIC", "NORMALIZE_PRESERVE", "NORMALIZE_NFD", "NORMALIZE_NFC",
     "NORMALIZE_NFKD", "NORMALIZE_NFKC", "NORMALIZE_NFKC_CASEFOLD", "OBSERVE_SUCCESS", "OBSERVE_FAILURE", "OBSERVE_RESOURCE",
+    "MosaicdClient", "MosaicdClientError",
 ]
