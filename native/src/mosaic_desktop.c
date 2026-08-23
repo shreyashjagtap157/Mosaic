@@ -160,12 +160,22 @@ static SourceKind source_kind_from_path(const char *path) {
     return (path && *path && path_exists_dir(path)) ? SOURCE_KIND_FOLDER : SOURCE_KIND_FILE;
 }
 
+static void update_source_browse_caption(AppState *state) {
+    if (!state) return;
+    if (state->source_kind == SOURCE_KIND_FOLDER) {
+        SetWindowTextA(GetDlgItem(state->hwnd, ID_LOAD_INPUT), "Browse folder");
+    } else {
+        SetWindowTextA(GetDlgItem(state->hwnd, ID_LOAD_INPUT), "Browse file");
+    }
+}
+
 static void sync_source_kind_controls(AppState *state, const char *path) {
     if (!state) return;
     state->source_kind = source_kind_from_path(path);
     if (state->source_combo) {
         SendMessageA(state->source_combo, CB_SETCURSEL, (WPARAM)state->source_kind, 0);
     }
+    update_source_browse_caption(state);
 }
 
 static void set_input_path(AppState *state, const char *path) {
@@ -853,6 +863,13 @@ static void set_output_for_input(AppState *state, const char *input_path, const 
     if (!state || !input_path || !*input_path) return;
     suggest_output_from_input(input_path, state->output_path, sizeof(state->output_path), suffix);
     set_output_path_auto(state, state->output_path);
+}
+
+static void apply_selected_source_path(AppState *state, const char *path) {
+    if (!state || !path || !*path) return;
+    set_input_path(state, path);
+    set_output_for_input(state, path, ".mzc");
+    update_source_browse_caption(state);
 }
 
 static int path_exists_dir(const char *path) {
@@ -1665,6 +1682,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         ui_theme_common(state->archive_list);
         ui_theme_common(state->log_edit);
         archive_list_init(state->archive_list);
+        update_source_browse_caption(state);
         DragAcceptFiles(hwnd, TRUE);
         log_append(state->log_edit, "Mosaic Desktop ready.");
         log_append(state->log_edit, "Uses Windows Compression API for file compression.");
@@ -1678,16 +1696,16 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             if (state->source_kind == SOURCE_KIND_FOLDER) {
                 if (folder_dialog_open(hwnd, path, sizeof(path))) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 1, 0);
-                    set_input_path(state, path);
-                    set_output_for_input(state, path, ".mzc");
+                    state->source_kind = SOURCE_KIND_FOLDER;
+                    apply_selected_source_path(state, path);
                     log_append(state->log_edit, "Folder selected.");
                     set_status(state, "Folder loaded");
                 }
             } else {
                 if (file_dialog_open(hwnd, path, sizeof(path), NULL)) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
-                    set_input_path(state, path);
-                    set_output_for_input(state, path, ".mzc");
+                    state->source_kind = SOURCE_KIND_FILE;
+                    apply_selected_source_path(state, path);
                     log_append(state->log_edit, "Input selected.");
                     set_status(state, "Input loaded");
                 }
@@ -1706,6 +1724,12 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         }
         case ID_SOURCE_KIND:
             state->source_kind = (SourceKind)SendMessageA(state->source_combo, CB_GETCURSEL, 0, 0);
+            update_source_browse_caption(state);
+            if (state->input_path[0] && !path_exists_dir(state->input_path) && state->source_kind == SOURCE_KIND_FOLDER) {
+                set_status(state, "Folder mode selected");
+            } else if (state->input_path[0] && path_exists_dir(state->input_path) && state->source_kind == SOURCE_KIND_FILE) {
+                set_status(state, "File mode selected");
+            }
             log_append(state->log_edit, state->source_kind == SOURCE_KIND_FOLDER ? "Folder mode selected." : "File mode selected.");
             return 0;
         case ID_MODE_COMBO:
