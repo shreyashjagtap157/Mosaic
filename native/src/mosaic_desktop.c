@@ -27,6 +27,7 @@
 #define ID_VERIFY_CHECK 1013
 #define ID_MODE_COMBO 1015
 #define ID_INSPECT 1016
+#define ID_TEST 1017
 
 #define APP_BG RGB(247, 249, 252)
 #define CARD_BG RGB(255, 255, 255)
@@ -245,20 +246,21 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
     (void)archive_path;
 }
 
-static void inspect_selected_archive(AppState *state) {
+static int load_selected_archive(AppState *state, char **archive_path_out, MosaicEntry **entries_out, size_t *entry_count_out, char *error_buf, size_t error_cap) {
     char *input_path = NULL;
     char *output_path = NULL;
-    size_t in_len = 0;
-    size_t out_len = 0;
+    size_t in_len = 0, out_len = 0;
     uint8_t *input = NULL, *output = NULL;
     MosaicEntry *entries = NULL;
     size_t entry_count = 0;
     char root_name[MAX_PATH];
-    char errbuf[160];
     MosaicArchiveHeader header;
+    if (archive_path_out) *archive_path_out = NULL;
+    if (entries_out) *entries_out = NULL;
+    if (entry_count_out) *entry_count_out = 0;
     if (!state || !get_window_text_alloc(state->output_edit, &output_path, &out_len)) {
-        log_append(state->log_edit, "Read paths failed.");
-        goto done;
+        snprintf(error_buf, error_cap, "read paths failed");
+        goto fail;
     }
     if (output_path[0] && read_file(output_path, &input, &in_len) && in_len >= sizeof(header)) {
         input_path = output_path;
@@ -270,35 +272,73 @@ static void inspect_selected_archive(AppState *state) {
         free(output_path);
         output_path = NULL;
         if (!get_window_text_alloc(state->input_edit, &input_path, &in_len)) {
-            log_append(state->log_edit, "Read paths failed.");
-            goto done;
+            snprintf(error_buf, error_cap, "read paths failed");
+            goto fail;
         }
         if (!read_file(input_path, &input, &in_len) || in_len < sizeof(header)) {
-            log_append(state->log_edit, "Could not read archive.");
-            goto done;
+            snprintf(error_buf, error_cap, "could not read archive");
+            goto fail;
         }
     }
     if (in_len < sizeof(header)) {
-        log_append(state->log_edit, "Could not read archive.");
-        goto done;
+        snprintf(error_buf, error_cap, "could not read archive");
+        goto fail;
     }
     memcpy(&header, input, sizeof(header));
     if (header.magic != 0x31434D5A || header.version != 1 || header.compressed_size + sizeof(header) != in_len) {
-        log_append(state->log_edit, "Not a Mosaic archive.");
-        goto done;
+        snprintf(error_buf, error_cap, "not a Mosaic archive");
+        goto fail;
     }
     if (!decompress_blob_exact(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output, NULL)) {
-        log_append(state->log_edit, "Decompression failed.");
-        goto done;
+        snprintf(error_buf, error_cap, "decompression failed");
+        goto fail;
     }
-    if (!parse_archive_v2(output, (size_t)header.original_size, root_name, sizeof(root_name), &entries, &entry_count, errbuf, sizeof(errbuf))) {
+    if (!parse_archive_v2(output, (size_t)header.original_size, root_name, sizeof(root_name), &entries, &entry_count, error_buf, error_cap)) {
+        goto fail;
+    }
+    if (archive_path_out) {
+        *archive_path_out = input_path;
+        input_path = NULL;
+    }
+    if (entries_out) {
+        *entries_out = entries;
+        entries = NULL;
+    }
+    if (entry_count_out) *entry_count_out = entry_count;
+    free(output);
+    free(input);
+    free(output_path);
+    free(input_path);
+    if (entries) {
+        for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+        free(entries);
+    }
+    return 1;
+fail:
+    if (entries) {
+        for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
+        free(entries);
+    }
+    free(output);
+    free(input);
+    free(output_path);
+    free(input_path);
+    return 0;
+}
+
+static void inspect_selected_archive(AppState *state) {
+    char *archive_path = NULL;
+    MosaicEntry *entries = NULL;
+    size_t entry_count = 0;
+    char errbuf[160];
+    if (!load_selected_archive(state, &archive_path, &entries, &entry_count, errbuf, sizeof(errbuf))) {
         log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
         goto done;
     }
-    archive_list_add_entries(state->archive_list, input_path, entries, entry_count);
+    archive_list_add_entries(state->archive_list, archive_path, entries, entry_count);
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries, no embedded timestamps)", input_path, (unsigned long)entry_count);
+        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries, no embedded timestamps)", archive_path, (unsigned long)entry_count);
         log_append(state->log_edit, line);
     }
     set_status(state, "Archive inspected");
@@ -307,10 +347,25 @@ done:
         for (size_t i = 0; i < entry_count; ++i) free(entries[i].bytes);
         free(entries);
     }
-    free(input);
-    free(output);
-    free(input_path);
-    free(output_path);
+    free(archive_path);
+}
+
+static void test_selected_archive(AppState *state) {
+    char *archive_path = NULL;
+    size_t entry_count = 0;
+    char errbuf[160];
+    if (!load_selected_archive(state, &archive_path, NULL, &entry_count, errbuf, sizeof(errbuf))) {
+        log_append(state->log_edit, errbuf[0] ? errbuf : "Not a Mosaic archive.");
+        free(archive_path);
+        return;
+    }
+    {
+        char line[256];
+        _snprintf(line, sizeof(line), "Tested archive %s (%lu entries)", archive_path, (unsigned long)entry_count);
+        log_append(state->log_edit, line);
+    }
+    set_status(state, "Archive test passed");
+    free(archive_path);
 }
 
 static void archive_list_init(HWND list) {
@@ -1337,6 +1392,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state->verify_check = CreateWindowA("BUTTON", "Verify after archive", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0, 0, 0, 0, hwnd, (HMENU)ID_VERIFY_CHECK, NULL, NULL);
         SendMessageA(state->verify_check, BM_SETCHECK, BST_CHECKED, 0);
         state->inspect_button = CreateWindowA("BUTTON", "Inspect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_INSPECT, NULL, NULL);
+        CreateWindowA("BUTTON", "Test", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_TEST, NULL, NULL);
         state->safety_note = CreateWindowA("STATIC", "Source deletion is disabled in this build.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
         state->archive_list = CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "", WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS, 0, 0, 0, 0, hwnd, NULL, NULL, NULL);
         CreateWindowA("BUTTON", "Archive", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)ID_COMPRESS, NULL, NULL);
@@ -1415,6 +1471,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             state->verify_after = (IsDlgButtonChecked(hwnd, ID_VERIFY_CHECK) == BST_CHECKED);
             return 0;
         case ID_INSPECT: inspect_selected_archive(state); return 0;
+        case ID_TEST: test_selected_archive(state); return 0;
         case ID_COMPRESS: compress_selected(state); return 0;
         case ID_DECOMPRESS: decompress_selected(state); return 0;
         case ID_CLEAR: SetWindowTextA(state->log_edit, ""); set_status(state, "Ready"); return 0;
