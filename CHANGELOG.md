@@ -13,6 +13,7 @@
 - make the low-memory `mosaicd` profile observable in startup and metrics metadata, and document it in the support matrix and integration guide;
 - expose the `mosaicd` service profile through `GET /v1/version` so embedders can detect constrained-mode ceilings without a metrics-only probe;
 - add a machine-readable `GET /v1/config` endpoint to `mosaicd` so embedders and ops tooling can query the active service ceilings directly;
+- add `mosaicd --print-config` so automation can capture the resolved service profile without starting the HTTP server;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;

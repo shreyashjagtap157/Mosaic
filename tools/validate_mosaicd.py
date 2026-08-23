@@ -31,6 +31,17 @@ def request(url: str, *, method="GET", value=None, token=None):
         return e.code, json.loads(e.read())
 
 
+def run_print_config(model: Path, unicode: Path, library: Path, *, low_memory: bool = False) -> dict:
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        command = [sys.executable, str(ROOT / "tools" / "mosaicd.py"), "--model", str(model), "--unicode", str(unicode), "--library", str(library), "--print-config"]
+        if low_memory:
+            command.insert(-1, "--low-memory")
+        raw = subprocess.check_output(command, cwd=ROOT, text=True)
+    return json.loads(raw)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--build-dir", type=Path, default=ROOT / "build" / "preset-core-release")
@@ -48,9 +59,15 @@ def main() -> int:
         for lang in languages:
             t.add_language(lang)
         t.set_detector(detector).set_security(security).seal()
+        printed = run_print_config(model, unicode, libs[0])
+        if printed["service_profile"]["low_memory"] is not False or printed["service_profile"]["max_concurrency"] != 32:
+            raise SystemExit("print-config default profile failed")
         low = ServiceConfig.low_memory()
         if (low.low_memory_mode, low.executor_workers, low.executor_queue, low.max_batch_items, low.max_stream_sessions) != (True, 1, 8, 256, 32):
             raise SystemExit("low-memory service preset changed unexpectedly")
+        low_printed = run_print_config(model, unicode, libs[0], low_memory=True)
+        if low_printed["service_profile"]["low_memory"] is not True or low_printed["service_profile"]["max_concurrency"] != 4:
+            raise SystemExit("print-config low-memory profile failed")
         server = build_server(t, ServiceConfig(port=0, bearer_token="secret", max_request_bytes=1024, max_decode_ids=4096, max_concurrency=1, max_batch_items=8, max_batch_bytes=512, executor_workers=2, executor_queue=8, max_stream_sessions=2, stream_pending_bytes=128, stream_idle_seconds=30.0))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

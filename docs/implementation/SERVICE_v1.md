@@ -12,6 +12,7 @@
 - request bodies are never written to service logs by default.
 - `GET /v1/version` includes a `service_profile` object so callers can detect whether the service is running in low-memory mode and what ceilings were selected.
 - `GET /v1/config` returns the active service profile and concrete ceilings in a machine-readable form for embedders and ops tooling.
+- `mosaicd --print-config` writes the same resolved configuration to stdout and exits without starting the server.
 
 ## Endpoints
 

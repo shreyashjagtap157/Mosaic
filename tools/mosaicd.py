@@ -493,6 +493,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--stream-pending-bytes", type=int, default=1 << 20)
     p.add_argument("--stream-idle-seconds", type=float, default=300.0)
     p.add_argument("--low-memory", action="store_true", help="use conservative service defaults for constrained desktops")
+    p.add_argument("--print-config", action="store_true", help="print the resolved service configuration as JSON and exit")
     p.add_argument("--bearer-token", default=os.environ.get("MOSAICD_BEARER_TOKEN"))
     p.add_argument("--tls-cert", type=Path)
     p.add_argument("--tls-key", type=Path)
@@ -524,6 +525,7 @@ def main() -> int:
         cfg = ServiceConfig(
             host=a.host,
             port=a.port,
+            low_memory_mode=a.low_memory,
             max_request_bytes=defaults.max_request_bytes if a.low_memory else a.max_request_bytes,
             max_decode_ids=defaults.max_decode_ids if a.low_memory else a.max_decode_ids,
             max_concurrency=defaults.max_concurrency if a.low_memory else a.max_concurrency,
@@ -537,6 +539,25 @@ def main() -> int:
             stream_pending_bytes=defaults.stream_pending_bytes if a.low_memory else a.stream_pending_bytes,
             stream_idle_seconds=defaults.stream_idle_seconds if a.low_memory else a.stream_idle_seconds,
         )
+        if a.print_config:
+            print(json.dumps({
+                "host": cfg.host,
+                "port": cfg.port,
+                "service_profile": {
+                    "low_memory": cfg.low_memory_mode,
+                    "executor_workers": cfg.executor_workers,
+                    "executor_queue": cfg.executor_queue,
+                    "max_concurrency": cfg.max_concurrency,
+                    "max_request_bytes": cfg.max_request_bytes,
+                    "max_decode_ids": cfg.max_decode_ids,
+                    "max_batch_items": cfg.max_batch_items,
+                    "max_batch_bytes": cfg.max_batch_bytes,
+                    "max_stream_sessions": cfg.max_stream_sessions,
+                    "stream_pending_bytes": cfg.stream_pending_bytes,
+                    "stream_idle_seconds": cfg.stream_idle_seconds,
+                },
+            }, sort_keys=True), flush=True)
+            return 0
         server = build_server(t, cfg)
         if a.tls_cert:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
