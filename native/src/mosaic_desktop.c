@@ -120,6 +120,7 @@ static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input
 static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes, DWORD *error_out);
 static int path_exists_dir(const char *path);
 static int path_exists_file(const char *path);
+static void set_output_for_input(AppState *state, const char *input_path, const char *suffix);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
 static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len);
 static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len);
@@ -161,6 +162,9 @@ static void set_input_path(AppState *state, const char *path) {
     state->input_path[sizeof(state->input_path) - 1] = '\0';
     set_text(state->input_edit, state->input_path);
     sync_source_kind_controls(state, state->input_path);
+    if (state->input_path[0] && state->output_edit && GetWindowTextLengthA(state->output_edit) == 0) {
+        set_output_for_input(state, state->input_path, ".mzc");
+    }
 }
 
 static void set_output_path(AppState *state, const char *path) {
