@@ -77,6 +77,7 @@ For another agent, service, or automation pipeline:
 - preconfigure packs and seal the tokenizer during startup;
 - use the batch executor for independent inputs and the streaming APIs for progressive work;
 - use `mosaicd --print-config` or `GET /v1/config` when you need the resolved service profile for automation or host-adaptive launch decisions;
+- use `GET /openapi.json` when you want a compact machine-readable service contract for launchers or agents;
 - surface resource-limit responses as explicit, user-visible operational outcomes.
 
 ## What not to assume

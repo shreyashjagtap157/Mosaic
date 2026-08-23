@@ -273,6 +273,7 @@ If you are embedding Mosaic into another agent, app, or service:
 - use the runtime limits API or the low-memory defaults for constrained desktops;
 - pass `--low-memory` to `mosaicd` when you want the service wrapper to advertise and apply a constrained-desktop profile automatically;
 - use `mosaicd --print-config` or `GET /v1/config` when a launcher, agent, or ops script needs the resolved service profile without guessing defaults;
+- use `GET /openapi.json` when a tool can consume the service contract as machine-readable metadata;
 - treat all returned buffers as owned by Mosaic until released with `mosaic_free()` or the Python wrapper equivalent;
 - prefer streaming APIs when you do not need the entire result materialized at once;
 - treat `MOSAIC_ERROR_RESOURCE_LIMIT` as a normal, expected failure mode for bounded environments.

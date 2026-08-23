@@ -33,6 +33,7 @@ This matrix summarizes the current support boundary as reflected by repository e
 | Desktop consumer app | Supported on Windows through the installer | Intended for end users and quick verification |
 | Agent/service embedding | Supported as a documented integration pattern | Prefer the C ABI or Python wrapper depending on host |
 | `mosaicd --low-memory` | Supported and observable | Advertises constrained-desktop profile metadata and lowers service ceilings |
+| `GET /openapi.json` | Supported | Machine-readable service schema for launchers, agents, and ops tooling |
 
 ## Resource profile guidance
 

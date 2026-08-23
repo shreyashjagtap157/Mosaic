@@ -16,6 +16,7 @@
 - add `mosaicd --print-config` so automation can capture the resolved service profile without starting the HTTP server;
 - document the config-discovery path in the integration guide and top-level embedding contract so other tools can find the resolved service profile without guessing defaults;
 - add a compact unauthenticated `GET /openapi.json` service schema so launchers and agents can discover the `mosaicd` contract machine-readably;
+- document the service schema endpoint in the integration guide, support matrix, and README so embedders can find it alongside the config-discovery endpoints;
 - add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;
