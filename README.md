@@ -258,7 +258,7 @@ Stable Rust remains the intended primary implementation language. The local Wind
 
 The tokenizer itself has a mature native byte/Unicode/model/language-pack execution path, but product stability is intentionally evidence-gated under `docs/VERSIONING_POLICY.md`. The broader universal processing platform continues under the converged milestone model, and no post-tournament product wedge is selected by preference alone.
 
-See `docs/implementation/STATUS.md`, `docs/implementation/SUPPORT_MATRIX.md`, `docs/implementation/COMPATIBILITY_0.6.md`, and the latest release qualification evidence for the exact implemented/not-implemented boundary.
+See `docs/implementation/STATUS.md`, `docs/implementation/SUPPORT_MATRIX.md`, `docs/implementation/CURRENT_VS_ROADMAP.md`, `docs/implementation/COMPATIBILITY_0.6.md`, and the latest release qualification evidence for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.
 

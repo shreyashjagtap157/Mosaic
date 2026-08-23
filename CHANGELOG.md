@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add a current-versus-roadmap capability table that cleanly separates shipped behavior from research and external qualification work;
 - add a concrete support matrix that spells out the qualified platform boundary, runtime surfaces, and resource-profile guidance;
 - add a single integration guide that covers native C, Python, desktop, agent, and service embedding patterns;
 - expand the Windows install tree and installer packaging so the staged app now includes the main CLI, desktop self-test, comparison harness, public headers, shared/runtime binaries, release docs, and reference packs;
