@@ -214,6 +214,7 @@ static void archive_list_clear(HWND list) {
 
 static void archive_list_add_entries(HWND list, const char *archive_path, MosaicEntry *entries, size_t count) {
     char size_buf[64];
+    char ratio_buf[32];
     char kind_buf[32];
     LVITEMA item;
     int i;
@@ -227,6 +228,7 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
         SendMessageA(list, LVM_INSERTITEMA, 0, (LPARAM)&item);
         _snprintf(kind_buf, sizeof(kind_buf), "%s", entries[i].is_dir ? "Folder" : "File");
         _snprintf(size_buf, sizeof(size_buf), "%lu", (unsigned long)entries[i].size);
+        _snprintf(ratio_buf, sizeof(ratio_buf), "%s", entries[i].is_dir ? "-" : "n/a");
         ZeroMemory(&item, sizeof(item));
         item.iSubItem = 1;
         item.pszText = kind_buf;
@@ -234,6 +236,10 @@ static void archive_list_add_entries(HWND list, const char *archive_path, Mosaic
         ZeroMemory(&item, sizeof(item));
         item.iSubItem = 2;
         item.pszText = size_buf;
+        SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
+        ZeroMemory(&item, sizeof(item));
+        item.iSubItem = 3;
+        item.pszText = ratio_buf;
         SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)i, (LPARAM)&item);
     }
     (void)archive_path;
@@ -272,7 +278,7 @@ static void inspect_selected_archive(AppState *state) {
     archive_list_add_entries(state->archive_list, input_path, entries, entry_count);
     {
         char line[256];
-        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries)", input_path, (unsigned long)entry_count);
+        _snprintf(line, sizeof(line), "Inspected archive %s (%lu entries, no embedded timestamps)", input_path, (unsigned long)entry_count);
         log_append(state->log_edit, line);
     }
     set_status(state, "Archive inspected");
@@ -300,6 +306,9 @@ static void archive_list_init(HWND list) {
     col.cx = 90;
     col.pszText = "Size";
     ListView_InsertColumn(list, 2, &col);
+    col.cx = 90;
+    col.pszText = "Ratio";
+    ListView_InsertColumn(list, 3, &col);
 }
 
 static void ui_layout(HWND hwnd, AppState *state) {
@@ -363,7 +372,7 @@ static void paint_ui(HWND hwnd, HDC hdc) {
     draw_section_label(hdc, 580, 116, "Compression profile");
     draw_section_label(hdc, 580, 176, "Compression level");
     draw_section_label(hdc, 580, 230, "Safety note");
-    draw_section_label(hdc, 580, 324, "Archive browser");
+    draw_section_label(hdc, 580, 300, "Archive browser");
 }
 
 static void draw_card(HDC hdc, const RECT *rc) {
