@@ -21,6 +21,8 @@ Date: 2026-08-08
 - source structural validators: PASS;
 - release archive and Python wheel reproducibility: finalized by clean release build below;
 - SBOM/provenance/checksum and clean-extraction external-consumer validation: finalized by clean release build below.
+- low-memory native smoke + benchmark path: PASS via `mosaic-low-memory-smoke` and `mosaic-low-memory-bench`;
+- constrained-desktop benchmark manifest example: present at `benches/low_memory_4gb.toml`.
 
 ## Explicit external gates not executable in this sandbox
 
@@ -38,3 +40,5 @@ These gates remain declared in CI. They are not represented as passed. The packa
 - bounded nightly fuzz smoke on `fuzz_source_bytes`, `fuzz_pack_header`, `fuzz_pack_v1`, and `fuzz_dfa`: PASS via `tools/validate_fuzz.py`.
 
 The local release-readiness tooling now also exposes a fast deferred-Miri lane via `make release-readiness-fast` or `python tools/validate_release_readiness.py --skip-miri --skip-package` for incremental release work. That convenience path is not a substitute for the full Miri-backed qualification record above.
+
+The constrained-desktop evidence above is local and repeatable, but it is still not a substitute for the external hardware qualification gates listed in `docs/implementation/EXTERNAL_QUALIFICATION.md`.
