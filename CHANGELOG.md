@@ -7,6 +7,7 @@
 - add native low-memory smoke and benchmark coverage in the build and test runners, plus tests covering the constrained profile and improve binding-path resolution for local integration use;
 - add a constrained low-memory benchmark manifest example and tighten the reference-hardware policy for 4 GB-class desktops;
 - add a low-memory profile validator and refresh the source-identity checksum manifest to cover the new constrained benchmark evidence path;
+- add a low-memory profile runner that executes the benchmark and writes a filled constrained record into an ignored results folder;
 - record the space-grade completion plan/spec in-repo so remaining work stays explicit and measurable.
 
 ## 0.1.3.0 — 2026-08-10
