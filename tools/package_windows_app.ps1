@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
+Get-ChildItem -Force $StageDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 cmake --build $BuildDir --config $Config --target mosaic_shared mosaic-desktop mosaic-desktop-selftest mosaic-tokenizer mosaic-compress-compare
 cmake --install $BuildDir --config $Config --prefix $StageDir

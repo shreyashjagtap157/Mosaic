@@ -10,3 +10,4 @@ Product release artifacts use the canonical four-part `S.M.N.P` version from the
 The constrained-desktop evidence path is separately maintained through `tools/run_low_memory_profile.py`, the `make low-memory-profile` convenience target, and the bounded manifest example under `benches/low_memory_4gb.toml`.
 The companion host-metadata capture path is `tools/record_machine_profile.py` or `make low-memory-machine-profile`; use it to record the benchmark machine record fields called out in `docs/implementation/REFERENCE_HARDWARE.md`.
 The one-step bundle capture path is `tools/run_low_memory_evidence.py` or `make low-memory-evidence`; use it when you want the host profile and benchmark record produced together under `benches/low_memory_4gb.runs/`.
+Windows desktop packaging is maintained by `tools/package_windows_app.ps1`, which stages the install tree, cleans stale staged files, and emits the Inno Setup installer `dist/windows/MosaicCompressorSetup-<version>-x64.exe`.
