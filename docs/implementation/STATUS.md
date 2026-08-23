@@ -73,3 +73,18 @@ A failure during this candidate period increments only the fourth product-versio
 - very large community language/profile catalogs;
 - optional scanner VM if real compiler profiles prove declarative lexing insufficient;
 - additional managed-language bindings and distributed registry adapters.
+
+## Archive subsystem direction
+
+Mosaic's archive-product work is now defined as a single integrated subsystem rather than disconnected desktop features. The current repository state only establishes the product boundary, not the engine itself.
+
+Planned archive capabilities:
+
+- archive creation and extraction;
+- add/remove/update archive entries;
+- compression profiles from `store` through `ultra`;
+- integrity testing and bounded repair;
+- SFX or equivalent launchable packaging;
+- desktop UI, CLI, bindings, and installer backed by the same core engine.
+
+This direction is documented in `docs/spec/ARCHIVE_PRODUCT_SPEC.md` and `docs/implementation/ARCHIVE_PRODUCT_PLAN.md`.

@@ -15,6 +15,7 @@ This table separates current shipped capability from planned or research-stage w
 | Windows desktop delivery | Installer packaging for the desktop compressor, self-test, tokenizer CLI, comparison harness, shared runtime binaries, packs, and release docs |
 | Low-resource operation | Explicit low-memory defaults, streaming-first guidance, bounded queues, and resource-limit handling |
 | Embedding guidance | Unified integration guide for C, Python, desktop, agent, and service consumers |
+| Archive product planning | Single-system archive product spec and implementation plan now defined; engine work remains to be built |
 
 ## Roadmap
 
@@ -30,6 +31,7 @@ This table separates current shipped capability from planned or research-stage w
 | Learned statistical span classifiers | Research only |
 | Very large community pack catalogs | Research only |
 | Scanner VM | Research only |
+| Archive engine and desktop archive manager | Planned new subsystem; not yet implemented |
 
 ## Reading rule
 
