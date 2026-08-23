@@ -13,7 +13,7 @@ All buffers returned by Mosaic are copied into immutable Python values before `m
 
 ## Surface
 
-0.25 exposes integrated tokenizer pack attachment, exact encode/decode and token spans, automatic language routing, grapheme/security/normalization/lexer views, TokenDocument creation and cold serialization, runtime limits/sealing/metrics, bounded batch execution, and the metadata-only observer.
+0.25 exposes integrated tokenizer pack attachment, exact encode/decode and token spans, automatic language routing, grapheme/security/normalization/lexer views, TokenDocument creation and cold serialization, runtime limits/sealing/metrics, bounded batch execution, the metadata-only observer, and the packaged `MosaicdClient` helper for HTTP service embedding.
 
 For constrained desktops, the binding now exposes explicit low-memory helpers: `Tokenizer.set_low_memory_limits()` and `BatchExecutor.low_memory()`. These map to the native low-resource defaults and are intended for 4 GB-class personal machines or similar bounded environments.
 
@@ -22,6 +22,8 @@ Observer callbacks are retained strongly for the tokenizer lifetime. Exceptions 
 ## Distribution
 
 The binding builds as a deterministic pure-Python wheel. The wheel intentionally does not bundle a second native runtime. The Mosaic release tarball ships the wheel beside the qualified `libmosaic` artifact, keeping one native implementation and one ABI.
+
+The wheel also exports `MosaicdClient` and `MosaicdClientError` from `mosaic.service` so downstream apps can use the HTTP service wrapper without reimplementing request plumbing.
 
 ## Stateful online streaming
 
