@@ -17,7 +17,7 @@ All four fields are non-negative decimal integers without leading zero padding. 
 
 ## Current line
 
-The current cumulative candidate is `0.1.3.4`.
+The current cumulative candidate is `0.1.3.5`.
 
 The `0` stability generation is intentional: Linux qualification was strong, but real Windows qualification subsequently exposed portability defects. Mosaic will not claim the first stable generation merely because a feature-complete build exists. The first component advances to `1` only after the declared stable qualification gates are satisfied.
 

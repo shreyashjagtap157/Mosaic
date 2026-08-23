@@ -115,7 +115,7 @@ static int append_entry(MosaicEntry **entries, size_t *count, size_t *cap, const
 static int collect_folder_entries(const char *root, const char *rel, MosaicEntry **entries, size_t *count, size_t *cap);
 static int serialize_entries(const MosaicEntry *entries, size_t count, const char *root_name, uint8_t **out, size_t *out_len);
 static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, uint8_t **out_bytes, size_t *out_len);
-static DWORD decompress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes);
+static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes, DWORD *error_out);
 static uint32_t crc32_bytes(const uint8_t *data, size_t len);
 static int utf8_from_wide(const wchar_t *input, char **out_text);
 static int write_archive_v2(const char *source_path, int is_folder, DWORD algorithm, uint8_t **archive_blob, size_t *archive_blob_len, size_t *serialized_len_out, char *error_buf, size_t error_cap);
@@ -133,6 +133,35 @@ static void set_text(HWND edit, const char *text) { SetWindowTextA(edit, text ? 
 
 static void set_status(AppState *state, const char *text) {
     if (state && state->status) SetWindowTextA(state->status, text ? text : "");
+}
+
+static void set_input_path(AppState *state, const char *path) {
+    if (!state) return;
+    strncpy(state->input_path, path ? path : "", sizeof(state->input_path) - 1);
+    state->input_path[sizeof(state->input_path) - 1] = '\0';
+    set_text(state->input_edit, state->input_path);
+}
+
+static void set_output_path(AppState *state, const char *path) {
+    if (!state) return;
+    strncpy(state->output_path, path ? path : "", sizeof(state->output_path) - 1);
+    state->output_path[sizeof(state->output_path) - 1] = '\0';
+    set_text(state->output_edit, state->output_path);
+}
+
+static int utf8_to_wide_alloc(const char *input, wchar_t **out_text) {
+    int need;
+    if (!input || !out_text) return 0;
+    need = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input, -1, NULL, 0);
+    if (need <= 0) return 0;
+    *out_text = (wchar_t *)malloc((size_t)need * sizeof(wchar_t));
+    if (!*out_text) return 0;
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input, -1, *out_text, need)) {
+        free(*out_text);
+        *out_text = NULL;
+        return 0;
+    }
+    return 1;
 }
 
 static void ui_init(HWND hwnd) {
@@ -259,7 +288,11 @@ static int get_window_text_alloc(HWND hwnd, char **out_text, size_t *out_len) {
 }
 
 static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len) {
-    FILE *f = fopen(path, "rb");
+    FILE *f = NULL;
+    wchar_t *wide = NULL;
+    if (!utf8_to_wide_alloc(path, &wide)) return 0;
+    f = _wfopen(wide, L"rb");
+    free(wide);
     if (!f) return 0;
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return 0; }
     long n = ftell(f);
@@ -275,7 +308,11 @@ static int read_file(const char *path, uint8_t **out_bytes, size_t *out_len) {
 }
 
 static int write_file(const char *path, const uint8_t *bytes, size_t len) {
-    FILE *f = fopen(path, "wb");
+    FILE *f = NULL;
+    wchar_t *wide = NULL;
+    if (!utf8_to_wide_alloc(path, &wide)) return 0;
+    f = _wfopen(wide, L"wb");
+    free(wide);
     if (!f) return 0;
     int ok = !len || fwrite(bytes, 1, len, f) == len;
     fclose(f);
@@ -320,7 +357,7 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
     }
     if (folder_mode) {
         dlg->lpVtbl->GetOptions(dlg, &opts);
-        dlg->lpVtbl->SetOptions(dlg, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        dlg->lpVtbl->SetOptions(dlg, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOVALIDATE);
     } else if (save_mode) {
         dlg->lpVtbl->GetOptions(dlg, &opts);
         dlg->lpVtbl->SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_OVERWRITEPROMPT);
@@ -746,7 +783,7 @@ static int verify_archive_roundtrip(const char *source_path, int is_folder, cons
         snprintf(error_buf, error_cap, "verify algorithm mismatch");
         goto done;
     }
-    if (!decompress_buffer(header.algorithm, archive + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &payload)) {
+    if (!decompress_blob_exact(header.algorithm, archive + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &payload, NULL)) {
         snprintf(error_buf, error_cap, "verify decompress failed");
         goto done;
     }
@@ -848,21 +885,35 @@ static DWORD compress_buffer(DWORD algorithm, const uint8_t *input, size_t input
     return err;
 }
 
-static DWORD decompress_buffer(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes) {
+static int decompress_blob_exact(DWORD algorithm, const uint8_t *input, size_t input_len, size_t output_len, uint8_t **out_bytes, DWORD *error_out) {
     DECOMPRESSOR_HANDLE handle = NULL;
-    if (!CreateDecompressor(algorithm, NULL, &handle)) return GetLastError();
-    uint8_t *buf = (uint8_t *)malloc(output_len ? output_len : 1u);
-    if (!buf) { CloseDecompressor(handle); return ERROR_OUTOFMEMORY; }
+    uint8_t *buf = NULL;
     SIZE_T written = 0;
+    DWORD err = ERROR_SUCCESS;
+    if (error_out) *error_out = ERROR_SUCCESS;
+    if (!CreateDecompressor(algorithm, NULL, &handle)) {
+        err = GetLastError();
+        if (error_out) *error_out = err;
+        return 0;
+    }
+    buf = (uint8_t *)malloc(output_len ? output_len : 1u);
+    if (!buf) {
+        CloseDecompressor(handle);
+        err = ERROR_OUTOFMEMORY;
+        if (error_out) *error_out = err;
+        return 0;
+    }
     if (!Decompress(handle, input, (SIZE_T)input_len, buf, (SIZE_T)output_len, &written)) {
-        DWORD err = GetLastError();
+        err = GetLastError();
         free(buf);
         CloseDecompressor(handle);
-        return err;
+        if (error_out) *error_out = err;
+        return 0;
     }
     CloseDecompressor(handle);
     *out_bytes = buf;
-    return ERROR_SUCCESS;
+    if (error_out) *error_out = ERROR_SUCCESS;
+    return 1;
 }
 
 static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, size_t error_cap);
@@ -907,7 +958,7 @@ static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, si
     DWORD err = ERROR_SUCCESS;
     if (!cfg || !cfg->input_path || !cfg->archive_path || !cfg->output_path) return 0;
     if (!read_file(cfg->input_path, &input, &input_len)) {
-        snprintf(error_buf, error_cap, "read input failed");
+        snprintf(error_buf, error_cap, "read input failed: %s", cfg->input_path);
         return 0;
     }
     err = compress_buffer(cfg->algorithm, input, input_len, &compressed, &compressed_len);
@@ -933,8 +984,8 @@ static int archive_write_roundtrip(const ArchiveConfig *cfg, char *error_buf, si
         snprintf(error_buf, error_cap, "write archive failed");
         goto fail;
     }
-    if (!decompress_buffer(header.algorithm, payload + sizeof(header), compressed_len, (size_t)header.original_size, &output)) {
-        snprintf(error_buf, error_cap, "decompress failed");
+    if (!decompress_blob_exact(header.algorithm, payload + sizeof(header), compressed_len, (size_t)header.original_size, &output, &err)) {
+        snprintf(error_buf, error_cap, "decompress failed: %lu", (unsigned long)err);
         goto fail;
     }
     if (!write_file(cfg->output_path, output, (size_t)header.original_size)) {
@@ -1082,7 +1133,7 @@ static void decompress_selected(AppState *state) {
         log_append(state->log_edit, "Archive integrity check failed.");
         goto done;
     }
-    if (!decompress_buffer(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output)) {
+    if (!decompress_blob_exact(header.algorithm, input + sizeof(header), (size_t)header.compressed_size, (size_t)header.original_size, &output, NULL)) {
         log_append(state->log_edit, "Decompression failed.");
         goto done;
     }
@@ -1193,16 +1244,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             if (state->source_kind == SOURCE_KIND_FOLDER) {
                 if (folder_dialog_open(hwnd, path, sizeof(path))) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 1, 0);
-                    set_text(state->input_edit, path);
+                    set_input_path(state, path);
                     set_output_for_input(state, path, ".mzc");
                     log_append(state->log_edit, "Folder selected.");
                     set_status(state, "Folder loaded");
                 }
             } else {
-                const char *filter = "All Files\0*.*\0";
-                if (file_dialog_open(hwnd, path, sizeof(path), filter)) {
+                if (file_dialog_open(hwnd, path, sizeof(path), NULL)) {
                     SendMessageA(state->source_combo, CB_SETCURSEL, 0, 0);
-                    set_text(state->input_edit, path);
+                    set_input_path(state, path);
                     set_output_for_input(state, path, ".mzc");
                     log_append(state->log_edit, "Input selected.");
                     set_status(state, "Input loaded");
@@ -1212,10 +1262,8 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         }
         case ID_CHOOSE_OUTPUT: {
             char path[MAX_PATH];
-            const char *filter = "Mosaic Archive\0*.mzc\0All Files\0*.*\0";
-            if (file_dialog_save(hwnd, path, sizeof(path), filter)) {
-                set_text(state->output_edit, path);
-                strncpy(state->output_path, path, sizeof(state->output_path) - 1);
+            if (file_dialog_save(hwnd, path, sizeof(path), NULL)) {
+                set_output_path(state, path);
                 log_append(state->log_edit, "Output selected.");
                 set_status(state, "Archive target selected");
             }
@@ -1278,9 +1326,12 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         if (count > 0) {
             char path[MAX_PATH];
             DragQueryFileA(drop, 0, path, MAX_PATH);
-            set_text(state->input_edit, path);
+            set_input_path(state, path);
             state->source_kind = path_exists_dir(path) ? SOURCE_KIND_FOLDER : SOURCE_KIND_FILE;
             SendMessageA(state->source_combo, CB_SETCURSEL, (WPARAM)state->source_kind, 0);
+            if (state->source_kind == SOURCE_KIND_FOLDER) {
+                set_output_for_input(state, path, ".mzc");
+            }
             log_append(state->log_edit, "Input dropped.");
             set_status(state, "Input loaded");
         }
