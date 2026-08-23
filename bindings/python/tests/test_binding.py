@@ -5,14 +5,23 @@ import os
 import threading
 import unittest
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[3]
+
+PYTHON_BINDING = ROOT / "bindings" / "python"
+if PYTHON_BINDING.exists():
+    sys.path.insert(0, str(PYTHON_BINDING))
+else:
+    wheels = sorted((ROOT / "python").glob("mosaic_tokenizer-*.whl")) if (ROOT / "python").exists() else []
+    if len(wheels) == 1:
+        sys.path.insert(0, str(wheels[0]))
 
 from mosaic import (
-    BatchExecutor, MosaicError, NORMALIZE_NFC, OBSERVE_FAILURE, OBSERVE_RESOURCE, OBSERVE_SUCCESS, TokenDocument,
+    BatchExecutor, MosaicError, MosaicdClient, NORMALIZE_NFC, OBSERVE_FAILURE, OBSERVE_RESOURCE, OBSERVE_SUCCESS, TokenDocument,
     Tokenizer, TOKEN_DOCUMENT_GRAPHEMES, TOKEN_DOCUMENT_LEXICAL, TOKEN_DOCUMENT_MODEL,
     TOKEN_DOCUMENT_NORMALIZATION, TOKEN_DOCUMENT_SECURITY, TOKEN_DOCUMENT_SEMANTIC,
 )
-
-ROOT = Path(__file__).resolve().parents[3]
 
 if not (ROOT / "Cargo.toml").exists():
     for parent in Path(__file__).resolve().parents:
@@ -22,6 +31,8 @@ if not (ROOT / "Cargo.toml").exists():
 
 LIB = Path(os.environ.get("MOSAIC_LIBRARY", ROOT / "build/preset-core-release/native/mosaic.dll"))
 PACK = ROOT / "fixtures/packs"
+MOSAICD_URL = os.environ.get("MOSAICD_BASE_URL")
+MOSAICD_TOKEN = os.environ.get("MOSAICD_BEARER_TOKEN")
 
 
 def tokenizer() -> Tokenizer:
@@ -101,6 +112,21 @@ class BindingTests(unittest.TestCase):
         with tokenizer() as t:
             with self.assertRaises(MosaicError) as cm:t.decode([0xFFFFFFFF])
             self.assertEqual(cm.exception.status,6)
+
+    @unittest.skipUnless(MOSAICD_URL and MOSAICD_TOKEN, "mosaicd service test requires MOSAICD_BASE_URL and MOSAICD_BEARER_TOKEN")
+    def test_mosaicd_client_helper(self):
+        client = MosaicdClient(MOSAICD_URL, bearer_token=MOSAICD_TOKEN)
+        schema = client.openapi()
+        self.assertEqual(schema["openapi"], "3.1.0")
+        version = client.version()
+        self.assertIn("service_profile", version)
+        config = client.config()
+        self.assertEqual(config["service_profile"]["low_memory"], False)
+        encoded = client.encode(b"hello")
+        self.assertTrue(encoded["ids"])
+        self.assertEqual(client.decode(encoded["ids"])["data_base64"], "aGVsbG8=")
+        batch = client.encode_batch([b"hello", b"world"])
+        self.assertEqual(len(batch["results"]), 2)
 
 
 if __name__ == "__main__": unittest.main()
