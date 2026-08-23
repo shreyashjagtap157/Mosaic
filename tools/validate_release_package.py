@@ -56,6 +56,7 @@ def main():
             'examples/integration/README.md',
             'examples/integration/low_memory_embed.c',
             'examples/integration/low_memory_embed.py',
+            'examples/integration/mosaicd_client_example.py',
             'examples/integration/mosaicd_client.py',
         ]:
             if not (d/rel).exists():

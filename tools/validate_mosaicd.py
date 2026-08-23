@@ -199,6 +199,14 @@ def main() -> int:
             status, metrics = request(base + "/v1/metrics", token="secret")
             if status != 200 or metrics["service"]["requests"] < 8 or metrics["service"]["busy_rejections"] < 1 or metrics["service"]["stream_sessions"] != 0 or metrics["service"]["low_memory"] is not False or "native" not in metrics or "executor" not in metrics or "batches" not in metrics["executor"] or "encode_calls" not in metrics["native"]:
                 raise SystemExit("metrics endpoint failed")
+            import subprocess
+            example = subprocess.check_output(
+                [sys.executable, str(ROOT / "examples" / "integration" / "mosaicd_client_example.py"), "--base-url", base, "--bearer-token", "secret"],
+                cwd=ROOT,
+                text=True,
+            ).strip()
+            if "openapi=3.1.0" not in example or "service_api=1" not in example:
+                raise SystemExit("packaged client example failed")
             low_server = build_server(t, ServiceConfig.low_memory())
             if low_server.state.config.low_memory_mode is not True or low_server.state.snapshot()["service"]["low_memory"] is not True:
                 raise SystemExit("low-memory service profile did not propagate")

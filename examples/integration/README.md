@@ -21,6 +21,13 @@ These examples show the recommended embedding shape for other apps, agents, and 
 - using the sealed tokenizer and online stream APIs;
 - keeping ownership inside the wrapper.
 
+`mosaicd_client_example.py` demonstrates:
+
+- importing the packaged `MosaicdClient` helper from the Python wheel;
+- discovering the service contract and resolved config;
+- round-tripping encode/decode and batch calls over HTTP;
+- treating `mosaicd` as a reusable service surface for another app or agent.
+
 ## Desktop
 
 The Windows desktop package demonstrates:

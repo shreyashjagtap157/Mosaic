@@ -111,7 +111,7 @@ def main()->int:
         shutil.copy2(ROOT/'fixtures/trust/conformance-ed25519.pub',stage/'share/mosaic/trust/conformance-ed25519.pub')
         shutil.copy2(ROOT/'fixtures/packs/model-v2.mpack.sig',stage/'share/mosaic/trust/model-v2.mpack.sig')
     for ex in sorted((ROOT/'examples/authoring').glob('*.json')): shutil.copy2(ex,stage/'examples/authoring'/ex.name)
-    for ex in [ROOT/'examples/integration/README.md', ROOT/'examples/integration/low_memory_embed.c', ROOT/'examples/integration/low_memory_embed.py']:
+    for ex in [ROOT/'examples/integration/README.md', ROOT/'examples/integration/low_memory_embed.c', ROOT/'examples/integration/low_memory_embed.py', ROOT/'examples/integration/mosaicd_client_example.py']:
         if ex.exists(): shutil.copy2(ex,stage/'examples/integration'/ex.name)
     shutil.copy2(ROOT/'tools/mosaicd_client.py', stage/'examples/integration/mosaicd_client.py')
     py_wheel=ROOT/f'dist/python/mosaic_tokenizer-{VERSION}-py3-none-any.whl'
