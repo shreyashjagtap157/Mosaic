@@ -315,7 +315,7 @@ static int modern_file_dialog(HWND owner, char *out_path, size_t out_cap, int sa
     }
     dlg->lpVtbl->SetTitle(dlg, folder_mode ? L"Select a source folder" : (save_mode ? L"Select archive output" : L"Select a source file"));
     dlg->lpVtbl->SetOkButtonLabel(dlg, L"Select");
-    if (!save_mode && !folder_mode) {
+    if (save_mode) {
         dlg->lpVtbl->SetFileTypes(dlg, (UINT)(sizeof(spec) / sizeof(spec[0])), spec);
     }
     if (folder_mode) {

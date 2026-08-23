@@ -1,6 +1,6 @@
 # Mosaic C API 1.1.0
 
-The native C ABI is independently versioned from the Mosaic product release. The current product candidate `0.1.3.2` exposes frozen C ABI `1.1.0`.
+The native C ABI is independently versioned from the Mosaic product release. The current product candidate `0.1.3.3` exposes frozen C ABI `1.1.0`.
 
 The authoritative public surface is `native/include/mosaic.h`; the machine-readable frozen declaration/type/constant/export baseline is `abi/stable-contract-v1.json` and is validated by `tools/abi_contract.py`.
 
