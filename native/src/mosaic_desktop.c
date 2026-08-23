@@ -410,6 +410,19 @@ static int path_exists_file(const char *path) {
     return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static int get_file_write_time(const char *path, FILETIME *out_time) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) return 0;
+    *out_time = data.ftLastWriteTime;
+    return 1;
+}
+
+static int filetime_compare(const FILETIME *left, const FILETIME *right) {
+    if (left->dwHighDateTime != right->dwHighDateTime) return left->dwHighDateTime < right->dwHighDateTime ? -1 : 1;
+    if (left->dwLowDateTime != right->dwLowDateTime) return left->dwLowDateTime < right->dwLowDateTime ? -1 : 1;
+    return 0;
+}
+
 static void basename_from_path(const char *path, char *out, size_t cap) {
     const char *base = path;
     const char *slash = strrchr(path, '\\');
@@ -957,6 +970,8 @@ static void compress_selected(AppState *state) {
     char temp_dir[MAX_PATH];
     char verify_output[MAX_PATH];
     MosaicArchiveHeader header;
+    int archive_exists;
+    FILETIME source_time, archive_time;
     if (!get_window_text_alloc(state->input_edit, &input_path, &in_len) || !get_window_text_alloc(state->output_edit, &output_path, &out_len)) {
         log_append(state->log_edit, "Read paths failed.");
         goto done;
@@ -975,6 +990,19 @@ static void compress_selected(AppState *state) {
     if (state->source_kind == SOURCE_KIND_FILE && !path_exists_file(input_path)) {
         log_append(state->log_edit, "Pick a file source first.");
         goto done;
+    }
+    archive_exists = path_exists_file(output_path);
+    if (archive_exists && state->archive_mode == ARCHIVE_MODE_ADD_SKIP) {
+        log_append(state->log_edit, "Archive already exists; add-and-skip left it untouched.");
+        set_status(state, "Archive skipped");
+        goto done;
+    }
+    if (archive_exists && state->archive_mode == ARCHIVE_MODE_UPDATE_NEWER) {
+        if (get_file_write_time(input_path, &source_time) && get_file_write_time(output_path, &archive_time) && filetime_compare(&archive_time, &source_time) >= 0) {
+            log_append(state->log_edit, "Archive is already newer than the source; no update was needed.");
+            set_status(state, "Archive up to date");
+            goto done;
+        }
     }
     err = write_archive_v2(input_path, state->source_kind == SOURCE_KIND_FOLDER, state->algorithm, &archive_blob, &archive_blob_len, &serialized_len, errbuf, sizeof(errbuf));
     if (err != ERROR_SUCCESS) {
