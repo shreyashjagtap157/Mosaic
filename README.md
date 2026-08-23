@@ -50,7 +50,17 @@ Mosaic Tokenizer 0.1.3.0 is the current pre-stable enterprise candidate tokenize
 
 All prior releases remain preserved by Git tags. The old three-component tags are historical milestone/release identifiers; the canonical product version now follows the four-part `S.M.N.P` policy in `docs/VERSIONING_POLICY.md`. The 0.13–0.24 historical line added rich projections, declarative lexing, semantic/sub-byte views, multiscale storage, enterprise caches, runtime policy, trust, registry, canonical cold Token IR, bounded parallel execution, and observability. Canonical tokenization semantics remain version 2. The enterprise freeze established C ABI 1.0.0, optional trust ABI 1.0.0, and the binary-format contracts under `abi/`; `0.1.3.0` advances the native C ABI to 1.1.0 with additive span-routing entry points. Those contract versions remain independent of the product release number.
 
-Mosaic `0.1.3.0` is the current **universal tokenization and token-native processing platform candidate**. The native C runtime is the qualified implementation on the platforms already exercised; the dependency-minimal Windows Clang preset and pinned Rust 1.97.1 workspace gate now pass, while macOS/Miri/fuzz/race-detector and remaining support-matrix gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period. Adaptive byte-patch LLMs, GPU acceleration, learned statistical span classifiers, very large community pack catalogs, and any scanner VM remain post-baseline research rather than hidden stabilization blockers.
+Mosaic `0.1.3.0` is the current **universal tokenization and token-native processing platform candidate**. The qualified production implementation is the native C runtime on the platforms already exercised; the dependency-minimal Windows Clang preset and pinned Rust 1.97.1 workspace gate now pass, while macOS/Miri/fuzz/race-detector and remaining support-matrix gates must complete before the product is allowed to graduate to stability generation `1`. Frozen ABI/format contracts remain enforced during this candidate period.
+
+## What ships today
+
+The current release is centered on exact byte-authoritative tokenization, normalized Unicode projections, language/detector routing, TokenDocument serialization, bounded streaming/incremental APIs, trust/registry control-plane support, bounded parallel execution, and the Python/native embedding surface.
+
+For constrained desktops, the release now also exposes explicit low-memory defaults through the native C ABI and Python helpers. Use those defaults when you want Mosaic to stay practical on 4 GB-class personal machines or similarly tight environments.
+
+## Research and future work
+
+Adaptive byte-patch LLMs, GPU acceleration, learned statistical span classifiers, very large community pack catalogs, and any scanner VM remain post-baseline research rather than hidden stabilization blockers.
 
 ## Repository layout
 
@@ -196,6 +206,8 @@ Set `MOSAIC_COMPRESS_TOOLS` to override the comparison list. The value is a semi
 
 ```bash
 MOSAIC_COMPRESS_TOOLS="7z|7z a -t7z -bd -y -mx=9 \"%A\" \"%I\"|7z e -bd -y -so \"%A\" > \"%R\""
+
+The Windows desktop release also installs `mosaic-desktop-selftest.exe`, a small roundtrip validator that uses the same archive format without opening the GUI. Run it with an input file, an archive path, and an output path when you want a quick non-interactive check of the packaged compressor path.
 ```
 
 ## Language-pack behavior
@@ -247,3 +259,14 @@ The tokenizer itself has a mature native byte/Unicode/model/language-pack execut
 See `docs/implementation/STATUS.md`, `docs/implementation/COMPATIBILITY_0.6.md`, and the latest release qualification evidence for the exact implemented/not-implemented boundary.
 
 The working project name remains provisional.
+
+## Integration contract
+
+If you are embedding Mosaic into another agent, app, or service:
+
+- prefer the native C ABI or the Python binding;
+- create, configure, and seal tokenizers before sharing them across threads;
+- use the runtime limits API or the low-memory defaults for constrained desktops;
+- treat all returned buffers as owned by Mosaic until released with `mosaic_free()` or the Python wrapper equivalent;
+- prefer streaming APIs when you do not need the entire result materialized at once;
+- treat `MOSAIC_ERROR_RESOURCE_LIMIT` as a normal, expected failure mode for bounded environments.
