@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add a Windows installer proof line to the 1.0.0 qualification note so the stable-release evidence trail reflects the staged package path;
 - add repo-native `make windows-package` and `make windows-package-verify` entry points for the Windows installer flow;
 - add a release index validator so the current release notes and qualification reports stay discoverable and synchronized;
 - add a release notes and qualification index under `docs/release/` so the current evidence trail is easier to navigate;

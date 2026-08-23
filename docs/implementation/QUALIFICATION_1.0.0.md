@@ -21,6 +21,7 @@ Date: 2026-08-08
 - source structural validators: PASS;
 - release archive and Python wheel reproducibility: finalized by clean release build below;
 - SBOM/provenance/checksum and clean-extraction external-consumer validation: finalized by clean release build below.
+- Windows installer and staged package evidence: PASS via `docs/release/QUALIFICATION_0.1.3.0_WINDOWS_PACKAGE.md`;
 - low-memory native smoke + benchmark path: PASS via `mosaic-low-memory-smoke` and `mosaic-low-memory-bench`;
 - constrained-desktop benchmark manifest example: present at `benches/low_memory_4gb.toml`.
 
