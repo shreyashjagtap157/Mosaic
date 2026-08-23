@@ -8,7 +8,7 @@ Date: 2026-08-10
 
 Mosaic uses the four-part product version `S.M.N.P` documented in `docs/VERSIONING_POLICY.md`. Stability generation `0` remains deliberate: real Windows qualification exposed portability defects, and `0.1.0.4` closes the C++ smoke-client compatibility defect with an explicit strict-C++11 consumer contract. The dependency-minimal Windows Clang preset and the pinned Rust 1.97.1 workspace gate now pass, but the remaining declared stable-generation gates must complete before the project is permitted to claim `1.0.0.0` stable.
 
-The qualified production implementation is the native C runtime on the platforms for which evidence exists. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory.
+The qualified production implementation is the native C runtime on the platforms for which evidence exists. The supported release bundle contains the CLI, static/shared C libraries, optional Ed25519 trust library, public headers, deterministic authoring and registry tools, reference packs, Python wheel, SBOM, provenance and checksum inventory. The current support boundary is summarized in `docs/implementation/SUPPORT_MATRIX.md`.
 
 ## Implemented platform surface
 
