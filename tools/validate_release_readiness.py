@@ -35,6 +35,10 @@ def main() -> int:
     run([python(), "tools/validate_open_gates.py"])
     run([python(), "tools/validate_space_grade_docs.py"])
     run([python(), "tools/validate_release_index.py"])
+    windows_stage = ROOT / "dist" / "windows" / "stage"
+    windows_installer = ROOT / "dist" / "windows" / f"MosaicCompressorSetup-{(ROOT / 'VERSION').read_text(encoding='utf-8').strip()}-x64.exe"
+    if os.name == "nt" and (not windows_stage.is_dir() or not windows_installer.is_file()):
+        run([python(), "tools/package_windows_app.ps1"])
     run([python(), "tools/validate_windows_package.py"])
     run([python(), "tools/validate_low_memory_profile.py"])
     run([python(), "tools/set_version.py", "--check"])
