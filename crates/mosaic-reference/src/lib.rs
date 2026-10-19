@@ -151,7 +151,8 @@ pub fn tokenize_viterbi(
         let Some(prefix) = best[start].clone() else {
             continue;
         };
-        for index in 0..vocabulary.len() {
+        let range = vocabulary.candidate_range_for_first_byte(input[start])?;
+        for index in range {
             let entry = vocabulary.entry(index)?;
             if input[start..].starts_with(entry.surface) {
                 let end = start

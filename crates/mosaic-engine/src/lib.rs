@@ -303,6 +303,70 @@ pub fn tokenize_viterbi(
         .ok_or(mosaic_model::ModelError::InvalidVocabularySectionCount)
 }
 
+const BEAM_WIDTH: usize = 16;
+
+/// Tokenizes `input` with a beam search implementation.
+///
+/// Like Viterbi, this finds a minimum-cost path through the candidate lattice,
+/// but maintains the top `BEAM_WIDTH` partial paths at each position instead of
+/// a single best path. This allows contextual choices that Viterbi's greedy
+/// deterministic selection cannot capture.
+///
+/// # Errors
+///
+/// Returns `ModelError` if vocabulary lookups fail, a span overflows, or no
+/// complete tokenization path exists.
+pub fn tokenize_beam(
+    vocabulary: mosaic_pack::VocabularyView<'_>,
+    input: &[u8],
+) -> Result<Vec<mosaic_model::EncodedToken>, mosaic_model::ModelError> {
+    // best[start] = list of partial paths (each path is Vec<EncodedToken>)
+    let mut best: Vec<Vec<Vec<mosaic_model::EncodedToken>>> = vec![Vec::new(); input.len() + 1];
+    best[0] = vec![Vec::new()];
+
+    for start in 0..input.len() {
+        // Copy paths at this start position before any mutations to best
+        let paths_at_start = best[start].clone();
+        let range = vocabulary.candidate_range_for_first_byte(input[start])?;
+        for index in range {
+            let entry = vocabulary.entry(index)?;
+            if input[start..].starts_with(entry.surface) {
+                let end = start
+                    .checked_add(entry.surface.len())
+                    .ok_or(mosaic_model::ModelError::InputTooLarge)?;
+                // Extend each existing path at this start position with the new token
+                let mut new_paths = Vec::new();
+                for path in &paths_at_start {
+                    let mut new_path = path.clone();
+                    new_path.push(mosaic_model::EncodedToken {
+                        start,
+                        end,
+                        token_id: mosaic_ir::TokenId(entry.token_id),
+                        cost: entry.cost,
+                    });
+                    new_paths.push(new_path);
+                }
+                // Merge with existing candidates at end position
+                best[end].extend(new_paths);
+                // Keep only top BEAM_WIDTH by cost
+                best[end].sort_by(|a, b| {
+                    let ca = model_path_cost(a).unwrap_or(i64::MAX);
+                    let cb = model_path_cost(b).unwrap_or(i64::MAX);
+                    ca.cmp(&cb)
+                });
+                if best[end].len() > BEAM_WIDTH {
+                    best[end].truncate(BEAM_WIDTH);
+                }
+            }
+        }
+    }
+
+    best[input.len()]
+        .first()
+        .cloned()
+        .ok_or(mosaic_model::ModelError::InvalidVocabularySectionCount)
+}
+
 #[must_use]
 pub fn compare_model_paths(
     left: &[mosaic_model::EncodedToken],
