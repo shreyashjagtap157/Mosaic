@@ -16,8 +16,6 @@
 > Some platform-specific checks did pass; the aggregate qualification did not. Treat skipped stages as unverified, not passing. Fix and reproduce each failure before describing the whole candidate as qualified. No GitHub release was found in the audit.
 
 ---
-# Mosaic-µ
-
 Mosaic-µ is a universal tokenization and token-native processing project built around one rule: **source bytes remain authoritative, and every higher-level interpretation must map back to them exactly**.
 
 The project is evidence-first. Exact arbitrary-byte behavior, deterministic pack execution, Unicode conformance, reference/optimized differential testing, and explicit release gates come before ecosystem breadth or speculative optimization.
