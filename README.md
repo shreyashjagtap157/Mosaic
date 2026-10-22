@@ -1,3 +1,19 @@
+# Current verified status — 22 October 2026
+
+> **Candidate: 0.1.3.8; full release qualification: BLOCKED.** Mosaic has a substantial tokenization/runtime implementation and a multi-platform test suite, but the latest inspected [nightly run](https://github.com/shreyashjagtap157/Mosaic/actions/runs/39741624362) failed several gates.
+>
+> Concrete failures in that run included:
+>
+> - Rust Clippy rejecting an item-ordering issue in the `mosaic-core` exactness test target.
+> - Fuzzing using sanitizer flags that the selected stable Rust compiler rejected.
+> - Miri unavailable for the pinned toolchain.
+> - A native normalization sanitizer comparison mismatch that aborted with exit code 134.
+> - Windows artifact validation finding zero native libraries where exactly one was expected.
+> - A native C compilation failure caused by `-Werror=format-truncation`.
+>
+> Some platform-specific checks did pass; the aggregate qualification did not. Treat skipped stages as unverified, not passing. Fix and reproduce each failure before describing the whole candidate as qualified. No GitHub release was found in the audit.
+
+---
 # Mosaic-µ
 
 Mosaic-µ is a universal tokenization and token-native processing project built around one rule: **source bytes remain authoritative, and every higher-level interpretation must map back to them exactly**.
