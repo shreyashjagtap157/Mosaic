@@ -1,4 +1,6 @@
-# Current verified status — 22 October 2026
+# Mosaic-µ
+
+## Current verified status — 22 October 2026
 
 > **Candidate: 0.1.3.8; full release qualification: BLOCKED.** Mosaic has a substantial tokenization/runtime implementation and a multi-platform test suite, but the latest inspected [nightly run](https://github.com/shreyashjagtap157/Mosaic/actions/runs/39741624362) failed several gates.
 >
